@@ -22,7 +22,7 @@ import secrets
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
 from .sweep import Cursor, Sweep
@@ -31,8 +31,11 @@ CURSOR_TTL = 600.0
 PING_EVERY = 15.0
 
 
+PageFn = Callable[[], bytes]
+
+
 class Server:
-    def __init__(self, sweep: Sweep, page: bytes) -> None:
+    def __init__(self, sweep: Sweep, page: PageFn) -> None:
         self.sweep = sweep
         self.page = page
         self.cursors: dict[str, tuple[float, Cursor]] = {}
@@ -91,7 +94,8 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
             url = urlparse(self.path)
             q = {k: v[-1] for k, v in parse_qs(url.query).items()}
             if url.path in ("/", "/index.html"):
-                return self.send_bytes(server.page, "text/html; charset=utf-8")
+                return self.send_bytes(server.page(),
+                                       "text/html; charset=utf-8")
             if url.path == "/api/pack":
                 text, cursor = server.sweep.pack_text()
                 token = server.save_cursor(cursor)
@@ -160,7 +164,7 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
     return Handler
 
 
-def serve(sweep: Sweep, page: bytes, host: str,
+def serve(sweep: Sweep, page: PageFn, host: str,
           port: int) -> ThreadingHTTPServer:
     httpd = ThreadingHTTPServer((host, port),
                                 make_handler(Server(sweep, page)))

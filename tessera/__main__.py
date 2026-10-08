@@ -154,6 +154,26 @@ def page_bytes(config: dict[str, Any]) -> bytes:
         raise SystemExit("the page is not built: run python3 tools/build.py")
     with open(PAGE, encoding="utf-8") as f:
         html = f.read()
+    return fill_config(html, config)
+
+
+class LivePage:
+    """The built page with the live config, read again when it changes."""
+
+    def __init__(self, config: dict[str, Any]) -> None:
+        self.config = config
+        self.mtime = -1.0
+        self.body = b""
+
+    def __call__(self) -> bytes:
+        mtime = os.path.getmtime(PAGE)
+        if mtime != self.mtime:
+            self.body = page_bytes(self.config)
+            self.mtime = mtime
+        return self.body
+
+
+def fill_config(html: str, config: dict[str, Any]) -> bytes:
     if CONFIG_MARK not in html:
         raise SystemExit("%s has no %s block" % (PAGE, CONFIG_MARK))
     start = html.index(CONFIG_MARK) + len(CONFIG_MARK)
@@ -165,8 +185,9 @@ def page_bytes(config: dict[str, Any]) -> bytes:
 def cmd_serve(a: argparse.Namespace) -> int:
     w = Wiring(a, follow=True)
     sweep = w.build()
-    page = page_bytes({"mode": "live", "pack": "api/pack",
-                       "stream": "api/stream", "row": "api/row"})
+    page = LivePage({"mode": "live", "pack": "api/pack",
+                     "stream": "api/stream", "row": "api/row"})
+    page()  # fail now, not on the first request, when the page is missing
     w.start()
     httpd = serve(sweep, page, a.bind, a.port)
     host, port = httpd.server_address[:2]

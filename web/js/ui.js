@@ -58,7 +58,9 @@ export function fmtNum(x, digits = 2) {
 }
 
 export function fmtPct(x, digits = 1) {
-  return Number.isFinite(x) ? (x * 100).toFixed(digits) + "%" : "–";
+  if (!Number.isFinite(x)) return "–";
+  const t = (x * 100).toFixed(digits);
+  return (/^-0\.?0*$/.test(t) ? t.slice(1) : t) + "%";
 }
 
 export function fmtSigned(x, digits = 2) {

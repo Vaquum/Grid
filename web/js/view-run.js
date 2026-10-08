@@ -20,19 +20,18 @@ export function segmentOf(m) {
 export function runRate(m) {
   const ds = m.ds;
   if (m.state.edge === null) {
+    // rows that arrived while the page's server was following the file,
+    // over the last five minutes: (rows - 1) / (time they span)
     const t = ds.arrivals;
-    let last = NaN;
-    for (let i = ds.n - 1; i >= 0 && i >= ds.n - 5000; i--) if (Number.isFinite(t[i])) { last = t[i]; break; }
-    if (Number.isFinite(last)) {
-      let k = 0;
-      for (let i = ds.n - 1; i >= 0; i--) {
-        if (!Number.isFinite(t[i])) break;
-        if (last - t[i] > 300) break;
-        k++;
-      }
-      const span = Math.min(300, Date.now() / 1000 - (last - 300));
-      if (k >= 10) return { rowsPerSec: k / Math.max(30, Math.min(300, span)), from: "arrivals" };
+    let last = NaN, first = NaN, k = 0;
+    for (let i = ds.n - 1; i >= 0; i--) {
+      if (!Number.isFinite(t[i])) break;
+      if (Number.isNaN(last)) last = t[i];
+      if (last - t[i] > 300) break;
+      first = t[i];
+      k++;
     }
+    if (k >= 10 && last - first >= 10) return { rowsPerSec: (k - 1) / (last - first), from: "arrivals" };
   }
   const seg = segmentOf(m);
   if (seg && seg.progress.length >= 2) {
@@ -107,15 +106,17 @@ export function renderRun(view, m, A) {
     }
     view.append(tl);
     // throughput
+    const longest = Math.max(0, ...log.segments.map(s => (s.progress.length ? s.progress[s.progress.length - 1][2] || 0 : 0)));
+    const unit = longest > 3 * 3600 ? [3600, "h"] : longest > 600 ? [60, "min"] : [1, "s"];
     const series = log.segments.filter(s => s.progress.length > 1).map((s, i) => ({
       label: s.marker ? s.marker.label : "first run",
       color: ["var(--better)", "var(--f-labels)", "var(--f-model)", "var(--f-hp)"][i % 4],
-      points: s.progress.filter(p => p[2] !== null).map(p => [p[2] / 3600, p[1]]),
+      points: s.progress.filter(p => p[2] !== null).map(p => [p[2] / unit[0], p[1]]),
     }));
     if (series.length) {
       view.append(h("div", { class: "cards", style: { marginTop: "14px" } },
         h("div", { class: "card" }, h("h3", { text: "Rows over time" }), h("div", { class: "sub", text: "Each segment from its own start; a flattening line is a slowing pool." }),
-          lineChart(series, { height: 200, xLabel: "hours", fmtX: v => `${fmtNum(v, 1)} h`, fmtY: v => fmtInt(v), label: "rows over time by segment" })),
+          lineChart(series, { height: 200, xLabel: unit[1], fmtX: v => `${fmtNum(v, unit[1] === "h" ? 1 : 0)} ${unit[1]}`, fmtY: v => fmtInt(v), label: "rows over time by segment" })),
         recordCard(m)));
     }
   } else {

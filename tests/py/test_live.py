@@ -140,7 +140,7 @@ class ServerTest(unittest.TestCase):
         run = Run("r0", "current", "x", None, True)
         s.add_run(run)
         s.run_line(run, json.dumps({"a": 1, "hp": {"d": 2}}), True)
-        httpd = serve(s, b"<html>page</html>", "127.0.0.1", 0)
+        httpd = serve(s, lambda: b"<html>page</html>", "127.0.0.1", 0)
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
         base = "http://127.0.0.1:%d" % httpd.server_address[1]
         try:

@@ -217,12 +217,14 @@ export function zP(z) {
 // when the mean is far from zero.
 export function meanInterval(n, s, ss, shift, binary, alpha = 0.05) {
   if (!(n > 0)) return { mean: NaN, lo: NaN, hi: NaN, sd: NaN };
-  const mean = shift + s / n;
   if (binary) {
+    // a rate is exactly hits / rows (shifted sums would leave 1e-17 dust)
     const k = Math.round(s + shift * n);
+    const rate = k / n;
     const [lo, hi] = wilson(k, n, alpha);
-    return { mean, lo, hi, sd: Math.sqrt(mean * (1 - mean)) };
+    return { mean: rate, lo, hi, sd: Math.sqrt(rate * (1 - rate)) };
   }
+  const mean = shift + s / n;
   if (n < 2) return { mean, lo: NaN, hi: NaN, sd: NaN };
   const varr = Math.max(0, (ss - s * s / n) / (n - 1));
   const sd = Math.sqrt(varr);
