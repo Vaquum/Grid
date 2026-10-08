@@ -3,7 +3,8 @@
 
 import { h, icon, tip, fmtT, fmtInt, fmtPct, fmtP, fmtNum, fmtDuration, fmtAgo } from "./ui.js";
 import { lineChart } from "./charts.js";
-import { invariantBreaks, recordCurve, uniformity, summarize } from "./engine.js";
+import { invariantBreaks, recordCurve, uniformity, summarize, rowsIn } from "./engine.js";
+import { buildSchema } from "./schema.js";
 import { independence, moderatorParents } from "./model.js";
 
 // The log a run's runner writes.
@@ -92,6 +93,9 @@ export function renderRun(view, m, A) {
   }
   if (Number.isFinite(ds.arrivals[ds.n - 1])) stat("Last row", fmtAgo(Date.now() / 1000 - ds.arrivals[ds.n - 1]));
   view.append(stats);
+
+  // every run of the sweep on the same needle
+  if (m.sweep.runs.length > 1) view.append(runsTable(m, A));
 
   // segments
   if (log && log.segments.length) {
@@ -232,4 +236,46 @@ function recordCard(m) {
       `: the best row reaches ${fmtT(t, last.best)}; noise alone would give about ${fmtT(t, last.luck)} at ${fmtInt(last.n)} rows.`));
   }
   return card;
+}
+
+// The runs side by side on the needle on screen: did narrowing move it?
+function runsTable(m, A) {
+  const t = m.target;
+  const cache = m.cache.runSchemas || (m.cache.runSchemas = new Map());
+  const tbl = h("table", { class: "vals" }, h("thead", null, h("tr", null,
+    h("th", { text: "run" }), h("th", { class: "r", text: "rows" }), h("th", { class: "r", text: t.label }),
+    h("th", { class: "r", text: "95% interval" }), h("th", { class: "r", text: "best gates" }), h("th", { class: "r", text: "best %/mo" }))));
+  const tb = h("tbody");
+  for (const ds of m.sweep.runs) {
+    let entry = cache.get(ds.id);
+    if (!entry || entry.version !== ds.version) {
+      const sc = ds === m.ds ? m.schema : buildSchema(ds);
+      entry = { version: ds.version, schema: sc };
+      cache.set(ds.id, entry);
+    }
+    const sc = entry.schema;
+    const tt = sc.targetById.get(t.id);
+    const rows = rowsIn(sc, [], ds.n);
+    const s = tt ? summarize(tt, rows) : null;
+    const best = (id, f) => {
+      const x = sc.targetById.get(id);
+      if (!x) return "–";
+      let b = -Infinity;
+      for (let j = 0; j < rows.length; j++) { const v = x.values[rows[j]]; if (v > b) b = v; }
+      return Number.isFinite(b) ? f(x, b) : "–";
+    };
+    const mine = ds.id === m.ds.id;
+    tb.append(h("tr", { class: "clickable", style: mine ? { background: "var(--accent-soft)" } : null,
+      onclick: () => A.set({ run: ds.id, sel: null, context: [], pocket: [], edge: null }) },
+      h("td", null, h("b", { text: ds.meta.label }), ds.meta.live ? h("span", { class: "muted", text: " · being written" }) : null),
+      h("td", { class: "r num", text: fmtInt(ds.n) }),
+      h("td", { class: "r num", text: s ? fmtT(t, s.mean) : "no such target" }),
+      h("td", { class: "r num", text: s ? `${fmtT(t, s.lo)} – ${fmtT(t, s.hi)}` : "–" }),
+      h("td", { class: "r num", text: best("gates", (x, v) => String(v)) }),
+      h("td", { class: "r num", text: best("mean_mo", (x, v) => fmtT(x, v)) })));
+  }
+  tbl.append(tb);
+  return h("div", null, h("div", { class: "section-title", text: "The runs of this sweep, on the same needle" }),
+    h("div", { class: "card table-wrap" }, tbl,
+      h("p", { class: "muted", style: { margin: "8px 0 0" }, text: "Choose a run to open it. Runs drawn from different spaces are different questions: compare their intervals, not just their rates." })));
 }

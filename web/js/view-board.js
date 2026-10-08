@@ -1,6 +1,6 @@
 // Board: one block per parameter, sorted by how much it moves the target.
 
-import { h, icon, tip, fmtT, fmtP, fmtInt, fmtPct, famColor } from "./ui.js";
+import { h, icon, tip, fmtT, fmtP, fmtInt, fmtPct, famColor, copyText } from "./ui.js";
 import { needle, needleDomain } from "./charts.js";
 import { dimEffect } from "./engine.js";
 import { ensureModerators, independence, memberDims } from "./model.js";
@@ -67,7 +67,13 @@ export function renderBoard(view, m, A) {
         h("span", { class: "num", text: fmtInt(board.tests) }), " tests; flat blocks do not.")),
     h("div", { class: "tools" },
       h("div", { class: "hero has-tip" }, h("span", { class: "big num", text: fmtT(target, base.mean) }),
-        h("span", { class: "ci num", text: `[${fmtT(target, base.lo)}, ${fmtT(target, base.hi)}] over ${fmtInt(base.n)} rows` }))));
+        h("span", { class: "ci num", text: `[${fmtT(target, base.lo)}, ${fmtT(target, base.hi)}] over ${fmtInt(base.n)} rows` })),
+      h("button", { class: "btn", onclick: async (e) => {
+        const text = boardSummary(m, mods);
+        const ok = await copyText(text, null);
+        A.toast(h("span", null, h("b", { text: ok ? "Summary copied. " : "Copying was refused. " }), ok ? "Paste it into the research notes." : "Your browser did not allow the clipboard."));
+        e.currentTarget.blur();
+      } }, icon("copy"), "Copy summary")));
   tip(head.querySelector(".hero"), () => h("div", null, h("b", { text: "The base" }), h("div", { text: `${target.label} over every row in view${m.context.length ? " (the context)" : ""}, with its 95% interval${target.kind === "binary" ? " (Wilson)" : ""}.` }),
     base.missing ? h("div", { class: "k", text: `${fmtInt(base.missing)} rows have no value for this target and are left out.` }) : null));
   view.append(head);
@@ -219,3 +225,31 @@ function gridKeys(ev, grid) {
   items[j].focus();
 }
 
+
+// The board as plain text, in the style of the research notes.
+export function boardSummary(m, mods) {
+  const t = m.target, b = m.base;
+  const lines = [];
+  const ctx = m.context.map(c => {
+    const d = m.schema.dimById.get(c.dim);
+    return `${d.label} = ${c.keys.map(k => (d.levels.find(l => l.key === k) || { label: k }).label).join("/")}`;
+  });
+  lines.push(`${m.sweep.meta.name} · ${m.ds.meta.label} · ${fmtInt(b.n)} rows${ctx.length ? ` inside ${ctx.join(", ")}` : ""}${m.state.edge !== null && m.state.edge < m.ds.n ? ` (up to row ${fmtInt(m.edge)})` : ""}`);
+  lines.push(`${t.label}${t.definition ? ` (${t.definition})` : ""}: ${fmtT(t, b.mean)} [${fmtT(t, b.lo)}, ${fmtT(t, b.hi)}]`);
+  const det = m.order.filter(e => e.detectable);
+  lines.push(`Moves it (${det.length} of ${m.board.tests} parameters, q < 0.05):`);
+  for (const e of det) {
+    const d = m.schema.dimById.get(e.dim);
+    const name = d.kind === "scoped" ? `${d.name} (${d.scope.label})` : d.label;
+    const md = mods && mods.byDim.get(d.id);
+    const acts = md && md.acts ? `; ${actsPhrase(m, md.acts)}` : "";
+    const dead = e.dead.length ? `; dead: ${e.dead.map(k => (e.levels.find(l => l.key === k) || {}).label).join(", ")}` : "";
+    lines.push(`- ${name}: ${e.best.label} ${fmtT(t, e.best.mean)} vs ${e.worst.label} ${fmtT(t, e.worst.mean)}, ω² ${strengthText(e)}, ${fmtP(e.q)}${acts}${dead}`);
+  }
+  const flat = m.order.filter(e => !e.detectable).map(e => {
+    const d = m.schema.dimById.get(e.dim);
+    return d.kind === "scoped" ? `${d.name}@${d.scope.label.split(" = ")[1]}` : d.label;
+  });
+  if (flat.length) lines.push(`No detectable effect: ${flat.join(", ")}.`);
+  return lines.join("\n");
+}
