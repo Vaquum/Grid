@@ -73,17 +73,21 @@ export function levelTip(l, target, base) {
       : `${fmtInt(l.n)} rows · ${fmtDelta(target, l.mean - base)} against the base` }));
 }
 
-// Mini interval bar for table rows (same domain as its siblings).
-export function miniBar(l, domain, base, target) {
+// Interval bar for a table row: a reference line, the interval and a dot,
+// placed in percent so the dot stays round at any cell width.
+export function intervalBar(mean, lo, hi, ref, domain, opts = {}) {
   const [d0, d1] = domain;
-  if (![base, d0, d1].every(Number.isFinite) || !(d1 > d0)) return s("svg", { class: "mini", viewBox: "0 0 120 14", "aria-hidden": "true" });
-  const W = 120, H = 14;
-  const X = v => 4 + (Math.min(d1, Math.max(d0, v)) - d0) / (d1 - d0) * (W - 8);
-  const el = s("svg", { class: "mini", viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none", "aria-hidden": "true" });
-  el.append(s("line", { class: "base-line", x1: X(base), x2: X(base), y1: 0, y2: H }));
-  if (!l.withheld && Number.isFinite(l.lo)) el.append(s("line", { class: "ci-bar", x1: X(l.lo), x2: X(l.hi), y1: H / 2, y2: H / 2 }));
-  if (Number.isFinite(l.mean)) el.append(s("circle", { class: l.withheld ? "dot hollow" : "dot", cx: X(l.mean), cy: H / 2, r: 3.5 }));
-  return el;
+  const box = h("span", { class: "ibar", "aria-hidden": "true" });
+  if (![d0, d1].every(Number.isFinite) || !(d1 > d0)) return box;
+  const P = v => `${(Math.min(d1, Math.max(d0, v)) - d0) / (d1 - d0) * 100}%`;
+  if (Number.isFinite(ref)) box.append(h("i", { class: "ibar-ref", style: { left: P(ref) } }));
+  if (Number.isFinite(lo) && Number.isFinite(hi)) box.append(h("i", { class: "ibar-ci", style: { left: P(lo), width: `calc(${P(hi)} - ${P(lo)})` } }));
+  if (Number.isFinite(mean)) box.append(h("i", { class: "ibar-dot" + (opts.hollow ? " hollow" : opts.tone ? " " + opts.tone : ""), style: { left: P(mean) } }));
+  return box;
+}
+
+export function miniBar(l, domain, base) {
+  return intervalBar(l.mean, l.withheld ? NaN : l.lo, l.withheld ? NaN : l.hi, base, domain, { hollow: l.withheld });
 }
 
 // Diverging fill for a value against a base: `better` toward the target's
@@ -204,10 +208,16 @@ export function niceTicks(a, b, n) {
 export function histogram(values, opts = {}) {
   const W = opts.width || 420, H = opts.height || 120;
   const m = { l: 36, r: 10, t: 8, b: 24 };
-  const vals = values.filter(Number.isFinite);
-  if (!vals.length) return h("p", { class: "muted", text: "No values." });
-  let lo = opts.min ?? Math.min(...vals), hi = opts.max ?? Math.max(...vals);
+  const all = values.filter(Number.isFinite).sort((a, b) => a - b);
+  if (!all.length) return h("p", { class: "muted", text: "No values." });
+  // the 1st to 99th percentile (and the need): a few extreme values would
+  // otherwise squeeze everything else into one bar; the rest are counted
+  const qt = f => all[Math.min(all.length - 1, Math.floor(f * all.length))];
+  let lo = opts.min ?? (all.length >= 200 ? qt(0.01) : all[0]);
+  let hi = opts.max ?? (all.length >= 200 ? qt(0.99) : all[all.length - 1]);
   if (opts.need !== undefined) { lo = Math.min(lo, opts.need); hi = Math.max(hi, opts.need); }
+  const vals = all.filter(v => v >= lo && v <= hi);
+  const outside = all.length - vals.length;
   if (!(hi > lo)) { lo -= 1; hi += 1; }
   const bins = opts.bins || 30;
   const cnt = new Array(bins).fill(0);
@@ -227,6 +237,10 @@ export function histogram(values, opts = {}) {
   });
   svgEl.append(s("line", { class: "axis", x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b }));
   for (const t of niceTicks(lo, hi, 5)) svgEl.append(s("text", { class: "label", x: X(t), y: H - 8, "text-anchor": "middle", text: fmtNum(t, Math.abs(hi - lo) < 5 ? 2 : 0) }));
+  if (outside) {
+    svgEl.append(s("text", { class: "label", x: W - m.r, y: m.t + 20, "text-anchor": "end",
+      text: `${fmtInt(outside)} outside ${fmtNum(lo, 2)} – ${fmtNum(hi, 2)} not drawn` }));
+  }
   if (opts.need !== undefined) {
     svgEl.append(s("line", { x1: X(opts.need), x2: X(opts.need), y1: m.t - 2, y2: H - m.b, stroke: "var(--critical)", "stroke-width": 1.5 }));
     const right = X(opts.need) > W * 0.7;

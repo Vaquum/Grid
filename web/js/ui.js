@@ -23,7 +23,14 @@ function setAttrs(el, attrs) {
     if (v === undefined || v === null || v === false) continue;
     if (k === "class") el.setAttribute("class", v);
     else if (k === "text") el.textContent = v;
-    else if (k === "style" && typeof v === "object") Object.assign(el.style, v);
+    else if (k === "style" && typeof v === "object") {
+      // custom properties (--fam) only take through setProperty
+      for (const [prop, val] of Object.entries(v)) {
+        if (val === undefined || val === null) continue;
+        if (prop.startsWith("--")) el.style.setProperty(prop, val);
+        else el.style[prop] = val;
+      }
+    }
     else if (k.startsWith("on") && typeof v === "function") el.addEventListener(k.slice(2), v);
     else if (k === "dataset") Object.assign(el.dataset, v);
     else el.setAttribute(k, v === true ? "" : v);
@@ -88,7 +95,10 @@ export function fmtT(target, x, opts = {}) {
 // The difference of two target values in the target's unit.
 export function fmtDelta(target, d, opts = {}) {
   if (!Number.isFinite(d)) return "–";
-  const sign = d > 0 ? "+" : d < 0 ? "−" : "±";
+  // the sign of the value as printed: a difference that rounds to zero is ±0
+  const digits = target.kind === "binary" ? (opts.digits ?? 1) + 2 : (opts.digits ?? target.digits ?? 2);
+  const r = Number(d.toFixed(Math.min(12, Math.max(0, digits))));
+  const sign = r > 0 ? "+" : r < 0 ? "−" : "±";
   if (target.kind === "binary") return `${sign}${(Math.abs(d) * 100).toFixed(opts.digits ?? 1)} pts`;
   if (target.unit === "$") return `${sign}$${Math.abs(d).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
   return `${sign}${fmtNum(Math.abs(d), opts.digits ?? target.digits ?? 2)}${unitSuffix(target.unit)}`;

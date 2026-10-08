@@ -15,34 +15,55 @@ export function moderatorParents(schema) {
   return schema.dims.filter(d => d.role === "param" && d.kind !== "member" && d.kind !== "scoped" && d.levels.length >= 2 && d.levels.length <= 12);
 }
 
-// Moderators for the board, computed in slices so the page stays
-// responsive; `done` is called once they are in.
-export function ensureModerators(m, done) {
+// Background analyses (moderators, pairs) are computed in slices on a
+// snapshot of the rows, so the page stays responsive. A finished result
+// stays on screen while new rows arrive (it says how many rows it covers)
+// and is refreshed once the rows have grown by 5% or 30 seconds have
+// passed; a new target, context or edge starts over at once.
+export function background(m, name, compute, done) {
   const c = m.cache;
-  if (c.modsKey === c.key && c.mods) return c.mods;
-  if (c.modsPending === c.key) return null;
-  const key = c.key;
-  c.modsPending = key;
+  const slot = c[name] || (c[name] = { result: null, akey: null, rows: 0, at: 0, running: null });
+  const fresh = slot.result && slot.akey === c.akey;
+  const grown = m.rows.length > slot.rows * 1.05 || Date.now() - slot.at > 30000;
+  if (slot.running && slot.running.akey !== c.akey) slot.running.cancelled = true;
+  if (slot.running && !slot.running.cancelled) return fresh ? slot.result : null;
+  if (fresh && (m.rows.length === slot.rows || !grown)) return slot.result;
+  const job = { akey: c.akey, cancelled: false };
+  slot.running = job;
+  const steps = compute(m);
+  const step = () => {
+    if (job.cancelled) return;
+    const t0 = performance.now();
+    let out;
+    while (performance.now() - t0 < 12) { out = steps.next(); if (out.done) break; }
+    if (!out.done) { setTimeout(step, 0); return; }
+    slot.result = out.value;
+    slot.akey = job.akey;
+    slot.rows = m.rows.length;
+    slot.at = Date.now();
+    slot.running = null;
+    done();
+  };
+  setTimeout(step, 0);
+  return fresh ? slot.result : null;
+}
+
+function* moderatorJob(m) {
   const dims = boardDims(m.schema).concat(memberDims(m.schema));
   const parents = moderatorParents(m.schema);
   const base = summarize(m.target, m.rows);
   const tests = [];
-  let i = 0;
-  const step = () => {
-    if (c.key !== key) { if (c.modsPending === key) c.modsPending = null; return; }
-    const t0 = performance.now();
-    while (i < dims.length && performance.now() - t0 < 12) {
-      tests.push(...moderatorTests(m.schema, dims[i], m.target, m.rows, parents, base));
-      i++;
-    }
-    if (i < dims.length) { setTimeout(step, 0); return; }
-    c.mods = moderatorSummaries(m.schema, tests, dims, m.target, m.rows);
-    c.modsKey = key;
-    c.modsPending = null;
-    done();
-  };
-  setTimeout(step, 0);
-  return null;
+  for (const d of dims) {
+    tests.push(...moderatorTests(m.schema, d, m.target, m.rows, parents, base));
+    yield;
+  }
+  const res = moderatorSummaries(m.schema, tests, dims, m.target, m.rows);
+  res.rows = m.rows.length;
+  return res;
+}
+
+export function ensureModerators(m, done) {
+  return background(m, "mods", moderatorJob, done);
 }
 
 // Sampler independence: Cramér's V of every pair of sampled params.

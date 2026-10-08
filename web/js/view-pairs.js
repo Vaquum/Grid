@@ -4,7 +4,7 @@
 import { h, tip, fmtT, fmtInt, fmtP, fmtDelta, famColor } from "./ui.js";
 import { pairEffect, cramersV, summarize, ALPHA } from "./engine.js";
 import { bhQ } from "./stats.js";
-import { moderatorParents } from "./model.js";
+import { moderatorParents, background } from "./model.js";
 import { divergingFill } from "./charts.js";
 
 function pairDims(m) {
@@ -13,43 +13,27 @@ function pairDims(m) {
 }
 
 // Every pair's interaction test, in slices; q over all pairs.
-function ensurePairs(m, done) {
-  const c = m.cache;
-  if (c.pairsKey === c.key && c.pairs) return c.pairs;
-  if (c.pairsPending === c.key) return null;
-  const key = c.key;
-  c.pairsPending = key;
+function* pairsJob(m) {
   const dims = pairDims(m);
   const base = summarize(m.target, m.rows);
-  const jobs = [];
-  for (let a = 0; a < dims.length; a++) for (let b = 0; b < a; b++) jobs.push([a, b]);
   const res = [];
-  let i = 0;
-  const step = () => {
-    if (c.key !== key) { if (c.pairsPending === key) c.pairsPending = null; return; }
-    const t0 = performance.now();
-    while (i < jobs.length && performance.now() - t0 < 12) {
-      const [a, b] = jobs[i++];
+  for (let a = 0; a < dims.length; a++) {
+    for (let b = 0; b < a; b++) {
       const pe = pairEffect(dims[a], dims[b], m.target, m.rows, base);
       const v = cramersV(dims[a], dims[b], m.allRows);
       res.push({ a: dims[a].id, b: dims[b].id, p: pe.p, omega2: pe.omega2, test: pe.test, V: v.V, pV: v.p });
     }
-    if (i < jobs.length) { setTimeout(step, 0); return; }
-    const q = bhQ(res.map(r => r.p));
-    res.forEach((r, k) => { r.q = q[k]; r.detectable = q[k] < ALPHA; });
-    c.pairs = { dims: dims.map(d => d.id), list: res, byKey: new Map(res.map(r => [`${r.a}|${r.b}`, r])) };
-    c.pairsKey = key;
-    c.pairsPending = null;
-    done();
-  };
-  setTimeout(step, 0);
-  return null;
+    yield;
+  }
+  const q = bhQ(res.map(r => r.p));
+  res.forEach((r, k) => { r.q = q[k]; r.detectable = q[k] < ALPHA; });
+  return { dims: dims.map(d => d.id), list: res, byKey: new Map(res.map(r => [`${r.a}|${r.b}`, r])), rows: m.rows.length };
 }
 
 export function renderPairs(view, m, A) {
   view.append(h("div", { class: "view-head" }, h("div", null, h("h1", { text: "Two parameters at once" }),
     h("div", { class: "sub", text: `Below the diagonal: how much a pair changes each other's effect on ${m.target.label.toLowerCase()} (the interaction beyond their separate effects; ${m.target.kind === "binary" ? "logistic likelihood-ratio test" : "F test"}, corrected across all pairs). Above it: how the sampler drew the pair together (Cramér's V; near zero is what an independent sampler gives). Choose a cell to open the pair.` }))));
-  const pairs = ensurePairs(m, A.rerender);
+  const pairs = background(m, "pairs", pairsJob, A.rerender);
   if (!pairs) { view.append(h("p", { class: "muted", text: "Testing every pair…" })); return; }
   const dims = pairs.dims.map(id => m.schema.dimById.get(id));
   const maxW = Math.max(0.001, ...pairs.list.filter(r => r.detectable).map(r => r.omega2));

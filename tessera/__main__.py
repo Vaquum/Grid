@@ -235,17 +235,18 @@ def cmd_pack(a: argparse.Namespace) -> int:
     w = Wiring(a, follow=False)
     sweep = w.build()
     w.read_once()
-    text, _ = sweep.pack_text()
-    pack = json.loads(text)
-    pack["mode"] = "recorded"
-    data = json.dumps(pack, separators=(",", ":")).encode("utf-8")
-    if a.out.endswith(".gz"):
-        data = gzip.compress(data, 9)
-    with open(a.out, "wb") as f:
-        f.write(data)
-    rows = sum(int(r["rows"]) for r in pack["runs"])
+    parts, _ = sweep.pack_parts(mode="recorded")
+    def opener(path: str) -> Any:
+        if path.endswith(".gz"):
+            return gzip.open(path, "wb", compresslevel=6)
+        return open(path, "wb")
+
+    with opener(a.out) as f:
+        for part in parts:
+            f.write(part.encode("utf-8"))
+    rows = sum(r.store.rows for r in sweep.runs)
     print("wrote %s: %d runs, %d rows, %d bytes" % (
-        a.out, len(pack["runs"]), rows, len(data)))
+        a.out, len(sweep.runs), rows, os.path.getsize(a.out)))
     return 0
 
 

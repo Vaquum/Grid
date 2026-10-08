@@ -87,6 +87,19 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(delta["levels"], ["c"])
         self.assertEqual(delta["data"], [2, 1])
 
+    def test_a_level_new_in_the_last_row_sent_is_not_sent_again(self):
+        s = Store()
+        s.append({"m": "a", "f": ["x"]})
+        s.append({"m": "b", "f": ["y"]})
+        first = {c["name"]: c for c in s.export(0, 2)}
+        self.assertEqual(first["m"]["levels"], ["a", "b"])
+        s.append({"m": "c", "f": ["z"]})
+        delta = {c["name"]: c for c in s.export(2, compact=False)}
+        self.assertEqual((delta["m"]["levelBase"], delta["m"]["levels"]),
+                         (2, ["c"]))
+        self.assertEqual((delta["f"]["levelBase"], delta["f"]["levels"]),
+                         (2, ["z"]))
+
     def test_sets_become_hex_bitmasks(self):
         s = Store()
         s.append({"f": ["x", "y"]})

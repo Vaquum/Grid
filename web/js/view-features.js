@@ -1,10 +1,10 @@
 // Features: what including each member of a sampled subset does to the
 // target, stratified by subset size.
 
-import { h, s, tip, fmtT, fmtInt, fmtPct, fmtP, fmtDelta, copyText, icon } from "./ui.js";
+import { h, tip, fmtT, fmtInt, fmtPct, fmtP, fmtDelta, copyText, icon } from "./ui.js";
 import { memberEffects, dimEffect } from "./engine.js";
 import { memberDims } from "./model.js";
-import { lineChart } from "./charts.js";
+import { lineChart, intervalBar } from "./charts.js";
 
 export function renderFeatures(view, m, A) {
   const t = m.target;
@@ -81,11 +81,6 @@ function renderSet(view, m, A, col, members) {
 }
 
 function forestBar(r, lo, hi, better) {
-  const W = 200, H = 16;
-  const X = v => 4 + (v - lo) / (hi - lo) * (W - 8);
-  const el = s("svg", { class: "mini", viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none", "aria-hidden": "true", style: { height: "16px" } });
-  el.append(s("line", { class: "base-line", x1: X(0), x2: X(0), y1: 0, y2: H }));
-  if (Number.isFinite(r.lo)) el.append(s("line", { class: "ci-bar", x1: X(r.lo), x2: X(r.hi), y1: H / 2, y2: H / 2 }));
-  if (Number.isFinite(r.delta)) el.append(s("circle", { class: "dot" + (r.detectable ? (r.delta * better > 0 ? " best" : " worst") : ""), cx: X(r.delta), cy: H / 2, r: 4 }));
-  return el;
+  const tone = r.detectable ? (r.delta * better > 0 ? "best" : "worst") : null;
+  return intervalBar(r.delta, r.lo, r.hi, 0, [lo, hi], { tone });
 }

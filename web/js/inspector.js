@@ -112,7 +112,7 @@ function dimDetail(box, m, A, d, levelKey) {
       h("td", { class: "r num has-tip", text: fmtInt(l.n) }),
       h("td", { class: "r num", text: l.withheld ? "–" : fmtT(target, l.mean) }),
       h("td", { class: "r num", text: l.withheld ? "–" : fmtDelta(target, l.lift) }),
-      h("td", null, miniBar(l, domain, base.mean, target)));
+      h("td", null, miniBar(l, domain, base.mean)));
     if (levelKey === l.key) tr.style.background = "var(--accent-soft)";
     tip(tr.children[1], `${fmtPct(shareOf.get(l.key), 1)} of the rows where ${d.label} applies drew this value`);
     tip(tr.children[4], l.withheld ? "Fewer than 30 rows: no interval." : `[${fmtT(target, l.lo)}, ${fmtT(target, l.hi)}]`);

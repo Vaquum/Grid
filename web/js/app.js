@@ -6,7 +6,7 @@ import { decodePack, Dataset } from "./pack.js";
 import { buildSchema } from "./schema.js";
 import { rowsIn, summarize, board, boardOrder } from "./engine.js";
 import { boardDims, objectiveTop } from "./model.js";
-import { h, clear, icon, installTips, hideTip, fmtInt, fmtDuration, fmtAgo, fmtT, tip } from "./ui.js";
+import { h, s, clear, icon, installTips, hideTip, fmtInt, fmtAgo, fmtT, tip } from "./ui.js";
 import { renderBoard } from "./view-board.js";
 import { renderInspector } from "./inspector.js";
 import { renderPocket } from "./view-pocket.js";
@@ -209,7 +209,7 @@ export function model() {
   if (c.ds !== ds || c.version !== ds.version) {
     c.ds = ds; c.version = ds.version;
     c.schema = buildSchema(ds);
-    c.key = null; c.mods = null; c.modsKey = null; c.indep = null;
+    c.key = null; c.indep = null;  // background results (mods, pairs) refresh on their own
   }
   const schema = c.schema;
   const st = app.state;
@@ -218,6 +218,8 @@ export function model() {
   const edge = st.edge === null ? ds.n : Math.min(st.edge, ds.n);
   const ctx = (st.context || []).filter(cnd => schema.dimById.has(cnd.dim));
   const key = `${ds.id}|${ds.version}|${targetId}|${edge}|${JSON.stringify(ctx)}`;
+  // the same question, whatever rows have arrived since
+  c.akey = `${ds.id}|${ds.meta.generation}|${targetId}|${st.edge === null ? "latest" : edge}|${JSON.stringify(ctx)}`;
   if (c.key !== key) {
     c.key = key;
     c.rows = rowsIn(schema, ctx, edge);
@@ -235,12 +237,22 @@ export function model() {
 // ---------------------------------------------------------------------------
 // Rendering
 
-let updateQueued = false, lastLiveRender = 0;
+// Live redraws: at most once a second, and never more than a fifth of the
+// time (a board over a million rows takes long enough to matter).
+let updateQueued = false, lastLiveRender = 0, lastCost = 0;
 function scheduleUpdate() {
   if (updateQueued) return;
   updateQueued = true;
-  const wait = Math.max(0, 1000 - (Date.now() - lastLiveRender));
-  setTimeout(() => { updateQueued = false; lastLiveRender = Date.now(); notifyRecords(); update(); }, wait);
+  const gap = Math.max(1000, 5 * lastCost);
+  const wait = Math.max(0, gap - (Date.now() - lastLiveRender));
+  setTimeout(() => {
+    updateQueued = false;
+    lastLiveRender = Date.now();
+    const t0 = performance.now();
+    notifyRecords();
+    update();
+    lastCost = performance.now() - t0;
+  }, wait);
 }
 
 function update() {
@@ -290,9 +302,11 @@ function updateTop(m0) {
   const ds = m.ds;
   const runs = app.sweep.runs;
   t.append(h("div", { class: "brand" },
-    h("svg", { class: "cube", viewBox: "0 0 24 24", "aria-hidden": "true" }),
+    s("svg", { class: "cube", viewBox: "0 0 24 24", "aria-hidden": "true" },
+      s("path", { class: "cube-top", d: "M12 2 21 7 12 12 3 7Z" }),
+      s("path", { class: "cube-left", d: "M3 7 12 12V22L3 17Z" }),
+      s("path", { class: "cube-right", d: "M21 7 12 12V22L21 17Z" })),
     h("span", { class: "brand-name", text: "Tessera" })));
-  t.querySelector(".cube").innerHTML = '<path class="cube-top" d="M12 2 21 7 12 12 3 7Z"/><path class="cube-left" d="M3 7 12 12V22L3 17Z"/><path class="cube-right" d="M21 7 12 12V22L21 17Z"/>';
   const runSel = h("select", { class: "run-pick", id: "run-pick", "aria-label": "Run" },
     runs.map(r => h("option", { value: r.id, selected: r.id === ds.id ? "selected" : null, text: `${r.meta.label} · ${fmtInt(r.n)} rows` })));
   runSel.addEventListener("change", () => setState({ run: runSel.value, sel: null, context: [], pocket: [], edge: null }));
@@ -301,8 +315,9 @@ function updateTop(m0) {
   const pill = h("span", { class: "status", dataset: { kind: st.kind } }, h("span", { class: "dot" }), st.text);
   tip(pill, st.tip);
   t.append(h("div", { class: "sweep" },
-    h("span", { class: "sweep-name", text: app.sweep.meta.name || "sweep" }),
-    runs.length > 1 ? runSel : null, pill,
+    h("div", { class: "sweep-line" },
+      h("span", { class: "sweep-name", text: app.sweep.meta.name || "sweep" }),
+      runs.length > 1 ? runSel : null, pill),
     h("span", { class: "progress-text num", text: health.line })));
   // target and context
   const targets = m.schema.targets.filter(x => !x.diagnostic);
@@ -524,12 +539,12 @@ export const ACTIONS = {
     toast(h("span", null, h("b", { text: "Added to the pocket. " }), "Open it with ", h("kbd", { text: "2" }), "."), null, () => setState({ view: "pocket" }));
   },
   contextFromSelection() {
-    const s = app.state.sel;
-    if (s && s.kind === "level") ACTIONS.addContext(s.dim, s.key);
+    const sel = app.state.sel;
+    if (sel && sel.kind === "level") ACTIONS.addContext(sel.dim, sel.key);
   },
   pocketFromSelection() {
-    const s = app.state.sel;
-    if (s && s.kind === "level") ACTIONS.addPocket(s.dim, s.key);
+    const sel = app.state.sel;
+    if (sel && sel.kind === "level") ACTIONS.addPocket(sel.dim, sel.key);
   },
   openReference,
   toast,
@@ -562,7 +577,13 @@ function fail(err) {
   if (note) note.textContent = `The sweep could not be read: ${err && err.message ? err.message : err}`;
 }
 
+// Load timings, for the performance checks (tests read them).
+const TIMINGS = {};
+function mark(name) { TIMINGS[name] = Math.round(performance.now()); }
+window.__tesseraTimings = TIMINGS;
+
 async function start() {
+  mark("start");
   try {
     const theme = (() => { try { return localStorage.getItem("tessera-theme"); } catch (err) { return null; } })();
     if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
@@ -575,12 +596,15 @@ async function start() {
       pack = await loadEmbedded();
     }
     if (!pack) throw new Error("this page holds no sweep; serve it with python3 -m tessera serve");
+    mark("loaded");
     buildFrame();
     installSweep(pack, false);
+    mark("decoded");
     document.getElementById("app").dataset.state = "ready";
     addEventListener("keydown", onKey);
     addEventListener("popstate", () => { const st = decodeState(location.hash); if (st) { app.state = st; update(); } });
     update();
+    mark("drawn");
     notifyRecords();
     if (cursor) startStream(app.config, cursor);
     if (app.config.mode === "demo" && app.config.autoplay) {

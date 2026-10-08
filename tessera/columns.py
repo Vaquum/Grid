@@ -28,7 +28,7 @@ from __future__ import annotations
 import json
 import math
 from array import array
-from typing import Any, cast
+from typing import Any, Iterator, cast
 
 NUM = "num"
 BOOL = "bool"
@@ -102,25 +102,21 @@ def flatten(row: dict[str, Any], prefix: str = "",
 
 def kind_of(v: Flat) -> str | None:
     """The column kind a flattened value belongs to (None for null)."""
+    t = type(cast(object, v))
+    if t is float:
+        return NUM
+    if t is str:
+        return STR
+    if t is int:
+        return NUM if -SAFE_INT <= v <= SAFE_INT else JSON
+    if t is bool:
+        return BOOL
     if v is None:
         return None
-    if isinstance(v, tuple):
+    if t is tuple:
         tag = cast(tuple[str, Any], v)[0]
         return SET if tag == "set" else JSON
-    if isinstance(v, bool):
-        return BOOL
-    if isinstance(v, (int, float)):
-        if isinstance(v, int) and abs(v) > SAFE_INT:
-            return JSON
-        return NUM
-    if isinstance(v, str):
-        return STR
     return JSON
-
-
-def _exact_key(f: float) -> tuple[float, float]:
-    """Dictionary key for a double that keeps -0.0 apart from 0.0."""
-    return (f, math.copysign(1.0, f))
 
 
 def num_text(f: float) -> float | int | str:
@@ -146,7 +142,9 @@ class Column:
         self.levels: list[str] = []         # str/json dictionary, set members
         self.level_rows = array("q")        # row where each level first came
         self.index: dict[str, int] = {}     # level -> code
-        self.distinct: dict[tuple[float, float], float] = {}
+        self.n = 0                          # rows held
+        self.seen: set[float] = set()       # distinct non-zero numbers
+        self.zeros: set[float] = set()      # 0.0 and/or -0.0, kept apart
         self.dict_ok = True                 # numeric column fits DICT_CAP
         self.nums = array("d")              # NUM values
         self.state = bytearray()            # NUM: 0 value, 1 null, 2 absent
@@ -154,18 +152,14 @@ class Column:
         self.masks: list[int | None] = []   # SET bitmask; None null; -1 absent
 
     def __len__(self) -> int:
-        if self.kind == NUM:
-            return len(self.nums)
-        if self.kind == SET:
-            return len(self.masks)
-        return len(self.codes)
+        return self.n
 
     def code(self, text: str) -> int:
         c = self.index.get(text)
         if c is None:
             c = len(self.levels)
             self.levels.append(text)
-            self.level_rows.append(len(self))
+            self.level_rows.append(self.n)
             self.index[text] = c
         return c
 
@@ -184,6 +178,7 @@ class Column:
         """Append n absent (or null) entries."""
         if n <= 0:
             return
+        self.n += n
         if self.kind == NUM:
             self.nums.extend([0.0] * n)
             self.state.extend((b"\x02" if absent else b"\x01") * n)
@@ -207,14 +202,18 @@ class Column:
             self.nums.append(f)
             self.state.append(0)
             if self.dict_ok:
-                if math.isfinite(f):
-                    self.distinct[_exact_key(f)] = f
-                    if len(self.distinct) > DICT_CAP:
-                        self.dict_ok = False
-                        self.distinct = {}
-                else:
+                if f == 0.0:
+                    self.zeros.add(math.copysign(1.0, f))
+                elif f - f == 0.0:   # finite
+                    seen = self.seen
+                    if f not in seen:
+                        seen.add(f)
+                        if len(seen) + len(self.zeros) > DICT_CAP:
+                            self.dict_ok = False
+                            self.seen = set()
+                else:                # NaN or an infinity: no dictionary
                     self.dict_ok = False
-                    self.distinct = {}
+                    self.seen = set()
         elif k == BOOL:
             self.codes.append(1 if v else 0)
         elif k == STR:
@@ -228,6 +227,8 @@ class Column:
             for m in cast(tuple[str, list[str]], v)[1]:
                 mask |= 1 << self.code(m)
             self.masks.append(mask)
+        # only now: a new dictionary entry above records this row as its first
+        self.n += 1
 
     def value_at(self, i: int) -> Flat:
         """Row i's value in flattened form, None, or ABSENT."""
@@ -269,11 +270,24 @@ class Column:
         if k == NUM:
             nums, state = self.nums, self.state
             if compact and self.dict_ok:
-                keys = sorted(self.distinct)
-                pos = {key: c for c, key in enumerate(keys)}
-                out["levels"] = [num_text(self.distinct[key]) for key in keys]
-                out["codes"] = [pos[_exact_key(nums[i])] if state[i] == 0
-                                else -int(state[i]) for i in range(lo, hi)]
+                # negatives, then -0.0 and/or 0.0 (kept apart), positives
+                vals = ([v for v in sorted(self.seen) if v < 0] +
+                        [math.copysign(0.0, z) for z in sorted(self.zeros)] +
+                        [v for v in sorted(self.seen) if v > 0])
+                pos = {v: c for c, v in enumerate(vals) if v != 0.0}
+                zpos = {math.copysign(1.0, v): c for c, v in enumerate(vals)
+                        if v == 0.0}
+                out["levels"] = [num_text(v) for v in vals]
+                codes: list[int] = []
+                for i in range(lo, hi):
+                    st = state[i]
+                    if st:
+                        codes.append(-st)
+                        continue
+                    f = nums[i]
+                    codes.append(pos[f] if f != 0.0 else
+                                 zpos[math.copysign(1.0, f)])
+                out["codes"] = codes
             else:
                 out["data"] = [num_text(nums[i]) if state[i] == 0 else
                                None if state[i] == 1 else ABSENT_TEXT
@@ -306,13 +320,14 @@ class Store:
             raise ValueError("row %d is a JSON %s, not an object"
                              % (self.rows, type(row).__name__))
         i = self.rows
+        columns = self.columns
         for name, v in flatten(cast(dict[str, Any], row)).items():
             kind = kind_of(v)
-            col = self.columns.get(name)
+            col = columns.get(name)
             if col is None:
                 col = Column(name, kind or NUM)
                 col.pad(i)
-                self.columns[name] = col
+                columns[name] = col
                 self.order.append(name)
                 if i:
                     self.events.append({"row": i, "column": name,
@@ -321,18 +336,24 @@ class Store:
                 if col.nonnull == 0:
                     # nulls only so far: take the kind of the first value
                     new = Column(name, kind)
-                    for j in range(len(col)):
+                    for j in range(col.n):
                         new.push(col.value_at(j))
-                    self.columns[name] = col = new
+                    columns[name] = col = new
                 else:
+                    col.pad(i - col.n)
                     col = self._to_json(col, i)
-            if len(col) > i:
+            gap = i - col.n
+            if gap > 0:
+                col.pad(gap)     # absent from the rows since its last value
+            elif gap < 0:
                 raise ValueError("row %d repeats field %r" % (i, name))
             col.push(v)
         self.rows = i + 1
-        for name in self.order:
-            col = self.columns[name]
-            col.pad(self.rows - len(col))
+
+    def level(self) -> None:
+        """Pad every column to the row count (columns catch up lazily)."""
+        for col in self.columns.values():
+            col.pad(self.rows - col.n)
 
     def _to_json(self, col: Column, row: int) -> Column:
         new = Column(col.name, JSON)
@@ -356,6 +377,7 @@ class Store:
         appeared in them. A column the receiver does not know yet arrives
         with rows [lo, hi) only; its earlier rows are absent.
         """
+        self.level()
         end = self.rows if hi is None else hi
         out: list[Exported] = []
         for n in self.order:
@@ -365,11 +387,25 @@ class Store:
             out.append(col.export(lo, end, base, compact))
         return out
 
+    def export_iter(self, lo: int = 0, hi: int | None = None,
+                    compact: bool = True) -> Iterator[str]:
+        """The export as JSON text, one column at a time (a column's values
+        exist as Python objects only while it is being written)."""
+        self.level()
+        end = self.rows if hi is None else hi
+        for n in self.order:
+            col = self.columns[n]
+            base = col.levels_before(lo) if col.kind in (STR, JSON, SET) \
+                else 0
+            yield json.dumps(col.export(lo, end, base, compact),
+                             separators=(",", ":"))
+
     def row_object(self, i: int) -> dict[str, Any]:
         """Row i rebuilt from its columns (value-exact, absent keys left
         out)."""
         if not 0 <= i < self.rows:
             raise IndexError("row %d is outside 0..%d" % (i, self.rows - 1))
+        self.level()
         root: dict[str, Any] = {}
         for n in self.order:
             v = self.columns[n].value_at(i)

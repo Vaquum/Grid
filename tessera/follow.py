@@ -24,6 +24,7 @@ LineFn = Callable[[str, bool], None]
 ResetFn = Callable[[str], None]
 ErrorFn = Callable[[str], None]
 SSH_BASE = ("ssh", "-o", "BatchMode=yes", "-o", "ServerAliveInterval=15")
+CHUNK = 4 << 20
 
 
 def _quote(path: str) -> str:
@@ -87,12 +88,20 @@ class FileFollower:
         self.ino = st.st_ino
         if st.st_size <= self.pos:
             return 0
+        got = 0
+        end = st.st_size
         with open(self.path, "rb") as f:
             f.seek(self.pos)
-            chunk = f.read(st.st_size - self.pos)
-        self.pos += len(chunk)
-        self.buffer.feed(chunk)
-        return len(chunk)
+            # in chunks, up to the size seen above: a large file is never
+            # held in memory whole
+            while self.pos < end:
+                chunk = f.read(min(CHUNK, end - self.pos))
+                if not chunk:
+                    break
+                self.pos += len(chunk)
+                got += len(chunk)
+                self.buffer.feed(chunk)
+        return got
 
     def run(self) -> None:
         try:

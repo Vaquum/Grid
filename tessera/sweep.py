@@ -161,31 +161,43 @@ class Sweep:
                 "now": time.time(), "logSources": self.log_sources,
                 "errors": self.errors[-50:]}
 
-    def pack_text(self) -> tuple[str, Cursor]:
-        """Everything as of now as JSON text, and its cursor.
+    def pack_parts(self, mode: str = "live") -> tuple[list[str], Cursor]:
+        """Everything as of now as JSON text in parts (joined, they are
+        one JSON document), and its cursor.
 
-        Serialised under the lock: followers keep appending to the same
-        lists while a page is being served.
+        Serialised under the lock (followers keep appending to the same
+        arrays), one column at a time to keep memory to one column's worth.
         """
         with self.lock:
-            runs: list[Json] = []
+            parts: list[str] = []
             cursor = Cursor()
-            for r in self.runs:
-                m = r.meta()
-                m["columns"] = r.store.export()
-                m["arrivals"] = _arrivals(r.arrivals, 0)
-                runs.append(m)
+            top = self.meta()
+            top["mode"] = mode
+            parts.append(json.dumps(top, separators=(",", ":"))[:-1] +
+                         ',"runs":[')
+            for k, r in enumerate(self.runs):
+                head = json.dumps(r.meta(), separators=(",", ":"))[:-1]
+                parts.append(("," if k else "") + head + ',"columns":[')
+                for j, col in enumerate(r.store.export_iter()):
+                    parts.append(("," if j else "") + col)
+                parts.append('],"arrivals":' +
+                             json.dumps(_arrivals(r.arrivals, 0)) + "}")
                 cursor.runs[r.id] = (r.generation, r.store.rows)
-            out = self.meta()
-            out["mode"] = "live"
-            out["runs"] = runs
-            out["logs"] = {k: v.to_json() for k, v in self.logs.items()}
-            out["docs"] = self.docs
             for k, v in self.logs.items():
                 cursor.progress[k] = v.progress_cursor()
                 cursor.log_lines[k] = v.lines
             cursor.version = self.version
-            return json.dumps(out, separators=(",", ":")), cursor
+            parts.append('],"logs":' +
+                         json.dumps({k: v.to_json()
+                                     for k, v in self.logs.items()},
+                                    separators=(",", ":")) +
+                         ',"docs":' +
+                         json.dumps(self.docs, separators=(",", ":")) + "}")
+            return parts, cursor
+
+    def pack_text(self, mode: str = "live") -> tuple[str, Cursor]:
+        parts, cursor = self.pack_parts(mode)
+        return "".join(parts), cursor
 
     def delta_text(self, cursor: Cursor) -> list[str]:
         """Messages (JSON text) that bring a page at ``cursor`` up to date;
