@@ -62,6 +62,19 @@ class Wiring:
         self.sweep = Sweep(args.name or default_name(args.results))
         self.followers: list[FileFollower | SSHFollower] = []
 
+    def shown(self, path: str) -> str:
+        """The path as the page names it (``--as`` rewrites a prefix, for
+        files copied from the sweep's host)."""
+        where = "%s:%s" % (self.args.ssh, path) if self.args.ssh else path
+        specs: list[str] = self.args.as_ or []
+        for spec in specs:
+            local, _, shown = spec.partition("=")
+            if not shown:
+                raise SystemExit("--as takes LOCAL=SHOWN, got %r" % spec)
+            if where.startswith(local):
+                return shown + where[len(local):]
+        return where
+
     def _follower(self, path: str, on_line: LineFn,
                   on_reset: ResetFn) -> FileFollower | SSHFollower:
         if self.args.ssh:
@@ -74,8 +87,7 @@ class Wiring:
 
     def add_run(self, run_id: str, label: str, path: str,
                 segment: int | None, live: bool) -> None:
-        where = "%s:%s" % (self.args.ssh, path) if self.args.ssh else path
-        run = Run(run_id, label, where, segment, live)
+        run = Run(run_id, label, self.shown(path), segment, live)
         self.sweep.add_run(run)
         sweep = self.sweep
         self.followers.append(self._follower(
@@ -83,8 +95,7 @@ class Wiring:
             lambda reason: sweep.run_reset(run, reason)))
 
     def add_log(self, path: str) -> None:
-        where = "%s:%s" % (self.args.ssh, path) if self.args.ssh else path
-        self.sweep.set_log(where)
+        self.sweep.set_log(self.shown(path))
         sweep = self.sweep
         self.followers.append(self._follower(
             path, lambda text, pre: sweep.log_line(text, pre),
@@ -96,8 +107,7 @@ class Wiring:
         else:
             with open(path, encoding="utf-8", errors="replace") as f:
                 text = f.read()
-        where = "%s:%s" % (self.args.ssh, path) if self.args.ssh else path
-        self.sweep.docs[key] = {"path": where, "text": text}
+        self.sweep.docs[key] = {"path": self.shown(path), "text": text}
 
     def build(self) -> Sweep:
         a = self.args
@@ -209,6 +219,9 @@ def main(argv: list[str] | None = None) -> int:
                        help="another results file: LABEL=PATH[#SEGMENT]")
         p.add_argument("--name", help="sweep name (default: results folder)")
         p.add_argument("--ssh", help="read the files on this host over ssh")
+        p.add_argument("--as", dest="as_", action="append",
+                       metavar="LOCAL=SHOWN",
+                       help="name files under LOCAL as SHOWN (copied files)")
         if name == "serve":
             p.add_argument("--bind", default="127.0.0.1")
             p.add_argument("--port", type=int, default=0,

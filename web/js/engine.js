@@ -413,33 +413,45 @@ export function moderators(schema, dim, target, rows, parents) {
   return res;
 }
 
-// Moderators of many dims at once, with one Benjamini-Hochberg correction
-// over every (dim, parent) interaction test made, so the number of claims
-// stays honest across the whole board. Returns a summary per dim id.
-export function moderatorScan(schema, dims, target, rows, parents) {
-  const base = summarize(target, rows);
-  const all = [];
-  for (const d of dims) {
-    for (const P of parents) {
-      if (P.id === d.id || P.kind === "scoped" || P.kind === "member") continue;
-      if (d.scope && d.scope.dim === P.id) continue;
-      const pe = pairEffect(P, d, target, rows, base);
-      if (!Number.isFinite(pe.p)) continue;
-      all.push({ dim: d.id, parent: P.id, label: P.label, p: pe.p, F: pe.F, omega2: pe.omega2 });
-    }
+// The interaction tests of one dim with every parent (raw p-values).
+export function moderatorTests(schema, dim, target, rows, parents, base) {
+  const out = [];
+  for (const P of parents) {
+    if (P.id === dim.id || P.kind === "scoped" || P.kind === "member") continue;
+    if (dim.scope && dim.scope.dim === P.id) continue;
+    const pe = pairEffect(P, dim, target, rows, base);
+    if (!Number.isFinite(pe.p)) continue;
+    out.push({ dim: dim.id, parent: P.id, label: P.label, p: pe.p, F: pe.F, omega2: pe.omega2 });
   }
-  const q = bhQ(all.map(t => t.p));
-  all.forEach((t, i) => { t.q = q[i]; t.detectable = q[i] < ALPHA; });
+  return out;
+}
+
+// One Benjamini-Hochberg correction over every (dim, parent) test of the
+// board, so the number of claims stays honest; then where each dim acts.
+export function moderatorSummaries(schema, tests, dims, target, rows) {
+  const q = bhQ(tests.map(t => t.p));
+  tests.forEach((t, i) => { t.q = q[i]; t.detectable = q[i] < ALPHA; });
+  const byDim = new Map();
+  for (const t of tests) {
+    if (!byDim.has(t.dim)) byDim.set(t.dim, []);
+    byDim.get(t.dim).push(t);
+  }
   const out = new Map();
   for (const d of dims) {
-    const mods = all.filter(t => t.dim === d.id).sort((a, b) => a.p - b.p);
-    if (!mods.some(m => m.detectable)) { out.set(d.id, { mods, acts: null }); continue; }
+    const mods = (byDim.get(d.id) || []).sort((a, b) => a.p - b.p);
     const top = mods.find(m => m.detectable);
-    const P = schema.dimById.get(top.parent);
-    const tests = actsWhere(schema, d, target, rows, [P]);
-    out.set(d.id, { mods, acts: actsSummary(mods, tests) });
+    if (!top) { out.set(d.id, { mods, acts: null }); continue; }
+    const where = actsWhere(schema, d, target, rows, [schema.dimById.get(top.parent)]);
+    out.set(d.id, { mods, acts: actsSummary(mods, where) });
   }
-  return { tests: all.length, byDim: out };
+  return { tests: tests.length, byDim: out };
+}
+
+export function moderatorScan(schema, dims, target, rows, parents) {
+  const base = summarize(target, rows);
+  const tests = [];
+  for (const d of dims) tests.push(...moderatorTests(schema, d, target, rows, parents, base));
+  return moderatorSummaries(schema, tests, dims, target, rows);
 }
 
 // Where a dim acts: its strongest detectable moderator, and the levels of

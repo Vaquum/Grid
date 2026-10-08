@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tessera</title>
+<style>/*{{CSS}}*/</style>
+</head>
+<body>
+<div id="app" class="app" data-state="loading">
+  <header class="top" id="top">
+    <div class="brand">
+      <svg class="cube" viewBox="0 0 24 24" aria-hidden="true"><path class="cube-top" d="M12 2 21 7 12 12 3 7Z"/><path class="cube-left" d="M3 7 12 12V22L3 17Z"/><path class="cube-right" d="M21 7 12 12V22L21 17Z"/></svg>
+      <span class="brand-name">Tessera</span>
+    </div>
+    <p class="loading-note" id="loading-note">Reading the sweep…</p>
+  </header>
+  <div class="shell" id="shell"></div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <div id="tip" class="tip" role="tooltip" hidden></div>
+</div>
+<script id="tessera-config" type="application/json">{{CONFIG}}</script>
+<script id="tessera-pack" type="application/octet-stream">{{PACK}}</script>
+<script>/*{{SCRIPT}}*/</script>
+</body>
+</html>

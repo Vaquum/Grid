@@ -106,7 +106,7 @@ function binnedDim(col, n, base, sv) {
   return { ...base, levels, codes, ordered: true, binned: true, present: sv.present };
 }
 
-function memberDims(col, n, family, sizeDim) {
+function buildMemberDims(col, n, family, sizeDim) {
   const dims = [];
   for (let m = 0; m < col.levels.length; m++) {
     const codes = new Int32Array(n);
@@ -278,7 +278,7 @@ export function buildSchema(ds, opts = {}) {
         const sizeName = P.setSize[f.name];
         const sizeId = sizeName && byName.get(sizeName) ? sizeName : `|${f.name}|`;
         if (!(sizeName && byName.get(sizeName))) dims.push(sizeDimFromSet(col, n, f.family));
-        dims.push(...memberDims(col, n, f.family, sizeId));
+        dims.push(...buildMemberDims(col, n, f.family, sizeId));
         continue;
       }
       if (col.kind === "json" && f.role !== "param") continue;
