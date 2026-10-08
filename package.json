@@ -1,0 +1,10 @@
+{
+  "name": "tessera",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Development tooling only. The page has no runtime dependencies.",
+  "scripts": {
+    "test": "node --test --test-reporter=spec \"tests/js/**/*.test.mjs\""
+  }
+}

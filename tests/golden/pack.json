@@ -1,0 +1,350 @@
+{
+ "pack": {
+  "tessera": 1,
+  "version": "0.1.0",
+  "name": "golden",
+  "started": 1791487050.8536499,
+  "now": 1791487050.8540008,
+  "logSource": null,
+  "errors": [],
+  "mode": "live",
+  "runs": [
+   {
+    "id": "r0",
+    "label": "current",
+    "source": "x",
+    "segment": null,
+    "live": true,
+    "generation": 0,
+    "rows": 4,
+    "lines": 4,
+    "badCount": 0,
+    "bad": [],
+    "schemaEvents": [
+     {
+      "row": 1,
+      "column": "hp.depth",
+      "event": "added",
+      "kind": "num"
+     },
+     {
+      "row": 1,
+      "column": "hp.lr",
+      "event": "added",
+      "kind": "num"
+     },
+     {
+      "row": 1,
+      "column": "note",
+      "event": "added",
+      "kind": "str"
+     },
+     {
+      "row": 2,
+      "column": "big",
+      "event": "added",
+      "kind": "json"
+     }
+    ],
+    "archivedFrom": null,
+    "resets": [],
+    "columns": [
+     {
+      "name": "tp",
+      "kind": "num",
+      "levels": [
+       0.25,
+       0.4
+      ],
+      "codes": [
+       -1,
+       0,
+       1,
+       1
+      ]
+     },
+     {
+      "name": "model",
+      "kind": "str",
+      "levelBase": 0,
+      "levels": [
+       "logreg",
+       "xgb_hp",
+       "stack"
+      ],
+      "data": [
+       0,
+       1,
+       0,
+       2
+      ]
+     },
+     {
+      "name": "feats",
+      "kind": "set",
+      "levelBase": 0,
+      "levels": [
+       "a",
+       "b",
+       "c",
+       "m0",
+       "m1",
+       "m2",
+       "m3",
+       "m4",
+       "m5",
+       "m6",
+       "m7",
+       "m8",
+       "m9",
+       "m10",
+       "m11",
+       "m12",
+       "m13",
+       "m14",
+       "m15",
+       "m16",
+       "m17",
+       "m18",
+       "m19",
+       "m20",
+       "m21",
+       "m22",
+       "m23",
+       "m24",
+       "m25",
+       "m26",
+       "m27",
+       "m28",
+       "m29",
+       "m30",
+       "m31",
+       "m32",
+       "m33",
+       "m34",
+       "m35",
+       "m36",
+       "m37",
+       "m38",
+       "m39"
+      ],
+      "data": [
+       "3",
+       "0",
+       null,
+       "7fffffffffc"
+      ]
+     },
+     {
+      "name": "hp.C",
+      "kind": "num",
+      "levels": [
+       1
+      ],
+      "codes": [
+       0,
+       -2,
+       -2,
+       -2
+      ]
+     },
+     {
+      "name": "skew.0",
+      "kind": "num",
+      "levels": [
+       1.5
+      ],
+      "codes": [
+       0,
+       -2,
+       -2,
+       -2
+      ]
+     },
+     {
+      "name": "skew.1",
+      "kind": "num",
+      "levels": [
+       2.5
+      ],
+      "codes": [
+       0,
+       -2,
+       -2,
+       -2
+      ]
+     },
+     {
+      "name": "v",
+      "kind": "num",
+      "data": [
+       -0.0,
+       "NaN",
+       1e+300,
+       "Infinity"
+      ]
+     },
+     {
+      "name": "ok",
+      "kind": "bool",
+      "data": [
+       1,
+       0,
+       -2,
+       -1
+      ]
+     },
+     {
+      "name": "hp.depth",
+      "kind": "num",
+      "levels": [
+       3
+      ],
+      "codes": [
+       -2,
+       0,
+       -2,
+       -2
+      ]
+     },
+     {
+      "name": "hp.lr",
+      "kind": "num",
+      "levels": [
+       0.1
+      ],
+      "codes": [
+       -2,
+       0,
+       -2,
+       -2
+      ]
+     },
+     {
+      "name": "note",
+      "kind": "str",
+      "levelBase": 0,
+      "levels": [
+       "x"
+      ],
+      "data": [
+       -2,
+       0,
+       -2,
+       -2
+      ]
+     },
+     {
+      "name": "big",
+      "kind": "json",
+      "levelBase": 0,
+      "levels": [
+       "1152921504606846976"
+      ],
+      "data": [
+       -2,
+       -2,
+       0,
+       -2
+      ]
+     }
+    ],
+    "arrivals": [
+     null,
+     null,
+     null,
+     null
+    ]
+   }
+  ],
+  "log": null,
+  "docs": {}
+ },
+ "rows": [
+  {
+   "tp": null,
+   "model": "logreg",
+   "feats": [
+    "a",
+    "b"
+   ],
+   "hp": {
+    "C": 1
+   },
+   "skew": [
+    1.5,
+    2.5
+   ],
+   "v": -0.0,
+   "ok": true
+  },
+  {
+   "tp": 0.25,
+   "model": "xgb_hp",
+   "feats": [],
+   "v": "NaN",
+   "ok": false,
+   "hp": {
+    "depth": 3,
+    "lr": 0.1
+   },
+   "note": "x"
+  },
+  {
+   "tp": 0.4,
+   "model": "logreg",
+   "feats": null,
+   "v": 1e+300,
+   "big": 1152921504606846976
+  },
+  {
+   "tp": 0.4,
+   "model": "stack",
+   "feats": [
+    "c",
+    "m0",
+    "m1",
+    "m2",
+    "m3",
+    "m4",
+    "m5",
+    "m6",
+    "m7",
+    "m8",
+    "m9",
+    "m10",
+    "m11",
+    "m12",
+    "m13",
+    "m14",
+    "m15",
+    "m16",
+    "m17",
+    "m18",
+    "m19",
+    "m20",
+    "m21",
+    "m22",
+    "m23",
+    "m24",
+    "m25",
+    "m26",
+    "m27",
+    "m28",
+    "m29",
+    "m30",
+    "m31",
+    "m32",
+    "m33",
+    "m34",
+    "m35",
+    "m36",
+    "m37",
+    "m38",
+    "m39"
+   ],
+   "v": "Infinity",
+   "ok": null
+  }
+ ]
+}

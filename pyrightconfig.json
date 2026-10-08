@@ -1,7 +1,19 @@
 {
-  "include": ["tessera", "tools", "tests/py"],
-  "extraPaths": ["."],
+  "include": [
+    "tessera",
+    "tools",
+    "tests/py"
+  ],
+  "extraPaths": [
+    "."
+  ],
   "typeCheckingMode": "standard",
-  "strict": ["tessera", "tools"],
-  "pythonVersion": "3.11"
+  "strict": [
+    "tessera",
+    "tools"
+  ],
+  "pythonVersion": "3.11",
+  "ignore": [
+    "tools/golden_engine.py"
+  ]
 }
