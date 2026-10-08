@@ -1,0 +1,7 @@
+{
+  "include": ["tessera", "tools", "tests/py"],
+  "extraPaths": ["."],
+  "typeCheckingMode": "standard",
+  "strict": ["tessera", "tools"],
+  "pythonVersion": "3.11"
+}
