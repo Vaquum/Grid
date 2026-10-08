@@ -6,9 +6,15 @@ import { lineChart } from "./charts.js";
 import { invariantBreaks, recordCurve, uniformity, summarize } from "./engine.js";
 import { independence, moderatorParents } from "./model.js";
 
+// The log a run's runner writes.
+export function runLog(m) {
+  const id = m.ds.meta.logId;
+  return id ? m.sweep.logs[id] || null : null;
+}
+
 // The log segment a run's rows came from: its own, or the latest.
 export function segmentOf(m) {
-  const log = m.sweep.log;
+  const log = runLog(m);
   if (!log || !log.segments.length) return null;
   const want = m.ds.meta.segment;
   if (want !== null && want !== undefined) return log.segments.find(s => s.index === want) || null;
@@ -55,7 +61,7 @@ export function runHealth(m) {
     if (total && total > ds.n && !recorded) parts.push(`${fmtDuration((total - ds.n) / rate.rowsPerSec)} to go`);
   }
   let issues = 0;
-  const log = m.sweep.log;
+  const log = runLog(m);
   if (seg && seg.crash) issues++;
   if (log && log.openTraceback) issues++;
   if (ds.meta.badCount) issues++;
@@ -66,9 +72,10 @@ export function runHealth(m) {
 export function renderRun(view, m, A) {
   const ds = m.ds;
   const health = runHealth(m);
-  const log = m.sweep.log;
+  const log = runLog(m);
+  const logPath = log ? (m.sweep.meta.logSources || {})[ds.meta.logId] : null;
   view.append(h("div", { class: "view-head" }, h("div", null, h("h1", { text: "The run itself" }),
-    h("div", { class: "sub", text: `${ds.meta.label}: ${ds.meta.source}${log ? ` · log ${m.sweep.meta.logSource || "embedded"}` : " · no log"}` }))));
+    h("div", { class: "sub", text: `${ds.meta.label}: ${ds.meta.source}${log ? ` · log ${logPath || "embedded"}` : " · no log for this run"}` }))));
 
   // pace
   const stats = h("div", { class: "stat-row" });

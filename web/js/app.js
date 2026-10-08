@@ -153,44 +153,45 @@ function applyMessage(msg) {
     ds.append(msg.lo, msg.hi, msg.columns, msg.arrivals);
     ds.meta = msg.meta;
   } else if (msg.type === "log") {
-    mergeLog(sw, msg.log);
+    mergeLog(sw, msg.logId, msg.log);
   } else if (msg.type === "meta") {
     sw.meta = { ...sw.meta, ...msg.meta };
   }
   scheduleUpdate();
 }
 
-function mergeLog(sw, delta) {
-  if (!sw.log) { sw.log = { ...delta, segments: delta.segments.map(s => ({ ...s, progress: s.progress.slice() })) }; return; }
-  const prevCrashes = sw.log.crashes.length;
-  const segs = new Map(sw.log.segments.map(s => [s.index, s]));
-  for (const s of delta.segments) {
-    const old = segs.get(s.index);
-    if (!old) { sw.log.segments.push({ ...s, progress: s.progress.slice() }); continue; }
-    const base = s.progressBase || 0;
-    old.progress.length = base;
-    old.progress.push(...s.progress);
-    Object.assign(old, { ...s, progress: old.progress });
+function mergeLog(sw, logId, delta) {
+  const cur = sw.logs[logId];
+  if (!cur) { sw.logs[logId] = { ...delta, segments: delta.segments.map(x => ({ ...x, progress: x.progress.slice() })) }; return; }
+  const prevCrashes = cur.crashes.length;
+  const segs = new Map(cur.segments.map(x => [x.index, x]));
+  for (const seg of delta.segments) {
+    const old = segs.get(seg.index);
+    if (!old) { cur.segments.push({ ...seg, progress: seg.progress.slice() }); continue; }
+    old.progress.length = seg.progressBase || 0;
+    old.progress.push(...seg.progress);
+    Object.assign(old, { ...seg, progress: old.progress });
   }
-  sw.log.lines = delta.lines;
-  sw.log.warnings = delta.warnings;
-  sw.log.crashes = delta.crashes;
-  sw.log.other = delta.other;
-  sw.log.openTraceback = delta.openTraceback;
+  cur.lines = delta.lines;
+  cur.warnings = delta.warnings;
+  cur.crashes = delta.crashes;
+  cur.other = delta.other;
+  cur.openTraceback = delta.openTraceback;
   if (delta.crashes.length > prevCrashes) {
     const c = delta.crashes[delta.crashes.length - 1];
-    toast(h("span", null, h("b", { text: "The run crashed. " }), `${c.exception || "An exception"}${c.where ? ` at ${c.where.path.split("/").pop()}:${c.where.line}` : ""}.`), "crit");
+    toast(h("span", null, h("b", { text: "A run crashed. " }), `${c.exception || "An exception"}${c.where ? ` at ${c.where.path.split("/").pop()}:${c.where.line}` : ""}.`), "crit",
+      () => setState({ view: "run" }));
   }
 }
 
 function installSweep(pack, keepState) {
-  const { meta, runs, log, docs } = decodePack(pack);
-  app.sweep = { meta, runs, log, docs };
+  const { meta, runs, logs, docs } = decodePack(pack);
+  app.sweep = { meta, runs, logs, docs };
   app.cache = {};
   if (!keepState) {
     const fromUrl = decodeState(location.hash);
     const st = fromUrl || { ...DEFAULT_STATE };
-    if (!st.run || !runs.some(r => r.id === st.run)) st.run = (runs.find(r => r.meta.live) || runs[runs.length - 1]).id;
+    if (!st.run || !runs.some(r => r.id === st.run)) st.run = (runs.find(r => r.id === "r0") || runs.find(r => r.meta.live) || runs[runs.length - 1]).id;
     app.state = st;
   }
 }
@@ -257,7 +258,8 @@ function update() {
   const render = { board: renderBoard, pocket: renderPocket, pairs: renderPairs, features: renderFeatures,
     trials: renderTrials, gates: renderGates, run: renderRun }[app.state.view] || renderBoard;
   try {
-    render(view, m, ACTIONS);
+    if (!m.rows.length && app.state.view !== "run") renderNoRows(view, m);
+    else render(view, m, ACTIONS);
   } catch (err) {
     console.error(err);
     view.append(h("div", { class: "empty" }, h("b", { text: "This view failed to draw. " }), String(err && err.message || err)));
@@ -266,6 +268,18 @@ function update() {
   if (focusId) { const el = view.querySelector(`[data-focus="${CSS.escape(focusId)}"]`); if (el) el.focus({ preventScroll: true }); }
   renderInspector(app.els.insp, m, ACTIONS);
   app.els.root.dataset.insp = app.state.sel ? "open" : "closed";
+}
+
+// Nothing to measure: say why, and how to get rows back.
+function renderNoRows(view, m) {
+  const why = m.edge === 0 ? "The replay edge is at the first row, so no row has arrived yet."
+    : m.edge < m.ds.n && m.allRows.length ? "No row up to the replay edge holds every condition of the context."
+      : m.context.length ? "No row holds every condition of the context." : "This run has no rows yet.";
+  view.append(h("div", { class: "empty" },
+    h("p", null, h("b", { text: "No rows in view. " }), why),
+    h("div", { class: "actions", style: { justifyContent: "center" } },
+      m.edge < m.ds.n ? h("button", { class: "btn", onclick: () => { stopPlay(); setState({ edge: null }, { replace: true }); } }, "Show every row ", h("kbd", { text: "End" })) : null,
+      m.context.length ? h("button", { class: "btn", onclick: () => setState({ context: [] }) }, "Clear the context ", h("kbd", { text: "Shift C" })) : null)));
 }
 
 function updateTop(m0) {

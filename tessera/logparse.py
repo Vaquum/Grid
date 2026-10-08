@@ -6,7 +6,8 @@ first few kept as samples.
 
 Recognised:
 
-- a run start, ``sampling 500000 A-perms...``;
+- a run start, ``sampling 500000 A-perms...`` or
+  ``sampling 500000 A-perms models=logreg -> data/logregone``;
 - a relaunch marker written before a start, ``--- 20261008_183539 label ---``;
 - a progress line, ``4100/500000 615s top: gates=7 mean=+5.84 lgbm_hp``
   (the count, the total, the first ``<number>s`` as elapsed seconds, every
@@ -27,7 +28,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-RE_START = re.compile(r"^sampling (?P<n>\d+) (?P<what>.+?)\.\.\.\s*$")
+RE_START = re.compile(r"^sampling (?P<n>\d+)\s+(?P<what>.*?)(?:\.\.\.)?\s*$")
 RE_MARKER = re.compile(r"^--- (?P<stamp>\S+) (?P<label>.*?) ---\s*$")
 RE_PROGRESS = re.compile(r"^(?P<i>\d+)/(?P<n>\d+)(?P<rest>(?:\s.*)?)$")
 RE_ELAPSED = re.compile(r"(?<![\w.])(?P<s>\d+(?:\.\d+)?)s\b")
@@ -214,6 +215,11 @@ class LogParser:
             return
         seg = self._segment()
         m = RE_PROGRESS.match(text)
+        if m and seg is None and not text.startswith(" "):
+            # progress before any start line: the log was picked up mid-run
+            seg = Segment(0, n)
+            seg.what = "(the start is not in the log)"
+            self.segments.append(seg)
         if m and seg is not None:
             rest = m["rest"].strip()
             e = RE_ELAPSED.search(rest)

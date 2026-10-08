@@ -23,6 +23,10 @@ const NW = 240, NH = 40, AXIS_Y = 33;
 // the base (vertical line). Lanes keep close dots apart.
 export function needle(effect, target, base, domain, opts = {}) {
   const [d0, d1] = domain;
+  if (![base, d0, d1].every(Number.isFinite) || !(d1 > d0)) {
+    return s("svg", { class: "needle", viewBox: `0 0 ${NW} ${NH}`, role: "img", "aria-label": "no rows to place" },
+      s("line", { class: "axis-line", x1: 0, x2: NW, y1: AXIS_Y, y2: AXIS_Y }));
+  }
   const X = v => 6 + (v - d0) / (d1 - d0) * (NW - 12);
   const svgEl = s("svg", { class: "needle", viewBox: `0 0 ${NW} ${NH}`, role: "img",
     "aria-label": opts.label || "values against the base" });
@@ -72,6 +76,7 @@ export function levelTip(l, target, base) {
 // Mini interval bar for table rows (same domain as its siblings).
 export function miniBar(l, domain, base, target) {
   const [d0, d1] = domain;
+  if (![base, d0, d1].every(Number.isFinite) || !(d1 > d0)) return s("svg", { class: "mini", viewBox: "0 0 120 14", "aria-hidden": "true" });
   const W = 120, H = 14;
   const X = v => 4 + (Math.min(d1, Math.max(d0, v)) - d0) / (d1 - d0) * (W - 8);
   const el = s("svg", { class: "mini", viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none", "aria-hidden": "true" });

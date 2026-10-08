@@ -1,4 +1,4 @@
-"""A sweep: its runs (results files), its log and its documents.
+"""A sweep: its runs (results files), their logs and the documents.
 
 A run holds one results file's rows. When the file starts over (a
 relaunched sweep reopens it for writing), the rows read so far are kept as
@@ -28,11 +28,13 @@ BAD_KEEP = 50
 
 class Run:
     def __init__(self, run_id: str, label: str, source: str,
-                 segment: int | None, live: bool) -> None:
+                 segment: int | None, live: bool,
+                 log_id: str | None = None) -> None:
         self.id = run_id
         self.label = label
         self.source = source
-        self.segment = segment      # log segment these rows belong to
+        self.log_id = log_id        # the log this run's runner writes
+        self.segment = segment      # its segment in that log (None: latest)
         self.live = live
         self.store = Store()
         self.generation = 0
@@ -45,7 +47,8 @@ class Run:
 
     def meta(self) -> Json:
         return {"id": self.id, "label": self.label, "source": self.source,
-                "segment": self.segment, "live": self.live,
+                "logId": self.log_id, "segment": self.segment,
+                "live": self.live,
                 "generation": self.generation, "rows": self.store.rows,
                 "lines": self.lines, "badCount": self.bad_count,
                 "bad": self.bad, "schemaEvents": self.store.events,
@@ -76,8 +79,8 @@ class Sweep:
         self.changed = threading.Condition(self.lock)
         self.version = 0
         self.runs: list[Run] = []
-        self.log: LogParser | None = None
-        self.log_source: str | None = None
+        self.logs: dict[str, LogParser] = {}
+        self.log_sources: dict[str, str] = {}
         self.docs: dict[str, Json] = {}
         self.errors: list[Json] = []
         self.started = time.time()
@@ -119,29 +122,31 @@ class Sweep:
             run.arrivals = array("d")
             self._bump()
 
-    def set_log(self, source: str) -> None:
+    def add_log(self, log_id: str, source: str) -> None:
         with self.lock:
-            self.log = LogParser()
-            self.log_source = source
+            self.logs[log_id] = LogParser()
+            self.log_sources[log_id] = source
 
-    def log_line(self, text: str, preload: bool) -> None:
+    def log_line(self, log_id: str, text: str, preload: bool) -> None:
         with self.lock:
-            assert self.log is not None
-            self.log.feed(text, None if preload else time.time())
+            self.logs[log_id].feed(text, None if preload else time.time())
             self._bump()
 
     def log_flush(self) -> None:
+        """Close tracebacks left open in quiet logs."""
         with self.lock:
-            if self.log is not None and self.log.tb is not None:
-                self.log.flush()
-                self._bump()
+            for log in self.logs.values():
+                if log.tb is not None:
+                    log.flush()
+                    self._bump()
 
-    def log_reset(self, reason: str) -> None:
+    def log_reset(self, log_id: str, reason: str) -> None:
         with self.lock:
             self.errors.append({"at": time.time(),
-                                "message": "log %s; reading it again"
-                                           % reason})
-            self.log = LogParser()
+                                "message": "log %s %s; reading it again"
+                                           % (self.log_sources[log_id],
+                                              reason)})
+            self.logs[log_id] = LogParser()
             self._bump()
 
     def error(self, message: str) -> None:
@@ -153,7 +158,7 @@ class Sweep:
     def meta(self) -> Json:
         return {"tessera": PACK_VERSION, "version": __version__,
                 "name": self.name, "started": self.started,
-                "now": time.time(), "logSource": self.log_source,
+                "now": time.time(), "logSources": self.log_sources,
                 "errors": self.errors[-50:]}
 
     def pack_text(self) -> tuple[str, Cursor]:
@@ -174,11 +179,11 @@ class Sweep:
             out = self.meta()
             out["mode"] = "live"
             out["runs"] = runs
-            out["log"] = self.log.to_json() if self.log else None
+            out["logs"] = {k: v.to_json() for k, v in self.logs.items()}
             out["docs"] = self.docs
-            if self.log is not None:
-                cursor.progress = self.log.progress_cursor()
-                cursor.log_lines = self.log.lines
+            for k, v in self.logs.items():
+                cursor.progress[k] = v.progress_cursor()
+                cursor.log_lines[k] = v.lines
             cursor.version = self.version
             return json.dumps(out, separators=(",", ":")), cursor
 
@@ -204,11 +209,13 @@ class Sweep:
                                  "arrivals": _arrivals(r.arrivals, rows),
                                  "meta": r.meta()})
                 cursor.runs[r.id] = (r.generation, r.store.rows)
-            if self.log is not None and self.log.lines != cursor.log_lines:
-                msgs.append({"type": "log",
-                             "log": self.log.to_json(cursor.progress)})
-                cursor.progress = self.log.progress_cursor()
-                cursor.log_lines = self.log.lines
+            for k, log in self.logs.items():
+                if log.lines == cursor.log_lines.get(k, -1):
+                    continue
+                msgs.append({"type": "log", "logId": k,
+                             "log": log.to_json(cursor.progress.get(k))})
+                cursor.progress[k] = log.progress_cursor()
+                cursor.log_lines[k] = log.lines
             msgs.append({"type": "meta", "meta": self.meta()})
             cursor.version = self.version
             return [json.dumps(m, separators=(",", ":")) for m in msgs]
@@ -222,12 +229,13 @@ class Sweep:
 
 
 class Cursor:
-    """What one page holds: per run (generation, rows) and the log."""
+    """What one page holds: per run (generation, rows), per log what it
+    has read."""
 
     def __init__(self) -> None:
         self.runs: dict[str, tuple[int, int]] = {}
-        self.progress: dict[int, int] = {}
-        self.log_lines = 0
+        self.progress: dict[str, dict[int, int]] = {}
+        self.log_lines: dict[str, int] = {}
         self.version = -1
 
 

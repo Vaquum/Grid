@@ -43,7 +43,7 @@ export const PLATE = {
   ],
   params: {
     tp: "backtest", sl: "backtest",
-    label_q: "labels", label_mode: "labels", vol_k: "labels",
+    label_q: "labels", label_mode: "labels", vol_k: "labels", vol_win: "labels",
     model: "model",
     feats: "features", nfeats: "features",
     sizing: "sizing", fsize: "sizing", meta: "sizing", mthr: "sizing", sizem: "sizing",

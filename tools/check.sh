@@ -9,4 +9,10 @@ echo "== js tests"; node --test "tests/js/**/*.test.mjs" > /dev/null
 echo "== pyright"; "$PYRIGHT" > /dev/null
 echo "== ruff"; "$RUFF" check tessera tests/py tools
 echo "== node --check"; for f in web/js/*.js; do node --check "$f"; done
+echo "== build"; python3 tools/build.py --out dist/tessera.html
+if [ -n "${TESSERA_PLAYWRIGHT:-}" ]; then
+  echo "== browser"; node --test "tests/browser/*.test.mjs" > /dev/null
+else
+  echo "== browser: skipped (set TESSERA_PLAYWRIGHT to a playwright index.mjs)"
+fi
 echo "all checks passed"

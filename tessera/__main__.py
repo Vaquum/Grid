@@ -10,9 +10,11 @@
     python3 -m tessera pack --results ... --log ... --out pocketA.pack.json.gz
 
 ``--results`` is the run the sweep is writing now; its rows belong to the
-log's latest segment. ``--run LABEL=PATH#SEGMENT`` adds another results
-file (an earlier run kept under another name) and the log segment its rows
-came from.
+latest segment of ``--log``. ``--run`` adds another results file, either
+as ``LABEL=PATH#SEGMENT`` (an earlier run of the same log, kept under
+another name, and the log segment its rows came from) or as
+``label=NAME,results=PATH[,log=PATH][,segment=N][,live=1]`` (a run with a
+log of its own, such as a second sweep from the same sampler).
 """
 
 from __future__ import annotations
@@ -37,15 +39,28 @@ PAGE = os.path.join(os.path.dirname(HERE), "dist", "tessera.html")
 CONFIG_MARK = '<script id="tessera-config" type="application/json">'
 
 
-def parse_run(spec: str) -> tuple[str, str, int | None]:
+RUN_KEYS = ("label", "results", "log", "segment", "live")
+
+
+def parse_run(spec: str) -> dict[str, str]:
+    """--run as LABEL=PATH[#SEGMENT] or label=..,results=..[,log=..]."""
+    if spec.startswith("label=") and ",results=" in spec:
+        out: dict[str, str] = {}
+        for part in spec.split(","):
+            k, _, v = part.partition("=")
+            if k not in RUN_KEYS or not v:
+                raise SystemExit("--run: unknown or empty key %r in %r"
+                                 % (k, spec))
+            out[k] = v
+        return out
     if "=" not in spec:
-        raise SystemExit("--run takes LABEL=PATH[#SEGMENT], got %r" % spec)
+        raise SystemExit("--run takes LABEL=PATH[#SEGMENT] or "
+                         "label=..,results=..[,log=..], got %r" % spec)
     label, rest = spec.split("=", 1)
-    seg: int | None = None
+    out = {"label": label, "results": rest}
     if "#" in rest:
-        rest, s = rest.rsplit("#", 1)
-        seg = int(s)
-    return label, rest, seg
+        out["results"], out["segment"] = rest.rsplit("#", 1)
+    return out
 
 
 def default_name(path: str) -> str:
@@ -86,20 +101,27 @@ class Wiring:
                             follow=self.follow)
 
     def add_run(self, run_id: str, label: str, path: str,
-                segment: int | None, live: bool) -> None:
-        run = Run(run_id, label, self.shown(path), segment, live)
+                segment: int | None, live: bool,
+                log_id: str | None) -> None:
+        run = Run(run_id, label, self.shown(path), segment, live, log_id)
         self.sweep.add_run(run)
         sweep = self.sweep
         self.followers.append(self._follower(
             path, lambda text, pre: sweep.run_line(run, text, pre),
             lambda reason: sweep.run_reset(run, reason)))
 
-    def add_log(self, path: str) -> None:
-        self.sweep.set_log(self.shown(path))
+    def add_log(self, path: str) -> str:
+        """Follow a log once, however many runs share it; its id."""
+        for k, v in self.sweep.log_sources.items():
+            if v == self.shown(path):
+                return k
+        log_id = "l%d" % len(self.sweep.logs)
+        self.sweep.add_log(log_id, self.shown(path))
         sweep = self.sweep
         self.followers.append(self._follower(
-            path, lambda text, pre: sweep.log_line(text, pre),
-            lambda reason: sweep.log_reset(reason)))
+            path, lambda text, pre: sweep.log_line(log_id, text, pre),
+            lambda reason: sweep.log_reset(log_id, reason)))
+        return log_id
 
     def add_doc(self, key: str, path: str) -> None:
         if self.args.ssh:
@@ -111,12 +133,16 @@ class Wiring:
 
     def build(self) -> Sweep:
         a = self.args
+        main_log = self.add_log(a.log) if a.log else None
         for i, spec in enumerate(a.run or []):
-            label, path, seg = parse_run(spec)
-            self.add_run("r%d" % (i + 1), label, path, seg, False)
-        self.add_run("r0", a.label or "current", a.results, None, True)
-        if a.log:
-            self.add_log(a.log)
+            r = parse_run(spec)
+            log_id = self.add_log(r["log"]) if "log" in r else main_log
+            seg = int(r["segment"]) if "segment" in r else None
+            live = r.get("live") == "1" or ("log" in r and "segment" not in r)
+            self.add_run("r%d" % (i + 1), r["label"], r["results"], seg, live,
+                         log_id)
+        self.add_run("r0", a.label or "current", a.results, None, True,
+                     main_log)
         if a.space:
             self.add_doc("space", a.space)
         if a.source:
@@ -129,8 +155,7 @@ class Wiring:
             assert isinstance(f, FileFollower)
             while f.read_available():
                 pass
-        if self.sweep.log is not None:
-            self.sweep.log_flush()
+        self.sweep.log_flush()
 
     def start(self) -> None:
         for f in self.followers:
@@ -138,15 +163,15 @@ class Wiring:
         threading.Thread(target=self._flush_quiet_log, daemon=True).start()
 
     def _flush_quiet_log(self) -> None:
-        last = -1
+        """A traceback at the end of a log closes once the log is quiet."""
+        last: dict[str, int] = {}
         while True:
             time.sleep(2.0)
-            log = self.sweep.log
-            if log is None:
-                continue
-            if log.lines == last:
+            now = {k: v.lines for k, v in self.sweep.logs.items()}
+            if any(now[k] == last.get(k) and self.sweep.logs[k].tb
+                   for k in now):
                 self.sweep.log_flush()
-            last = log.lines
+            last = now
 
 
 def page_bytes(config: dict[str, Any]) -> bytes:

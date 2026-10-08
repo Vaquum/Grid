@@ -101,6 +101,18 @@ class LogParseTest(unittest.TestCase):
         p.flush()
         self.assertEqual(p.to_json(), self.j)
 
+    def test_start_line_without_dots_and_a_log_picked_up_mid_run(self):
+        p = parse_text("sampling 500000 A-perms models=logreg -> data/x\n"
+                       "100/500000 21s top: gates=6 mean=+3.10 logreg\n")
+        seg = p.to_json()["segments"][0]
+        self.assertEqual(seg["what"], "A-perms models=logreg -> data/x")
+        self.assertEqual(seg["progress"][0][1], 100)
+        q = parse_text("4100/500000 615s top: gates=7 mean=+5.84 lgbm_hp\n")
+        seg = q.to_json()["segments"][0]
+        self.assertEqual(seg["total"], 500000)
+        self.assertEqual(seg["what"], "(the start is not in the log)")
+        self.assertEqual(q.to_json()["other"]["count"], 0)
+
     def test_open_traceback_waits_for_flush(self):
         p = LogParser()
         p.feed("sampling 10 perms...")
