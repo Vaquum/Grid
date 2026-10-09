@@ -148,7 +148,7 @@ pocket, see below) and up to the replay edge.
 
 ## Views
 
-The Board, the Pocket, Pairs and Trials open with a strip of their
+The Board, the Pocket, Pairs, Trials and Gates open with a strip of their
 figures and their blurb behind an (i) (a click opens it, and so do five
 seconds resting on the (i)); the other views follow in their own passes.
 A tooltip shows after half a second, and the next one at once. Every view ends with
@@ -176,8 +176,15 @@ text. A sweep without a manifest has no such section.
    parameters, the rows like each row, and the activity, risk, model
    skill and run time behind each score); any row in full in the
    inspector, with its replay command.
-6. **Gates**: pass rates, never-passed gates and what bounds them, and what
-   moves each gate.
+6. **Gates**: a gate factory. Its first card sets a gate on any measured
+   needle (a comparison and a need, the needle's rows against it as it is
+   typed); each gate, set here or the runner's, gets a card with its pass
+   rate, its needle's rows against the need, what bounds it when it never
+   passed, and what moves it. A strip reads them together, and the foot
+   lists what the rows passing the most fail together. Gates set here live
+   in the address; each is a needle, and with any set, so are Passes every
+   gate and Gates passed (a row fails every gate it fails and passes them
+   all only when each is decided).
 7. **Run**: throughput, ETA, segments, crashes, warnings, invariants, the
    record curve against the luck line.
 

@@ -161,47 +161,81 @@ export function niceTicks(a, b, n) {
   return out;
 }
 
-// Histogram with an optional need line.
-export function histogram(values, opts = {}) {
-  const W = opts.width || 420, H = opts.height || 120;
-  const m = { l: 36, r: 10, t: 8, b: 24 };
-  const all = values.filter(Number.isFinite).sort((a, b) => a - b);
-  if (!all.length) return h("p", { class: "muted", text: "No values." });
-  // the 1st to 99th percentile (and the need): a few extreme values would
-  // otherwise squeeze everything else into one bar; the rest are counted
-  const qt = f => all[Math.min(all.length - 1, Math.floor(f * all.length))];
-  let lo = opts.min ?? (all.length >= 200 ? qt(0.01) : all[0]);
-  let hi = opts.max ?? (all.length >= 200 ? qt(0.99) : all[all.length - 1]);
-  if (opts.need !== undefined) { lo = Math.min(lo, opts.need); hi = Math.max(hi, opts.need); }
-  const vals = all.filter(v => v >= lo && v <= hi);
-  const outside = all.length - vals.length;
+// A gate's needle over the rows: how many rows sit at each value, the ones
+// that pass in the data colour and the rest in grey, with the need marked.
+// A bin edge sits on the need, so a bin holds rows from one side of it;
+// only rows at the need itself can share a bin with the others (a strict
+// need), and then the two are stacked. The 1st to 99th percentile is drawn
+// (with the need); `outside` counts the rows beyond.
+export function passHistogram(values, passOf, rows, opts = {}) {
+  const W = opts.width || 420, H = opts.height || 104;
+  const m = { l: 6, r: 6, t: 16, b: 20 };
+  const pts = [];
+  for (let j = 0; j < rows.length; j++) {
+    const i = rows[j], v = values[i], p = passOf(i);
+    if (v === v && p === p) pts.push([v, p]);
+  }
+  if (!pts.length) return { svg: h("p", { class: "muted", text: "No row has a value." }), outside: 0 };
+  pts.sort((a, b) => a[0] - b[0]);
+  const n = pts.length, qt = f => pts[Math.min(n - 1, Math.floor(f * n))][0];
+  const need = opts.need;
+  let lo = n >= 200 ? qt(0.01) : pts[0][0], hi = n >= 200 ? qt(0.99) : pts[n - 1][0];
+  if (Number.isFinite(need)) { lo = Math.min(lo, need); hi = Math.max(hi, need); }
   if (!(hi > lo)) { lo -= 1; hi += 1; }
-  const bins = opts.bins || 30;
-  const cnt = new Array(bins).fill(0);
-  for (const v of vals) cnt[Math.min(bins - 1, Math.max(0, Math.floor((v - lo) / (hi - lo) * bins)))]++;
-  const top = Math.max(...cnt);
-  const X = v => m.l + (v - lo) / (hi - lo) * (W - m.l - m.r);
-  const Y = c => H - m.b - c / top * (H - m.t - m.b);
-  const svgEl = s("svg", { class: "chart", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": opts.label || "distribution" });
-  const bw = (W - m.l - m.r) / bins;
-  cnt.forEach((c, i) => {
-    if (!c) return;
-    const x = m.l + i * bw;
-    const r = s("rect", { x: x + 1, y: Y(c), width: Math.max(1, bw - 2), height: H - m.b - Y(c), rx: 1.5, fill: "var(--ink-2)", class: "has-tip" });
-    const a = lo + i * (hi - lo) / bins, b = lo + (i + 1) * (hi - lo) / bins;
-    tip(r, () => h("div", null, h("b", { text: fmtInt(c) }), h("span", { class: "k", text: ` rows between ${fmtNum(a)} and ${fmtNum(b)}` })));
-    svgEl.append(r);
-  });
-  svgEl.append(s("line", { class: "axis", x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b }));
-  for (const t of niceTicks(lo, hi, 5)) svgEl.append(s("text", { class: "label", x: X(t), y: H - 8, "text-anchor": "middle", text: fmtNum(t, Math.abs(hi - lo) < 5 ? 2 : 0) }));
-  if (outside) {
-    svgEl.append(s("text", { class: "label", x: W - m.r, y: m.t + 20, "text-anchor": "end",
-      text: `${fmtInt(outside)} outside ${fmtNum(lo, 2)} – ${fmtNum(hi, 2)} not drawn` }));
+  const bins = opts.bins || 32;
+  const w = (hi - lo) / bins;
+  const start = Number.isFinite(need) ? need - Math.ceil((need - lo) / w - 1e-9) * w : lo;
+  const nb = Math.floor((hi - start) / w + 1e-9) + 1;
+  const pass = new Array(nb).fill(0), fail = new Array(nb).fill(0);
+  let outside = 0;
+  for (const [v, p] of pts) {
+    if (v < lo || v > hi) { outside++; continue; }
+    const b = Math.min(nb - 1, Math.max(0, Math.floor((v - start) / w + 1e-9)));
+    if (p) pass[b]++; else fail[b]++;
   }
-  if (opts.need !== undefined) {
-    svgEl.append(s("line", { x1: X(opts.need), x2: X(opts.need), y1: m.t - 2, y2: H - m.b, stroke: "var(--critical)", "stroke-width": 1.5 }));
-    const right = X(opts.need) > W * 0.7;
-    svgEl.append(s("text", { class: "label ink", x: X(opts.need) + (right ? -4 : 4), y: m.t + 8, "text-anchor": right ? "end" : "start", text: opts.needLabel || "need" }));
+  const end = start + nb * w;
+  const X = v => m.l + (v - start) / (end - start) * (W - m.l - m.r);
+  // one bin far taller than the rest (most rounds at exactly 0) is drawn
+  // broken at twice the next, with its count, so the rest stay readable
+  const totals = pass.map((c, b) => c + fail[b]);
+  const order = totals.map((c, b) => [c, b]).sort((x, y) => y[0] - x[0]);
+  let top = Math.max(1, order[0][0]), broken = -1;
+  if (order.length > 1 && order[0][0] > 4 * Math.max(1, order[1][0])) { top = 2 * Math.max(1, order[1][0]); broken = order[0][1]; }
+  const plotH = H - m.t - m.b;
+  const Y = c => Math.min(c, top) / top * plotH;
+  const svgEl = s("svg", { class: "chart", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": opts.label || "distribution against the need" });
+  const bw = (W - m.l - m.r) / nb, base = H - m.b;
+  for (let b = 0; b < nb; b++) {
+    const c = pass[b] + fail[b];
+    if (!c) continue;
+    const x = m.l + b * bw + 1, width = Math.max(1, bw - 2);
+    // passing rows at the foot, failing above, a 2px gap between; a
+    // broken bin keeps their shares of its height
+    const full = Y(c), hp = full * pass[b] / c, hf = full * fail[b] / c, gap = pass[b] && fail[b] ? 2 : 0;
+    const bar = s("g", { class: "has-tip" });
+    if (pass[b]) bar.append(s("rect", { x, y: base - hp, width, height: Math.max(1, hp), rx: 1.5, fill: "var(--data-bar)" }));
+    if (fail[b]) bar.append(s("rect", { x, y: base - hp - gap - hf, width, height: Math.max(1, hf), rx: 1.5, fill: "var(--off-bar)" }));
+    if (b === broken) {
+      bar.append(s("rect", { x: x - 1, y: base - full + 7, width: width + 2, height: 2, fill: "var(--surface)" }));
+      const left = x + width + 40 > W;
+      svgEl.append(s("text", { class: "label ink", x: left ? x - 3 : x + width + 3, y: m.t + 9, "text-anchor": left ? "end" : "start", text: fmtInt(c) }));
+    }
+    const a = start + b * w, z = a + w;
+    tip(bar, () => h("div", null, h("b", { text: `${fmtInt(c)} row${c === 1 ? "" : "s"}` }),
+      h("span", { class: "k", text: ` from ${fmtNum(a, opts.digits)} to ${fmtNum(z, opts.digits)}` }),
+      h("div", { class: "k", text: pass[b] && fail[b] ? `${fmtInt(pass[b])} pass, ${fmtInt(fail[b])} fail` : pass[b] ? "every one passes" : "none passes" })));
+    svgEl.append(bar);
   }
-  return svgEl;
+  svgEl.append(s("line", { class: "axis", x1: m.l, x2: W - m.r, y1: base, y2: base }));
+  const ticks = niceTicks(lo, hi, 5);
+  const step = ticks.length > 1 ? ticks[1] - ticks[0] : 1;
+  const tickDigits = Math.min(6, Math.max(0, Math.ceil(-Math.log10(step) - 1e-9)));
+  for (const t of ticks) svgEl.append(s("text", { class: "label", x: Math.min(W - m.r - 12, Math.max(m.l + 12, X(t))), y: H - 6, "text-anchor": "middle", text: fmtNum(t, tickDigits) }));
+  if (Number.isFinite(need)) {
+    const x = X(need);
+    svgEl.append(s("line", { x1: x, x2: x, y1: m.t - 4, y2: base, stroke: "var(--ink)", "stroke-width": 1.25, "stroke-dasharray": "3 2" }));
+    const right = x > W * 0.62;
+    svgEl.append(s("text", { class: "label ink", x: x + (right ? -5 : 5), y: m.t - 5, "text-anchor": right ? "end" : "start", text: opts.needLabel || "need" }));
+  }
+  return { svg: svgEl, outside };
 }

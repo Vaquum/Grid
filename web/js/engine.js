@@ -954,20 +954,23 @@ export function coFailure(schema, rows, minPassed) {
   const G = schema.gates;
   const counts = new Map();
   let total = 0;
+  const failing = [];
   for (let j = 0; j < rows.length; j++) {
     const i = rows[j];
-    let passed = 0, mask = 0, known = true;
+    let passed = 0, known = true;
+    failing.length = 0;
     for (let g = 0; g < G.length; g++) {
       const p = G[g].pass[i];
       if (p !== p) { known = false; break; }
-      if (p) passed++; else mask |= 1 << g;
+      if (p) passed++; else failing.push(g);
     }
     if (!known || passed < minPassed) continue;
     total++;
-    counts.set(mask, (counts.get(mask) || 0) + 1);
+    const key = failing.join(",");
+    counts.set(key, (counts.get(key) || 0) + 1);
   }
-  const combos = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([mask, c]) => ({
-    failing: G.filter((_, g) => mask & (1 << g)).map(x => x.id), count: c, share: c / total }));
+  const combos = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([key, c]) => ({
+    failing: key ? key.split(",").map(g => G[+g].id) : [], count: c, share: c / total }));
   return { total, combos };
 }
 

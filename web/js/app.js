@@ -9,6 +9,7 @@ import { rowsIn, summarize, board, boardOrder } from "./engine.js";
 import { boardDims, objectiveTop, objectiveKeys } from "./model.js";
 import { h, clear, icon, installTips, hideTip, syncInfo, fmtInt, fmtAgo, fmtRowValue, tip } from "./ui.js";
 import { manifestSection, figureLine } from "./manifest.js";
+import { applyGates } from "./gates.js";
 import { renderBoard } from "./view-board.js";
 import { renderInspector } from "./inspector.js";
 import { renderPocket } from "./view-pocket.js";
@@ -25,14 +26,14 @@ const VIEWS = [
   { id: "pairs", label: "Pairs", icon: "pairs", key: "3", title: "Two parameters at once" },
   { id: "features", label: "Features", icon: "features", key: "4", title: "Feature inclusion" },
   { id: "trials", label: "Trials", icon: "trials", key: "5", title: "The best rows" },
-  { id: "gates", label: "Gates", icon: "gates", key: "6", title: "What the gates allow" },
+  { id: "gates", label: "Gates", icon: "gates", key: "6", title: "Set gates, see what they allow" },
   { id: "run", label: "Run", icon: "run", key: "7", title: "The run itself" },
 ];
 
 const DEFAULT_STATE = {
   run: null, view: "board", target: null, context: [], pocket: [], pocketB: null,
   sel: null, edge: null, show: { hp: true, flat: true }, pair: null, order: 2, featSort: "effect",
-  trialCols: ["movers"],
+  trialCols: ["movers"], gates: [],
 };
 
 const app = {
@@ -45,7 +46,7 @@ const app = {
 // only a bare #anchor.
 
 function encodeState(st) {
-  const o = { v: st.view, r: st.run, t: st.target, c: st.context, p: st.pocket, s: st.sel, e: st.edge, pr: st.pair, po: st.order, sh: st.show, fs: st.featSort, tc: st.trialCols };
+  const o = { v: st.view, r: st.run, t: st.target, c: st.context, p: st.pocket, s: st.sel, e: st.edge, pr: st.pair, po: st.order, sh: st.show, fs: st.featSort, tc: st.trialCols, g: st.gates };
   const json = JSON.stringify(o);
   const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(json)));
   return "s1." + b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -60,7 +61,7 @@ function decodeState(hash) {
     const o = JSON.parse(new TextDecoder().decode(bytes));
     return { ...DEFAULT_STATE, view: o.v, run: o.r, target: o.t, context: o.c || [], pocket: o.p || [], sel: o.s || null,
       edge: o.e ?? null, pair: o.pr || null, order: o.po || 2, show: o.sh || DEFAULT_STATE.show, featSort: o.fs || "effect",
-      trialCols: Array.isArray(o.tc) ? o.tc : DEFAULT_STATE.trialCols };
+      trialCols: Array.isArray(o.tc) ? o.tc : DEFAULT_STATE.trialCols, gates: Array.isArray(o.g) ? o.g : [] };
   } catch (err) {
     console.warn("ignoring an address that is not a Grid view", err);
     return null;
@@ -217,16 +218,22 @@ export function model() {
     const exp = ds.meta.experiment;
     c.schema = buildSchema(ds, exp && exp.kind === "limen" ? { profile: limenProfile(exp) } : {});
     c.key = null; c.indep = null;  // background results (mods, pairs) refresh on their own
+    c.gatedKey = null;
   }
-  const schema = c.schema;
   const st = app.state;
+  // the gates set here, on the schema: gates, and needles of their own
+  const gatesKey = JSON.stringify(st.gates);
+  if (c.gatedKey !== gatesKey) { c.gated = applyGates(c.schema, st.gates); c.gatedKey = gatesKey; }
+  const schema = c.gated;
   let targetId = st.target && schema.targetById.has(st.target) ? st.target : schema.defaultTarget;
   const target = schema.targetById.get(targetId);
   const edge = st.edge === null ? ds.n : Math.min(st.edge, ds.n);
   const ctx = (st.context || []).filter(cnd => schema.dimById.has(cnd.dim));
-  const key = `${ds.id}|${ds.version}|${targetId}|${edge}|${JSON.stringify(ctx)}`;
+  // a gate's needle changes with its need: its revision is part of the question
+  const rev = target.rev || "";
+  const key = `${ds.id}|${ds.version}|${targetId}|${rev}|${edge}|${JSON.stringify(ctx)}`;
   // the same question, whatever rows have arrived since
-  c.akey = `${ds.id}|${ds.meta.generation}|${targetId}|${st.edge === null ? "latest" : edge}|${JSON.stringify(ctx)}`;
+  c.akey = `${ds.id}|${ds.meta.generation}|${targetId}|${rev}|${st.edge === null ? "latest" : edge}|${JSON.stringify(ctx)}`;
   if (c.key !== key) {
     c.key = key;
     c.rows = rowsIn(schema, ctx, edge);
@@ -246,7 +253,7 @@ export function model() {
 
 // Live redraws: at most once a second, and never more than a fifth of the
 // time (a board over a million rows takes long enough to matter).
-let updateQueued = false, lastLiveRender = 0, lastCost = 0;
+let updateQueued = false, lastLiveRender = 0, lastCost = 0, heldBy = null;
 function scheduleUpdate() {
   if (updateQueued) return;
   updateQueued = true;
@@ -254,6 +261,13 @@ function scheduleUpdate() {
   const wait = Math.max(0, gap - (Date.now() - lastLiveRender));
   setTimeout(() => {
     updateQueued = false;
+    // a menu in the view (the gate maker's needle) would close under a
+    // redraw: arriving rows wait until it lets go of the focus
+    const a = document.activeElement;
+    if (a && a.tagName === "SELECT" && app.els.view.contains(a)) {
+      if (heldBy !== a) { heldBy = a; a.addEventListener("blur", () => { heldBy = null; scheduleUpdate(); }, { once: true }); }
+      return;
+    }
     lastLiveRender = Date.now();
     const t0 = performance.now();
     notifyRecords();

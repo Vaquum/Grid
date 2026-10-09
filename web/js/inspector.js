@@ -203,9 +203,13 @@ function rowDetail(box, m, A, i) {
     const tb = h("tbody");
     for (const g of sc.gates) {
       const pass = g.pass[i];
-      const raw = obj.gates_detail && obj.gates_detail[g.id] ? obj.gates_detail[g.id].v : null;
-      tb.append(h("tr", null, h("td", { class: "v", text: g.id }), h("td", { class: "v", text: raw === null ? "–" : Array.isArray(raw) ? raw.join(" / ") : String(raw) }),
-        h("td", { class: "muted", text: g.need }), h("td", null, h("span", { class: "sev " + (pass ? "ok" : "crit") }, icon(pass ? "check" : "close"), pass ? "pass" : "fail"))));
+      // a gate set here reads its needle; the runner's, the value it wrote
+      const raw = g.set ? null : obj.gates_detail && obj.gates_detail[g.id] ? obj.gates_detail[g.id].v : null;
+      const value = g.set ? fmtRowValue(g.target, g.value[i]) : raw === null ? "–" : Array.isArray(raw) ? raw.join(" / ") : String(raw);
+      tb.append(h("tr", null, h("td", { class: g.set ? null : "v", text: g.set ? inText(g.target.label) : g.id }), h("td", { class: "v", text: value }),
+        h("td", { class: "muted", text: g.need }),
+        h("td", null, pass === pass ? h("span", { class: "sev " + (pass ? "ok" : "crit") }, icon(pass ? "check" : "close"), pass ? "pass" : "fail")
+          : h("span", { class: "sev off", text: "no value" }))));
     }
     tbl.append(tb);
     box.append(part("Gates", h("div", { class: "table-wrap" }, tbl)));

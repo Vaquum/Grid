@@ -254,6 +254,9 @@ select {
 .btn svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .btn.primary { background: var(--ink); color: var(--surface); border-color: var(--ink); }
 .btn.small { min-height: var(--h-s); padding: 0 var(--sp-2); font-size: var(--fs-s); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn:disabled:hover { background: var(--surface); }
+.btn.primary:disabled:hover { background: var(--ink); }
 .seg { display: inline-flex; align-items: center; gap: 2px; padding: 2px; background: var(--panel); border-radius: var(--r-m); }
 .seg button { border: 0; background: transparent; min-height: var(--h-s); padding: 0 10px; font-size: var(--fs-m); color: var(--ink-2); border-radius: calc(var(--r-m) - 2px); }
 .seg button[aria-pressed="true"] { background: var(--raised); color: var(--ink); box-shadow: 0 1px 2px var(--shadow); }
@@ -662,6 +665,53 @@ table.trials .ri { left: 44px; width: 64px; min-width: 64px; color: var(--muted)
 table.trials td.rk .eq { color: var(--muted); }
 table.trials td.rk .eq.no { visibility: hidden; }
 table.trials td.v { font-size: var(--fs-s); }
+
+/* gates: a factory whose first card sets a gate, then a card per gate */
+.gt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--sp-3); align-items: start; }
+.gt-card { gap: 0; }
+.gt-head { display: flex; align-items: baseline; gap: var(--sp-3); min-height: 24px; }
+.gt-title { margin: 0; min-width: 0; font-size: var(--fs-l); font-weight: 600; line-height: 20px; overflow-wrap: anywhere; text-wrap: balance; }
+.gt-rate { flex: none; margin-left: auto; font-size: var(--fs-xl); font-weight: 500; letter-spacing: -0.01em; line-height: 1.1; }
+.gt-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--sp-2); margin: 6px 0 var(--sp-2); color: var(--muted); font-size: var(--fs-m); }
+.gt-tag { padding: 0 6px; border: 1px solid var(--line-2); border-radius: var(--r-s); font-size: var(--fs-s); color: var(--ink-2); }
+.gt-need-line { margin: -4px 0 var(--sp-2); color: var(--ink-2); font-size: var(--fs-m); }
+.gt-chart, .gt-preview .chart { margin: 4px 0 2px; }
+.gt-cap { color: var(--muted); font-size: var(--fs-m); }
+.gt-cap b { color: var(--ink); font-weight: 600; }
+.gt-note { margin: var(--sp-2) 0 0; color: var(--ink-2); font-size: var(--fs-m); }
+.gt-note b { color: var(--ink); font-weight: 600; }
+.gt-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--sp-3); padding-top: var(--sp-3); border-top: 1px solid var(--line); }
+.gt-remove { margin-left: auto; }
+.gt-card.never { border-color: color-mix(in oklab, var(--critical) 45%, var(--line)); }
+.gt-maker { border-color: var(--line-2); }
+.gt-maker .gt-head { margin-bottom: var(--sp-3); }
+.gt-needle { width: 100%; }
+.gt-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); margin: var(--sp-2) 0 var(--sp-3); }
+.gt-ops button { min-width: 30px; padding: 0 8px; font-size: var(--fs-b); }
+.gt-need {
+  width: 112px; min-height: var(--h-m); padding: 0 var(--sp-2); border: 1px solid var(--border); border-radius: var(--r-m);
+  background: var(--surface); font-variant-numeric: tabular-nums;
+}
+.gt-need[aria-invalid="true"] { border-color: var(--critical); }
+.gt-unit { color: var(--muted); font-size: var(--fs-m); }
+.gt-ghost {
+  align-self: stretch; padding: var(--sp-4); border: 1px dashed var(--line-2); border-radius: var(--r-l);
+  color: var(--muted); font-size: var(--fs-m);
+}
+.gt-ghost b { color: var(--ink-2); font-weight: 600; }
+.gt-ghost p { margin: 6px 0 0; }
+.gt-problem { border-color: var(--critical); }
+.gt-stops { margin-top: var(--sp-5); }
+.gt-stop-rows { display: grid; gap: 2px; }
+.gt-stop {
+  display: grid; grid-template-columns: 56px minmax(60px, 140px) minmax(0, 1fr) max-content; align-items: center; gap: var(--sp-3);
+  padding: 6px 0; border-bottom: 1px solid var(--line); font-size: var(--fs-m);
+}
+.gt-stop:last-child { border-bottom: 0; }
+.gt-stop-share { text-align: right; }
+.gt-stop-bar { position: relative; height: 8px; border-radius: var(--r-s); background: var(--surface-2); overflow: hidden; }
+.gt-stop-bar i { position: absolute; inset: 0 auto 0 0; background: var(--off-bar); border-radius: var(--r-s); }
+.gt-stop-set { min-width: 0; overflow-wrap: anywhere; }
 
 /* the manifest at the foot of every view */
 .manifest-sec { margin-top: 32px; }

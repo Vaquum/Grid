@@ -272,6 +272,80 @@ test("trials on a Limen run: tied rounds share a rank, values as written, the ta
   await page.close();
 });
 
+async function limenPage() {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const errors = [];
+  page.on("pageerror", e => errors.push(String(e)));
+  page.on("console", m => { if (m.type() === "error") errors.push(m.text()); });
+  return { page, errors };
+}
+
+test("gates: the factory sets a gate, the view comes alive, and each gate is a needle", async () => {
+  const { page, errors } = await limenPage();
+  await page.goto(base + "limen");
+  await page.waitForSelector(".pcard");
+  await page.keyboard.press("6");
+  await page.waitForSelector(".gt-maker");
+  // none set: the strip says so, and an empty card says what will come
+  assert.match(await page.locator(".strip").innerText(), /none set yet/);
+  assert.equal(await page.locator(".gt-ghost").count(), 1);
+  // a need on a needle, its rows against it as it is typed
+  const maker = page.locator(".gt-maker");
+  await page.selectOption(".gt-maker .gt-needle", "backtest_pnl_per_bar_bps");
+  await maker.locator('[data-focus="gate-op->"]').click();
+  await maker.locator(".gt-need").fill("0");
+  assert.match(await maker.locator(".gt-cap").innerText(), /of the rows pass · \d+ of 40$/);
+  await maker.locator(".gt-need").press("Enter");
+  await page.waitForSelector("article.gt-card");
+  assert.deepEqual(await page.locator("article.gt-card .gt-title").allInnerTexts(), ["Net PnL per bar > 0 bps"]);
+  assert.match(await page.locator(".strip").innerText(), /Pass every gate[\s\S]*Hardest/);
+  assert.equal(await maker.locator(".btn.primary").innerText(), "Already set");
+  // a second: what stops the rows that pass the most is at the foot
+  await page.selectOption(".gt-maker .gt-needle", "entries");
+  await maker.locator('[data-focus="gate-op->="]').click();
+  await maker.locator(".gt-need").fill("5");
+  await maker.locator(".btn.primary").click();
+  await page.waitForFunction(() => document.querySelectorAll("article.gt-card").length === 2);
+  assert.equal(await page.locator(".gt-stops").count(), 1);
+  // each gate, and every gate together, is a needle
+  const needles = await page.$$eval("#target-pick option", os => os.map(o => o.textContent));
+  for (const n of ["Net PnL per bar > 0 bps", "Entries ≥ 5", "Passes every gate", "Gates passed"]) assert.ok(needles.includes(n), n);
+  // the address keeps them
+  await page.reload();
+  await page.waitForSelector("article.gt-card");
+  assert.equal(await page.locator("article.gt-card").count(), 2);
+  // editing a need changes the gate, not its place
+  await page.locator("article.gt-card", { hasText: "Net PnL per bar > 0 bps" }).getByRole("button", { name: "Edit" }).click();
+  await page.locator(".gt-maker .gt-need").fill("0.1");
+  await page.locator(".gt-maker").getByRole("button", { name: "Save" }).click();
+  await page.waitForFunction(() => [...document.querySelectorAll("article.gt-card .gt-title")].some(t => t.textContent === "Net PnL per bar > 0.1 bps"));
+  assert.deepEqual(await page.locator("article.gt-card .gt-title").allInnerTexts(), ["Net PnL per bar > 0.1 bps", "Entries ≥ 5"]);
+  // what moves a gate: the board on it
+  await page.locator("article.gt-card", { hasText: "Entries ≥ 5" }).getByRole("button", { name: "What moves it" }).click();
+  await page.waitForSelector(".pcard");
+  assert.equal(await page.locator(".view h1").innerText(), "What moves Entries ≥ 5");
+  // removed, the factory is empty again, and the needle that was a gate goes too
+  await page.keyboard.press("6");
+  await page.waitForSelector("article.gt-card");
+  for (let k = 0; k < 2; k++) await page.locator("article.gt-card").first().getByRole("button", { name: "Remove" }).click();
+  await page.waitForSelector(".gt-ghost");
+  assert.equal(await page.locator("#target-pick").inputValue(), "backtest_pnl_per_bar_bps");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("gates: one that cannot be read says why, and goes on request", async () => {
+  const { page, errors } = await limenPage();
+  const token = "s1." + Buffer.from(JSON.stringify({ v: "gates", g: [{ id: "g1", target: "nope", op: ">=", value: 1 }] })).toString("base64url");
+  await page.goto(`${base}limen#${token}`);
+  await page.waitForSelector(".gt-problem");
+  assert.match(await page.locator(".gt-problem").innerText(), /this run has no needle nope/);
+  await page.locator(".gt-problem").getByRole("button", { name: "Remove" }).click();
+  await page.waitForSelector(".gt-ghost");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("the needle changes target and the replay edge hides later rows", async () => {
   const { page, errors } = await open();
   await page.selectOption("#target-pick", "mean_mo");
@@ -294,7 +368,7 @@ test("the address keeps the view across a reload", async () => {
   await page.waitForFunction(() => location.hash.startsWith("#s1."));
   await page.reload();
   await page.waitForSelector(".view h1");
-  assert.equal(await page.locator(".view h1").innerText(), "What the gates allow");
+  assert.equal(await page.locator(".view h1").innerText(), "Gates");
   await page.close();
 });
 

@@ -158,7 +158,8 @@ function baseColumns(m, keys) {
         for (const g of sc.gates) pills.append(h("span", { class: "pill" + (g.pass[x.i] === 1 ? " pass" : "") }));
         return pills;
       },
-      cellTip: x => h("div", null, sc.gates.map(g => h("div", null, h("b", { text: g.pass[x.i] === 1 ? "pass " : "fail " }), h("span", { class: "mono", text: g.id }), h("span", { class: "k", text: `  ${g.need}` })))) });
+      cellTip: x => h("div", null, sc.gates.map(g => h("div", null, h("b", { text: g.pass[x.i] === 1 ? "pass " : g.pass[x.i] === 0 ? "fail " : "no value " }),
+        g.set ? h("span", { text: g.label }) : [h("span", { class: "mono", text: g.id }), h("span", { class: "k", text: `  ${g.need}` })]))) });
   }
   for (const { t } of keys) cols.push(targetCol(t));
   if (!keys.some(k => k.t === m.target)) cols.push(targetCol(m.target));
