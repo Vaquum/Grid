@@ -5,6 +5,9 @@
   "type": "module",
   "description": "Development tooling only. The page has no runtime dependencies.",
   "scripts": {
-    "test": "node --test --test-reporter=spec \"tests/js/**/*.test.mjs\""
+    "test": "node --test --test-reporter=spec \"tests/js/**/*.test.mjs\"",
+    "test:browser": "node --test --test-reporter=spec \"tests/browser/*.test.mjs\"",
+    "typecheck": "pyright",
+    "build": "python3 tools/build.py --out dist/grid.html"
   }
 }

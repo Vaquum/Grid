@@ -18,7 +18,7 @@
 // what was not used to draw them: the parameters, and any other outcome.
 
 import { MIN_N, gTest } from "./engine.js";
-import { bhQ, normCdf } from "./stats.js";
+import { bhQ, normCdf, rankAt } from "./stats.js";
 
 export const K_MAX = 7;
 export const MIN_SILHOUETTE = 0.26;
@@ -28,7 +28,6 @@ const SAMPLE_FIT = 20000;  // rows the final centres are fitted on
 const RESTARTS = 4;
 const MAX_ITER = 60;
 const SEED = 0x5eed;
-const KINDS = ["score", "activity", "risk", "skill", "outcome"];
 export const CLUSTER_IDS = "ABCDEFG";
 
 // The outcomes clusters are drawn from, each with its kind and weight.
@@ -322,7 +321,7 @@ export function* clusterJob(schema, rows, opts = {}) {
   }
   const clusters = members.map((list, c) => {
     const rs = Uint32Array.from(list).sort();
-    const medians = P.used.map(o => median(o.t.values, rs));
+    const medians = P.used.map(o => medianOf(o.t.values, rs));
     return { id: CLUSTER_IDS[c], index: c, n: rs.length, share: rs.length / rows.length, rows: rs, medians,
       standsOut: standsOut(P, final.C, rank[c], j => seen[rank[c] * P.d + j] / size[rank[c]]) };
   });
@@ -337,13 +336,12 @@ export function clusterRows(schema, rows, opts) {
   return r.value;
 }
 
-function median(values, rows) {
+// The median as a value the rows have (stats rankAt), so it prints as the
+// runner wrote it and matches the cards'.
+function medianOf(values, rows) {
   const v = [];
   for (let j = 0; j < rows.length; j++) { const x = values[rows[j]]; if (x === x) v.push(x); }
-  if (!v.length) return NaN;
-  v.sort((a, b) => a - b);
-  const m = v.length >> 1;
-  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+  return rankAt(v.sort((a, b) => a - b), 0.5);
 }
 
 // The outcomes a cluster stands out on: its centre's rank furthest from
@@ -419,4 +417,3 @@ export function composition(dims, rows, inGroup, refRows) {
   return out;
 }
 
-export { KINDS };

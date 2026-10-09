@@ -140,6 +140,39 @@ pocket, see below) and up to the replay edge.
   company allows, with HC3 errors (calibrated on null sweeps: 4.5–5.5% of
   terms under p = 0.05, down to 10 drops) and BH across the columns.
   Columns never dropped apart are one term; under 10 drops, no number.
+- **Clusters**: rows grouped by what they did. A row is read on the
+  outcomes that say so: the runner's objective, and a profile's activity,
+  risk and skill metrics (without a profile, every outcome that is not a
+  pass flag, a fit diagnostic or a compute cost). Each outcome is replaced
+  by its rank among the rows in view (ties at their mean rank), so a heavy
+  tail or a heap at 0 weighs like any spread, and each kind weighs alike
+  however many outcomes it has. k-means with k-means++ starts from a
+  fixed seed (the same rows give the same clusters), four starts a k, for
+  k from 2 to 7, on up to 2,000 rows (the centres then refitted on up to
+  20,000, and every row placed at its nearest). The k with the best mean
+  silhouette (on up to 1,000 rows) is shown; any other whose clusters
+  each hold 30 rows and whose silhouette is 0.26 or more can be chosen.
+  None is drawn under 0.26 (Kaufman and Rousseeuw: no substantial
+  structure; 0.26 to 0.5 weak, 0.51 to 0.7 reasonable, over 0.7 strong).
+  A missing outcome is never filled in: distances use the outcomes a row
+  has, scaled to the full weight, and a row with under half the weight is
+  in no cluster. Clusters are named by size (A the largest) and by the two
+  outcomes their centre sits furthest from the middle on, among those
+  most of the cluster has, at the cluster's median.
+- **Distributions**: each group's share of its own rows per bin (side by
+  side), over the 1st to 99th percentile of the rows drawn; a dozen whole
+  values or fewer get a bar each. Under the axis, each group's middle half,
+  5th to 95th percentile and median. A bin over four times the next is
+  broken at twice it, with its share. Medians and quartiles in the text are
+  values the rows have, printed as written. The clusters differ on the
+  outcomes they are drawn on by construction, so those are never tested;
+  any other outcome is, the chosen rows against the rest or one cluster
+  against the other (Mann-Whitney U with the tie correction, normal
+  approximation; for a 0/1 outcome the G test), q across the cards.
+- **What makes a cluster**: each parameter's values inside it against the
+  rows it is set against, the G test of independence between being in it
+  and the parameter's value, Cramér's V from G, q across the parameters;
+  a parameter's most over-represented value is named.
 - **Rows like a row**: the other rows that share its values of the
   parameters that move the needle, strongest first, as many of them as
   leave at least 30 rows (the row itself is left out): their mean, with
@@ -159,9 +192,9 @@ pocket, see below) and up to the replay edge.
 
 ## Views
 
-The Board, the Pocket, Pairs, Trials and Gates open with a strip of their
-figures and their blurb behind an (i) (a click opens it, and so do five
-seconds resting on the (i)); the other views follow in their own passes.
+The Board, the Pocket, Pairs, Trials, Gates and the Run open with a strip
+of their figures and their blurb behind an (i) (a click opens it, and so
+do five seconds resting on the (i)); Features follows in its own pass.
 A tooltip shows after half a second, and the next one at once. Every view ends with
 the experiment's manifest, folded: the copy `limen run` kept, shown as
 written, narrowed to what the view looks at (the pocket, or the context)
@@ -199,8 +232,17 @@ text. A sweep without a manifest has no such section.
    in the address; each is a needle, and with any set, so are Passes every
    gate and Gates passed (a row fails every gate it fails and passes them
    all only when each is decided).
-7. **Run**: throughput, ETA, segments, crashes, warnings, invariants, the
-   record curve against the luck line.
+7. **Run**: the whole run on one page. A strip of the rows (of those
+   planned, and their pace while live), the needle, the best row against
+   the luck line, the clusters and anything broken; the rows' clusters as
+   toggles; a card per outcome's distribution (the needle, the outcomes
+   the clusters are drawn on, compute cost), for every row by default,
+   for the chosen clusters together against every row, or with Compare
+   for one cluster against another; what makes each cluster (the
+   parameters it holds more of than every row does, or with a choice,
+   every parameter's values inside it against every row or the other
+   cluster); then the best against luck, pace and segments, problems,
+   the sampler and warnings.
 
 ## A card
 

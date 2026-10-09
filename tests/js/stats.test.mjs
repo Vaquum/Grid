@@ -71,3 +71,11 @@ test("meanInterval is exact for shifted sums", () => {
   close(b.mean, 0.3, 1e-15, "binary mean");
   assert.deepEqual([b.lo, b.hi], S.wilson(3, 10));
 });
+
+test("a median or quartile is a value the rows hold, the lower middle of an even count", () => {
+  assert.equal(S.rankAt([1, 2, 3, 4], 0.5), 2);
+  assert.equal(S.rankAt([1, 2, 3, 4, 5], 0.5), 3);
+  assert.equal(S.rankAt([0, 0, 0.1, 0.2], 0.25), 0);
+  assert.equal(S.rankAt([0, 0, 0.1, 0.2], 0.75), 0.1);
+  assert.ok(Number.isNaN(S.rankAt([], 0.5)));
+});

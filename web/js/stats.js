@@ -184,6 +184,15 @@ export function wilson(k, n, alpha = 0.05) {
   return [Math.max(0, mid - half), Math.min(1, mid + half)];
 }
 
+// The value at a share of the way up sorted values, as a value they hold:
+// the lower of the two a share falls between (an even count's median is
+// its lower middle). Every median and quartile Grid shows comes from here,
+// so the same rows show the same median everywhere, printed as written.
+export function rankAt(sorted, f) {
+  const n = sorted.length;
+  return n ? sorted[Math.floor(f * (n - 1))] : NaN;
+}
+
 // Benjamini–Hochberg q-values (same order as input; NaN stays NaN).
 export function bhQ(pvals) {
   const idx = [];

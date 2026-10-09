@@ -5,6 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { clusterOutcomes, clusterRows, rankScale, mannWhitney, composition, grade } from "../../web/js/clusters.js";
+import { rankAt } from "../../web/js/stats.js";
 
 function rng(seed) {
   let a = seed >>> 0;
@@ -77,6 +78,13 @@ test("three planted kinds of row come back as three clusters, largest first, the
   // the same rows give the same clusters
   const again = clusterRows(schema, rows, { n: rows.length });
   assert.deepEqual(again.clusters.map(c => [...c.rows].join()), r.clusters.map(c => [...c.rows].join()));
+  // a cluster's median is the one the cards print (stats rankAt), even for an even count
+  for (const c of r.clusters) {
+    r.outcomes.forEach((o, j) => {
+      const v = Array.from(c.rows, i => o.t.values[i]).filter(x => x === x).sort((a, b) => a - b);
+      assert.equal(c.medians[j], rankAt(v, 0.5), `${c.id} ${o.t.id}`);
+    });
+  }
   // a cluster names the outcomes it stands out on
   const big = r.clusters.find(c => c.rows.every(i => kinds[i] === 0) || c.n > 400);
   assert.equal(big.standsOut.length, 2);
@@ -145,4 +153,16 @@ test("composition finds the parameter that sends rows into a group, and not the 
   assert.ok(z.q > 0.05, `${z.q}`);
   // the shares: cal = 1 is over-represented in the group
   assert.ok(c.levels[1].inGroup > 0.6 && Math.abs(c.levels[1].inRef - 0.5) < 0.05);
+});
+
+test("another number of clusters with structure can be chosen; one without falls back to the best", () => {
+  const { schema, rows } = sweep(900, 7, THREE, (i, u) => (u() < 0.5 ? 0 : u() < 0.6 ? 1 : 2));
+  const two = clusterRows(schema, rows, { n: rows.length, k: 2 });
+  assert.equal(two.best, 3);
+  assert.equal(two.k, 2);
+  assert.equal(two.clusters.length, 2);
+  assert.ok(two.scores.find(s => s.k === 2).usable && two.scores.find(s => s.k === 3).usable, JSON.stringify(two.scores));
+  const without = two.scores.find(s => !s.usable);
+  if (without) assert.equal(clusterRows(schema, rows, { n: rows.length, k: without.k }).k, 3);
+  assert.equal(clusterRows(schema, rows, { n: rows.length, k: 99 }).k, 3);
 });

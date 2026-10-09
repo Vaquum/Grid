@@ -7,14 +7,14 @@
 // there); the best row against luck; and the run's health: its pace and
 // segments, its problems and warnings, and the sampler.
 
-import { h, icon, tip, fmtT, fmtInt, fmtPct, fmtP, fmtNum, fmtDuration, fmtAgo, inText, rangeText } from "./ui.js";
+import { h, icon, tip, fmtT, fmtRowValue, fmtInt, fmtPct, fmtP, fmtNum, fmtDuration, fmtAgo, inText, rangeText } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
-import { lineChart, distChart, quantile } from "./charts.js";
+import { lineChart, distChart } from "./charts.js";
 import { invariantBreaks, recordCurve, uniformity, summarize, rowsIn, gTest, MIN_N } from "./engine.js";
 import { buildSchema } from "./schema.js";
 import { independence, moderatorParents, boardDims, background } from "./model.js";
 import { clusterJob, clusterOutcomes, mannWhitney, composition, MIN_SILHOUETTE } from "./clusters.js";
-import { bhQ } from "./stats.js";
+import { bhQ, rankAt } from "./stats.js";
 
 // The log a run's runner writes.
 export function runLog(m) {
@@ -157,7 +157,7 @@ function setCompare(m, A, on) {
 // The colours of what the cards show: the chosen rows in blue against
 // every row in grey; two clusters compared in the first two categorical
 // colours.
-function groupsOf(m, sel) {
+function shownGroups(m, sel) {
   if (sel.mode === "compare") {
     return [{ key: "a", label: sel.a.id, rows: sel.a.rows, fill: "var(--cat-1-bar)", ink: "var(--cat-1)" },
       { key: "b", label: sel.b.id, rows: sel.b.rows, fill: "var(--cat-2-bar)", ink: "var(--cat-2)" }];
@@ -186,7 +186,7 @@ function whyNone(res) {
 function standText(res, c) {
   return c.standsOut.map(so => {
     const t = res.outcomes[so.outcome].t;
-    return `${t.label} ${fmtT(t, c.medians[so.outcome])}`;
+    return `${t.label} ${fmtRowValue(t, c.medians[so.outcome])}`;
   }).join(" · ");
 }
 
@@ -220,7 +220,7 @@ function clusterIsland(m, A, res, sel) {
     h("span", { class: "rn-chip-share num", text: fmtPct(c.share, 0) }),
     h("span", { class: "rn-chip-what", text: standText(res, c) }));
     tip(b, () => h("div", null, h("b", { text: `Cluster ${c.id}: ${fmtInt(c.n)} rows, ${fmtPct(c.share, 1)}` }),
-      h("div", null, res.outcomes.map((o, j) => h("div", { class: "k", text: `${o.t.label}: median ${fmtT(o.t, c.medians[j])}` }))),
+      h("div", null, res.outcomes.map((o, j) => h("div", { class: "k", text: `${o.t.label}: median ${fmtRowValue(o.t, c.medians[j])}` }))),
       h("div", { class: "k", text: on ? "Choose it again to leave it out." : sel.compare ? "Choose it to compare; a third replaces the first." : "Choose it to set it against every row; choose more to set them together." })));
     chips.append(b);
   }
@@ -310,7 +310,7 @@ function testOf(t, sel, m) {
 function distIsland(m, res, sel) {
   const outs = cardOutcomes(m, res);
   const drawn = new Set(res && res.clusters.length ? res.outcomes.map(o => o.t.id) : []);
-  const groups = groupsOf(m, sel);
+  const groups = shownGroups(m, sel);
   const tests = outs.map(t => (sel.mode === "whole" || drawn.has(t.id) ? null : testOf(t, sel, m)));
   const q = bhQ(tests.map(x => (x ? x.p : NaN)));
   const isl = h("section", { class: "island rn-dists", "aria-label": "Distributions" },
@@ -319,6 +319,10 @@ function distIsland(m, res, sel) {
       h("div", { class: "legend rn-legend" }, groups.map(g => h("span", null, h("i", { class: "box", style: { background: g.ink } }),
         `${g.label} · ${fmtInt(g.rows.length)} rows`)))));
   if (!outs.length) { isl.append(h("p", { class: "isl-note", text: "No row in view has an outcome yet." })); return isl; }
+  const nDrawn = outs.filter(t => drawn.has(t.id)).length;
+  if (sel.mode !== "whole" && nDrawn) {
+    isl.append(h("p", { class: "isl-note rn-drawn", text: `The clusters are drawn on ${nDrawn === outs.length ? "every one of these outcomes" : `${nDrawn} of these ${outs.length} outcomes`} (marked), so they differ on ${nDrawn === 1 ? "it" : "them"} by construction: shown, never tested.${nDrawn < outs.length ? ` The ${outs.length - nDrawn === 1 ? "other is" : "others are"} tested${outs.length - nDrawn > 1 ? ", with q across them" : ""}.` : ""}` }));
+  }
   const grid = h("div", { class: "rn-grid" });
   outs.forEach((t, j) => grid.append(distCard(m, t, groups, drawn.has(t.id), sel, tests[j], q[j], res)));
   isl.append(grid);
@@ -357,18 +361,20 @@ function distCard(m, t, groups, drawn, sel, test, q, res) {
       line.append(h("span", null, groups.length > 1 ? h("b", { text: `${g.label} ` }) : null, `${fmtPct(s.mean, 1)} of rows`,
         h("span", { class: "muted", text: ` · 95% ${rangeText(t, s.lo, s.hi)}` })));
     } else {
-      line.append(h("span", null, groups.length > 1 ? h("b", { text: `${g.label} ` }) : null, `median ${fmtT(t, quantile(v, 0.5))}`,
-        h("span", { class: "muted", text: ` · middle half ${fmtT(t, quantile(v, 0.25), { unit: false })} to ${fmtT(t, quantile(v, 0.75))}` })));
+      const q1 = rankAt(v, 0.25), q3 = rankAt(v, 0.75);
+      line.append(h("span", null, groups.length > 1 ? h("b", { text: `${g.label} ` }) : null, `median ${fmtRowValue(t, rankAt(v, 0.5))}`,
+        h("span", { class: "muted", text: q1 === q3 ? ` · middle half at ${fmtRowValue(t, q1)}` : ` · middle half ${fmtRowValue(t, q1, { unit: false })} to ${fmtRowValue(t, q3)}` })));
       const heap = heapOf(v);
-      if (heap) line.append(h("span", { class: "muted", text: ` · ${fmtPct(heap.share, 0)} at ${fmtT(t, heap.v)}` }));
+      if (heap) line.append(h("span", { class: "muted", text: ` · ${fmtPct(heap.share, 0)} at ${fmtRowValue(t, heap.v)}` }));
     }
     if (miss) line.append(h("span", { class: "muted", text: ` · ${fmtInt(miss)} without one` }));
     figs.append(line);
   });
-  if (ch.outside) figs.append(h("div", { class: "rn-fig muted", text: `${fmtInt(ch.outside)} values beyond the 1st to 99th percentile are not drawn.` }));
+  if (ch.outside) figs.append(h("div", { class: "rn-fig muted", text: `${fmtInt(ch.outside)} outside the 1st to 99th percentile, not plotted` }));
   card.append(figs);
-  // what sets them apart on it
-  if (sel.mode !== "whole") card.append(h("p", { class: "rn-diff" + (test && q < 0.05 ? " on" : "") }, diffText(t, groups, drawn, test, q, sel)));
+  // what sets them apart on it: tested only where the clusters are not
+  // drawn (the island says so once)
+  if (sel.mode !== "whole" && !drawn) card.append(h("p", { class: "rn-diff" + (test && q < 0.05 ? " on" : "") }, diffText(t, groups, test, q, sel)));
   return card;
 }
 
@@ -385,8 +391,7 @@ function heapOf(v) {
   return best;
 }
 
-function diffText(t, groups, drawn, test, q, sel) {
-  if (drawn) return "Different by construction: the clusters are drawn on it, so no test.";
+function diffText(t, groups, test, q, sel) {
   if (!test || !Number.isFinite(q)) return "Too few values to compare.";
   const [a, b] = sel.mode === "compare" ? [sel.a.id, sel.b.id] : [sel.label, "the other rows"];
   if (q >= 0.05) return `No detectable difference between ${a} and ${b} (${fmtP(q)}).`;
@@ -454,7 +459,7 @@ function apartIsland(m, A, res, sel) {
   const rest = comp.filter(x => !(x.q < 0.05));
   isl.append(h("header", { class: "isl-head" }, h("h2", { class: "isl-title", text: sel.mode === "compare" ? `What sets ${ga} and ${gb} apart` : `What sets ${ga} apart` }),
     h("span", { class: "isl-count num", text: `${fmtInt(det.length)} of ${fmtInt(comp.length)} parameters` })));
-  const groups = groupsOf(m, sel);
+  const groups = shownGroups(m, sel);
   if (!det.length) isl.append(h("p", { class: "isl-note", text: `No parameter is detectably more common in ${ga} than in ${gb} (q < 0.05 across the parameters).` }));
   const list = h("div", { class: "rn-params" });
   for (const x of det) list.append(paramRow(x, groups));
@@ -505,7 +510,7 @@ function runStrip(m, A, health, res, sel) {
   if (N) {
     const s = summarize(t, m.rows);
     const v = sortedVals(t.values, m.rows);
-    cells.push(stripCell(t.label, fmtT(t, s.mean), t.kind === "binary" ? `95% ${rangeText(t, s.lo, s.hi)}` : `median ${fmtT(t, quantile(v, 0.5))}`,
+    cells.push(stripCell(t.label, fmtT(t, s.mean), t.kind === "binary" ? `95% ${rangeText(t, s.lo, s.hi)}` : `median ${fmtRowValue(t, rankAt(v, 0.5))}`,
       () => h("div", null, h("b", { text: `${t.label}: the mean over the rows in view` }),
         h("div", { text: `95% ${rangeText(t, s.lo, s.hi)} over ${fmtInt(s.n)} rows${s.missing ? `; ${fmtInt(s.missing)} have no value` : ""}.` }),
         h("div", { class: "k", text: "Its whole distribution is the first card below." }))));
@@ -513,7 +518,7 @@ function runStrip(m, A, health, res, sel) {
   const rec = recordOf(m);
   if (rec) {
     const above = (rec.last.best - rec.last.luck) * (rec.t.better < 0 ? -1 : 1) > 0;
-    cells.push(stripCell("Best", fmtT(rec.t, rec.last.best), `${above ? "above" : "inside"} the luck line, ${fmtT(rec.t, rec.last.luck)}`,
+    cells.push(stripCell("Best", fmtRowValue(rec.t, rec.last.best), `${above ? "above" : "inside"} the luck line, ${fmtT(rec.t, rec.last.luck)}`,
       () => h("div", null, h("b", { text: `The best ${inText(rec.t.label)} so far, against luck` }),
         h("div", { class: "k", text: "The luck line is what the best of as many rows would reach if every configuration were equally good and all spread were noise." }))));
   }
@@ -543,10 +548,10 @@ function runNotes(m, health, res) {
   lines.push(`Rows: ${fmtInt(m.rows.length)}${health.total ? ` of ${fmtInt(health.total)} planned` : ""}`);
   if (m.rows.length) {
     const s = summarize(t, m.rows), v = sortedVals(t.values, m.rows);
-    lines.push(`${t.label}: mean ${fmtT(t, s.mean)} (95% ${rangeText(t, s.lo, s.hi)})${t.kind === "binary" ? "" : `, median ${fmtT(t, quantile(v, 0.5))}, middle half ${fmtT(t, quantile(v, 0.25))} to ${fmtT(t, quantile(v, 0.75))}`}`);
+    lines.push(`${t.label}: mean ${fmtT(t, s.mean)} (95% ${rangeText(t, s.lo, s.hi)})${t.kind === "binary" ? "" : `, median ${fmtRowValue(t, rankAt(v, 0.5))}, middle half ${fmtRowValue(t, rankAt(v, 0.25))} to ${fmtRowValue(t, rankAt(v, 0.75))}`}`);
   }
   const rec = recordOf(m);
-  if (rec) lines.push(`Best ${inText(rec.t.label)}: ${fmtT(rec.t, rec.last.best)}; noise alone would give about ${fmtT(rec.t, rec.last.luck)}`);
+  if (rec) lines.push(`Best ${inText(rec.t.label)}: ${fmtRowValue(rec.t, rec.last.best)}; noise alone would give about ${fmtT(rec.t, rec.last.luck)}`);
   if (res && res.clusters.length) {
     lines.push(`Clusters: ${res.k} (silhouette ${res.silhouette.toFixed(2)}, ${res.grade}), drawn on ${res.outcomes.map(o => o.t.label).join(", ")}`);
     const comp = apartOf(m, res, { mode: "whole", pick: [] });
@@ -588,7 +593,7 @@ function recordIsland(m) {
   ], { height: 190, xLabel: "rows", fmtY: v => fmtT(rec.t, v), label: "record against the luck line" }));
   const above = (rec.last.best - rec.last.luck) * (rec.t.better < 0 ? -1 : 1) > 0;
   isl.append(h("p", { class: "isl-note" }, h("b", { text: above ? "Above the luck line" : "Inside the luck line" }),
-    `: the best row reaches ${fmtT(rec.t, rec.last.best)}; noise alone would give about ${fmtT(rec.t, rec.last.luck)} at ${fmtInt(rec.last.n)} rows. The dashed line is that expectation; a record that only tracks it is harvesting noise.`));
+    `: the best row reaches ${fmtRowValue(rec.t, rec.last.best)}; noise alone would give about ${fmtT(rec.t, rec.last.luck)} at ${fmtInt(rec.last.n)} rows. The dashed line is that expectation; a record that only tracks it is harvesting noise.`));
   return isl;
 }
 

@@ -11,6 +11,13 @@ needle at each of its values (a number's values on x, small to large; a
 category's as bars), every card on one shared scale. Choosing a card opens
 it in the inspector. Pockets are built by stacking value blocks.
 
+The Run view is the whole run on one page: a card per outcome's
+distribution, and the rows grouped into clusters by what they did (their
+score and the activity, risk and model skill behind it). Choose clusters
+to set them against every row, or compare two; what makes each cluster is
+tested on the parameters, never on the outcomes the clusters are drawn
+on. No cluster is drawn when the rows do not fall into groups.
+
 ## Run it
 
 The page is built once; the server needs only Python's standard library.
