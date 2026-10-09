@@ -14,7 +14,7 @@ import { invariantBreaks, recordCurve, uniformity, summarize, rowsIn, gTest, MIN
 import { buildSchema } from "./schema.js";
 import { independence, moderatorParents, boardDims, background } from "./model.js";
 import { clusterJob, clusterOutcomes, mannWhitney, composition, MIN_SILHOUETTE } from "./clusters.js";
-import { bhQ } from "./stats.js";
+import { bhQ, rankAt } from "./stats.js";
 
 // The log a run's runner writes.
 export function runLog(m) {
@@ -277,12 +277,6 @@ function hasValues(t, rows) {
   return false;
 }
 
-// The value at a share of the way up sorted values: a value the rows have
-// (nearest rank), so it prints no finer than the runner wrote it.
-function at(v, f) {
-  return v.length ? v[Math.round(f * (v.length - 1))] : NaN;
-}
-
 function sortedVals(values, rows) {
   const v = [];
   for (let j = 0; j < rows.length; j++) { const x = values[rows[j]]; if (x === x) v.push(x); }
@@ -367,8 +361,8 @@ function distCard(m, t, groups, drawn, sel, test, q, res) {
       line.append(h("span", null, groups.length > 1 ? h("b", { text: `${g.label} ` }) : null, `${fmtPct(s.mean, 1)} of rows`,
         h("span", { class: "muted", text: ` · 95% ${rangeText(t, s.lo, s.hi)}` })));
     } else {
-      const q1 = at(v, 0.25), q3 = at(v, 0.75);
-      line.append(h("span", null, groups.length > 1 ? h("b", { text: `${g.label} ` }) : null, `median ${fmtRowValue(t, at(v, 0.5))}`,
+      const q1 = rankAt(v, 0.25), q3 = rankAt(v, 0.75);
+      line.append(h("span", null, groups.length > 1 ? h("b", { text: `${g.label} ` }) : null, `median ${fmtRowValue(t, rankAt(v, 0.5))}`,
         h("span", { class: "muted", text: q1 === q3 ? ` · middle half at ${fmtRowValue(t, q1)}` : ` · middle half ${fmtRowValue(t, q1, { unit: false })} to ${fmtRowValue(t, q3)}` })));
       const heap = heapOf(v);
       if (heap) line.append(h("span", { class: "muted", text: ` · ${fmtPct(heap.share, 0)} at ${fmtRowValue(t, heap.v)}` }));
@@ -516,7 +510,7 @@ function runStrip(m, A, health, res, sel) {
   if (N) {
     const s = summarize(t, m.rows);
     const v = sortedVals(t.values, m.rows);
-    cells.push(stripCell(t.label, fmtT(t, s.mean), t.kind === "binary" ? `95% ${rangeText(t, s.lo, s.hi)}` : `median ${fmtRowValue(t, at(v, 0.5))}`,
+    cells.push(stripCell(t.label, fmtT(t, s.mean), t.kind === "binary" ? `95% ${rangeText(t, s.lo, s.hi)}` : `median ${fmtRowValue(t, rankAt(v, 0.5))}`,
       () => h("div", null, h("b", { text: `${t.label}: the mean over the rows in view` }),
         h("div", { text: `95% ${rangeText(t, s.lo, s.hi)} over ${fmtInt(s.n)} rows${s.missing ? `; ${fmtInt(s.missing)} have no value` : ""}.` }),
         h("div", { class: "k", text: "Its whole distribution is the first card below." }))));
@@ -554,7 +548,7 @@ function runNotes(m, health, res) {
   lines.push(`Rows: ${fmtInt(m.rows.length)}${health.total ? ` of ${fmtInt(health.total)} planned` : ""}`);
   if (m.rows.length) {
     const s = summarize(t, m.rows), v = sortedVals(t.values, m.rows);
-    lines.push(`${t.label}: mean ${fmtT(t, s.mean)} (95% ${rangeText(t, s.lo, s.hi)})${t.kind === "binary" ? "" : `, median ${fmtRowValue(t, at(v, 0.5))}, middle half ${fmtRowValue(t, at(v, 0.25))} to ${fmtRowValue(t, at(v, 0.75))}`}`);
+    lines.push(`${t.label}: mean ${fmtT(t, s.mean)} (95% ${rangeText(t, s.lo, s.hi)})${t.kind === "binary" ? "" : `, median ${fmtRowValue(t, rankAt(v, 0.5))}, middle half ${fmtRowValue(t, rankAt(v, 0.25))} to ${fmtRowValue(t, rankAt(v, 0.75))}`}`);
   }
   const rec = recordOf(m);
   if (rec) lines.push(`Best ${inText(rec.t.label)}: ${fmtRowValue(rec.t, rec.last.best)}; noise alone would give about ${fmtT(rec.t, rec.last.luck)}`);

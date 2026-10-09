@@ -18,7 +18,7 @@
 // what was not used to draw them: the parameters, and any other outcome.
 
 import { MIN_N, gTest } from "./engine.js";
-import { bhQ, normCdf } from "./stats.js";
+import { bhQ, normCdf, rankAt } from "./stats.js";
 
 export const K_MAX = 7;
 export const MIN_SILHOUETTE = 0.26;
@@ -336,14 +336,12 @@ export function clusterRows(schema, rows, opts) {
   return r.value;
 }
 
-// The median as a value the rows have (the lower middle of an even count),
-// so it prints as the runner wrote it.
+// The median as a value the rows have (stats rankAt), so it prints as the
+// runner wrote it and matches the cards'.
 function medianOf(values, rows) {
   const v = [];
   for (let j = 0; j < rows.length; j++) { const x = values[rows[j]]; if (x === x) v.push(x); }
-  if (!v.length) return NaN;
-  v.sort((a, b) => a - b);
-  return v[(v.length - 1) >> 1];
+  return rankAt(v.sort((a, b) => a - b), 0.5);
 }
 
 // The outcomes a cluster stands out on: its centre's rank furthest from

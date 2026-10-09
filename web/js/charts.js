@@ -3,6 +3,7 @@
 // values hollow. Every mark answers hover and focus with its numbers.
 
 import { h, s, tip, fmtT, fmtDelta, fmtInt, fmtNum, fmtPct } from "./ui.js";
+import { rankAt } from "./stats.js";
 
 // A horizontal domain for interval bars (the inspector's table): every
 // shown level mean and interval, plus the base, with a little air.
@@ -251,7 +252,8 @@ export function quantile(sorted, f) {
 // Where one or two groups of rows sit on an outcome: each group's share of
 // its own rows in each bin (so a small group reads against a large one),
 // side by side, and under the axis each group's middle half (box), its
-// 5th to 95th percentile (whisker) and its median (tick). An outcome with
+// 5th to 95th percentile (whisker) and its median (tick), each a value the
+// rows have (stats rankAt), as the cards print them. An outcome with
 // a dozen whole values or fewer gets a bar per value. Bins span the 1st to
 // 99th percentile of the rows drawn (`outside` counts the rest). One bin
 // far taller than the rest (most rounds at exactly 0) is drawn broken at
@@ -348,7 +350,8 @@ export function distChart(groups, opts = {}) {
     shown.forEach((g, gi) => {
       const y = base + m.b + 4 + gi * 10;
       const clamp = v => Math.min(W - m.r, Math.max(m.l, X(v)));
-      const q = f => quantile(g.vals, f);
+      // the same values the cards print (stats rankAt)
+      const q = f => rankAt(g.vals, f);
       const p5 = clamp(q(0.05)), p25 = clamp(q(0.25)), p50 = clamp(q(0.5)), p75 = clamp(q(0.75)), p95 = clamp(q(0.95));
       const box = s("g", { class: "has-tip dist-box" });
       box.append(s("line", { x1: p5, x2: p95, y1: y, y2: y, stroke: g.ink || g.fill, "stroke-width": 1.25 }));
