@@ -5,7 +5,7 @@
 // row, and the activity, risk, model skill and run time behind each score
 // where the sweep records them.
 
-import { h, tip, icon, fmtT, fmtInt, fmtP, fmtRowValue, inText, rangeText } from "./ui.js";
+import { h, tip, icon, fmtT, fmtInt, fmtP, fmtRowValue, inText, rangeText, runName } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { summarize, MIN_N } from "./engine.js";
 import { expectedMaxZ } from "./stats.js";
@@ -308,7 +308,7 @@ function trialsNotes(m, ranked, base, cols, shown, luck, lt) {
     const d = m.schema.dimById.get(c.dim);
     return `${d.label} = ${c.keys.map(k => (d.levels.find(l => l.key === k) || { label: k }).label).join("/")}`;
   });
-  const lines = [`${m.sweep.meta.name} · ${m.ds.meta.label} · the best ${fmtInt(ranked.list.length)} of ${fmtInt(ranked.n)} rows by ${m.schema.objectiveLabel}${ctx.length ? ` inside ${ctx.join(", ")}` : ""}${m.state.edge !== null && m.state.edge < m.ds.n ? ` (up to row ${fmtInt(m.edge)})` : ""}`, ""];
+  const lines = [`${m.sweep.meta.name} · ${runName(m.ds.meta)} · the best ${fmtInt(ranked.list.length)} of ${fmtInt(ranked.n)} rows by ${m.schema.objectiveLabel}${ctx.length ? ` inside ${ctx.join(", ")}` : ""}${m.state.edge !== null && m.state.edge < m.ds.n ? ` (up to row ${fmtInt(m.edge)})` : ""}`, ""];
   lines.push(`| ${all.map(c => `${c.note || c.label}${unitOf(c) ? ` (${unitOf(c)})` : ""}`).join(" | ")} |`);
   lines.push(`|${all.map(c => (c.num ? " ---: " : " --- ")).join("|")}|`);
   for (const x of ranked.list) lines.push(`| ${all.map(c => c.text(x)).join(" | ")} |`);

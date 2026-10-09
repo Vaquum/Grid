@@ -1,7 +1,7 @@
 // The inspector: a parameter (what it is, its attributes, where it acts,
 // its values and how their estimates settled), a value, or one row in full.
 
-import { h, icon, tip, clear, fmtT, fmtP, fmtInt, fmtPct, fmtDelta, fmtRowValue, copyText, inText } from "./ui.js";
+import { h, icon, tip, clear, fmtT, fmtP, fmtInt, fmtPct, fmtDelta, fmtRowValue, fmtStamp, copyText, inText } from "./ui.js";
 import { miniBar, lineChart, needleDomain } from "./charts.js";
 import { dimEffect, uniformity } from "./engine.js";
 import { rowObject } from "./pack.js";
@@ -196,7 +196,7 @@ function rowDetail(box, m, A, i) {
   if (!(i >= 0 && i < ds.n)) { box.append(closeRow(A), h("p", { class: "muted", text: `Row ${i} is not in this run.` })); return; }
   const obj = rowObject(ds, i);
   box.append(closeRow(A, h("div", null, h("div", { class: "eyebrow", text: rankLine(m, i) }), h("h2", { text: `Row ${fmtInt(i)}` }))));
-  if (Number.isFinite(ds.arrivals[i])) box.append(h("p", { class: "muted", text: `Arrived ${new Date(ds.arrivals[i] * 1000).toISOString().replace("T", " ").slice(0, 19)} UTC` }));
+  if (Number.isFinite(ds.arrivals[i])) box.append(h("p", { class: "muted", text: `Arrived ${fmtStamp(ds.arrivals[i])}` }));
   // gates
   if (sc.gates.length) {
     const tbl = h("table", { class: "vals" }, h("thead", null, h("tr", null, h("th", { text: "gate" }), h("th", { text: "value" }), h("th", { text: "need" }), h("th", { text: "" }))));

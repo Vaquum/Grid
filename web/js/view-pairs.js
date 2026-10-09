@@ -8,7 +8,7 @@
 // as that grid for each value of the third, more as their strongest and
 // weakest combinations.
 
-import { h, tip, fmtT, fmtInt, fmtP, fmtDelta, inText } from "./ui.js";
+import { h, tip, fmtT, fmtInt, fmtP, fmtDelta, inText, runName } from "./ui.js";
 import { pairEffect, cramersV, dimEffect, summarize, comboEffect, ALPHA } from "./engine.js";
 import { bhQ } from "./stats.js";
 import { moderatorParents, background } from "./model.js";
@@ -221,7 +221,7 @@ function pairsAbout(m, pairs) {
 function combosNotes(m, combos) {
   const [one, many] = SIZE_NAME[combos.size];
   const ranked = combos.list.filter(r => r.detectable).sort((a, b) => b.omega2 - a.omega2);
-  const lines = [`${cap(many)} on ${m.ds.meta.label}: ${m.target.label}, ${fmtInt(combos.rows)} rows, ${fmtInt(combos.tested)} of ${fmtInt(combos.sets)} ${many} of the ${fmtInt(combos.pool.length)} strongest parameters tested (${fmtInt(combos.sparse)} too sparse)`];
+  const lines = [`${cap(many)} on ${runName(m.ds.meta)}: ${m.target.label}, ${fmtInt(combos.rows)} rows, ${fmtInt(combos.tested)} of ${fmtInt(combos.sets)} ${many} of the ${fmtInt(combos.pool.length)} strongest parameters tested (${fmtInt(combos.sparse)} too sparse)`];
   lines.push(ranked.length ? `Interacting beyond every smaller set (q < 0.05), strongest first:` : `No ${one} acts beyond its smaller sets.`);
   for (const r of ranked) lines.push(`- ${setName(m, r.dims)}: ω² ${omega(r)}, ${fmtP(r.q)}`);
   return lines.join("\n");
@@ -232,7 +232,7 @@ const cap = (s) => s[0].toUpperCase() + s.slice(1);
 function pairsNotes(m, pairs) {
   const ranked = pairs.list.filter(r => r.detectable).sort((a, b) => b.omega2 - a.omega2);
   const linked = pairs.list.filter(r => r.linked);
-  const lines = [`Pairs on ${m.ds.meta.label}: ${m.target.label}, ${fmtInt(pairs.rows)} rows, ${fmtInt(pairs.list.length)} pairs of ${fmtInt(pairs.dims.length)} parameters`];
+  const lines = [`Pairs on ${runName(m.ds.meta)}: ${m.target.label}, ${fmtInt(pairs.rows)} rows, ${fmtInt(pairs.list.length)} pairs of ${fmtInt(pairs.dims.length)} parameters`];
   lines.push(ranked.length ? `Interacting (q < 0.05), strongest first:` : "No pair interacts detectably.");
   for (const r of ranked) lines.push(`- ${pairName(m, r)}: ω² ${omega(r)}, ${fmtP(r.q)}`);
   if (linked.length) {

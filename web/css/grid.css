@@ -205,10 +205,18 @@ button { cursor: pointer; }
   content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%;
   background: var(--good); vertical-align: 1px;
 }
-/* Anything but following live or a recording says so in ink. */
-.status:is([data-kind="replay"], [data-kind="stale"]) { border-color: var(--ink); color: var(--ink); }
+/* A replay says so in ink; a run being written that has gone quiet in the
+   warning colour, its dot hollow; a crash or a lost link in the critical
+   one. Rows kept (archived, recorded, an earlier run, finished) stay plain. */
+.status[data-kind="replay"] { border-color: var(--ink); color: var(--ink); }
+.status[data-kind="quiet"] { border-color: var(--warning); color: var(--ink); }
+.status[data-kind="quiet"] b::before {
+  content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--warning); vertical-align: 1px;
+}
 .status[data-kind="down"] { border-color: var(--critical); color: var(--critical-ink); }
 .status[data-kind="down"] b { color: var(--critical-ink); }
+.run-one { color: var(--ink-2); font-size: var(--fs-m); }
 .top-mid { display: flex; align-items: center; gap: var(--sp-2); flex: 1 1 auto; min-width: 0; flex-wrap: wrap; }
 .top-right { display: flex; align-items: center; gap: var(--sp-5); margin-left: auto; }
 .top-right .group { position: relative; display: flex; align-items: center; gap: 2px; }
@@ -337,6 +345,8 @@ button.sc:hover { background: var(--hover); }
 .sec-title .count { color: var(--muted); font-weight: 500; }
 .sec-title .note { color: var(--muted); font-weight: 400; font-size: var(--fs-m); }
 .sec-title::after { content: ""; flex: 1 1 auto; align-self: center; height: 1px; margin-left: var(--sp-2); background: var(--line); }
+/* a section's tools stand past its rule */
+.sec-title .sec-tool { order: 1; align-self: center; }
 .pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--sp-3); }
 .pcard {
   position: relative; display: flex; flex-direction: column; min-width: 0; padding: 14px var(--sp-4) 12px;
@@ -790,6 +800,16 @@ kbd { border: 1px solid var(--line-2); border-radius: 4px; padding: 0 5px; backg
   box-shadow: 0 6px 20px var(--shadow); font-size: var(--fs-m);
 }
 .toast b { font-weight: 600; }
+/* a toast's kind at its edge; one that opens something answers the pointer */
+.toast.crit { box-shadow: inset 3px 0 0 var(--critical), 0 6px 20px var(--shadow); }
+.toast.warn { box-shadow: inset 3px 0 0 var(--warning), 0 6px 20px var(--shadow); }
+.toast.good { box-shadow: inset 3px 0 0 var(--good), 0 6px 20px var(--shadow); }
+.toast.crit b { color: var(--critical-ink); }
+.toast.go { cursor: pointer; }
+.toast.go:hover { background: var(--hover); }
+.toast .go-k { color: var(--muted); }
+.issue.go { cursor: pointer; border-radius: var(--r-s); }
+.issue.go:hover { background: var(--hover); }
 
 /* run view */
 .timeline { display: flex; flex-direction: column; gap: var(--sp-2); }

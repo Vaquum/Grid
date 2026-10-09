@@ -210,6 +210,12 @@ test("a card opens in the inspector and a value goes into the pocket", async () 
   assert.match(await page.locator(".strip .sc").first().innerText(), /%/);
   // a sweep without a manifest has no manifest at its foot
   assert.equal(await page.locator(".manifest").count(), 0);
+  // a pinned pocket is kept in the address, as every other choice is
+  await page.locator("button", { hasText: "Pin to compare" }).click();
+  await page.waitForSelector("#pin-title");
+  await page.reload();
+  await page.waitForSelector("#pin-title");
+  assert.match(await page.locator("#pin-title").innerText(), /pinned pocket/);
   assert.deepEqual(errors, []);
   await page.close();
 });
@@ -471,6 +477,40 @@ test("the needle changes target and the replay edge hides later rows", async () 
   await page.close();
 });
 
+test("the cards with no detectable effect fold to their names, and stay folded", async () => {
+  const { page, errors } = await open();
+  const quiet = page.locator(".board-sec", { has: page.locator(".sec-title", { hasText: "No detectable effect" }) });
+  const n = Number(await quiet.locator(".sec-title .count").innerText());
+  assert.ok(await quiet.locator(".pcard").count() === n && n > 0);
+  await quiet.locator("button", { hasText: "Fold to names" }).click();
+  await page.waitForSelector(".board-sec .chips button.chip");
+  assert.equal(await quiet.locator(".pcard").count(), 0);
+  assert.equal(await quiet.locator(".chips button.chip").count(), n);
+  // the address keeps it folded; a name opens its parameter
+  await page.reload();
+  await page.waitForSelector(".board-sec .chips button.chip");
+  await quiet.locator(".chips button.chip", { hasText: /^sizing$/ }).click();
+  await page.waitForSelector("#inspector .part");
+  assert.equal(await page.locator("#inspector h2").innerText(), "sizing");
+  await quiet.locator("button", { hasText: "Show the cards" }).click();
+  await page.waitForFunction(() => !document.querySelector(".board-sec .chips button.chip"));
+  assert.equal(await quiet.locator(".pcard").count(), n);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("the tab names the sweep and the view, under Grid's mark", async () => {
+  const { page, errors } = await open();
+  assert.equal(await page.title(), "Synthetic sweep · Board — Grid");
+  await page.keyboard.press("7");
+  await page.waitForFunction(() => document.title === "Synthetic sweep · Run — Grid");
+  assert.match(await page.locator("#favicon").getAttribute("href"), /^data:image\/svg\+xml,/);
+  // a recording is neither live nor in trouble: the mark has no dot
+  assert.doesNotMatch(decodeURIComponent(await page.locator("#favicon").getAttribute("href")), /circle/);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("the address keeps the view across a reload", async () => {
   const { page } = await open();
   await page.keyboard.press("6");
@@ -707,6 +747,11 @@ test("live: arriving rows leave the reader's controls alone", async () => {
     await moreRows(page);
     assert.equal(await select.evaluate(el => el.isConnected && document.activeElement === el), true, "the needle select was replaced or lost focus");
     assert.equal(await option.evaluate(el => el.isConnected), true, "the needle options were rebuilt");
+    // the cards keep their places while rows arrive
+    const places = () => page.$$eval(".pcard", cs => cs.map(c => c.dataset.focus).join(" "));
+    const before = await places();
+    await moreRows(page);
+    assert.equal(await places(), before, "the cards moved while rows arrived");
     // the board's blurb stays open, on the (i) the redraw made
     await page.locator(".strip [data-info]").click();
     await moreRows(page);
@@ -769,6 +814,42 @@ test("live: the Run view's cards keep drawing as rows arrive after the clusters 
     await moreRows(page);
     const blank = await page.$$eval(".rn-card", cards => cards.filter(c => !c.querySelector("svg.dist g.has-tip rect")).map(c => c.dataset.outcome));
     assert.deepEqual(blank, []);
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    sweep.stop();
+  }
+});
+
+test("live: a relaunch keeps the reader on the rows they had, and the Run view tells what happened", async () => {
+  const sweep = await liveSweep();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const errors = [];
+    page.on("pageerror", e => errors.push(String(e)));
+    await page.goto(sweep.url);
+    await page.waitForSelector(".status[data-kind=live]", { timeout: 15000 });
+    assert.match(await page.title(), /^Synthetic sweep · Board — Grid$/);
+    // the demo crashes 900 rows in and relaunches, its results file started over
+    await page.waitForFunction(() => document.querySelectorAll("#run-pick option").length === 2, null, { timeout: 120000 });
+    await page.waitForTimeout(1500);
+    const kept = await page.$eval("#run-pick", s => s.value);
+    assert.match(kept, /^r0\.g\d+$/, "the page stays on the rows it had");
+    assert.ok(await shownRows(page) >= 3900, "the rows kept are all there");
+    assert.match(await page.locator(".status").innerText(), /archived/i);
+    assert.match(await page.$eval("#run-pick", s => s.selectedOptions[0].textContent), /· until \d\d:\d\d$/);
+    // the Run view lists what the toasts said
+    await page.keyboard.press("7");
+    await page.waitForSelector(".rn-told");
+    const told = await page.locator(".rn-told").innerText();
+    assert.match(told, /A run crashed\./);
+    assert.match(told, /started over\./);
+    // and follows the run from its first new row
+    await page.locator(".rn-told .issue.go", { hasText: "started over" }).click();
+    await page.waitForFunction(() => document.querySelector("#run-pick").value === "r0");
+    await page.waitForSelector(".status[data-kind=live]", { timeout: 15000 });
+    // the first rows of the new run each set a record; none is told until it has rows to rank
+    assert.ok(await page.locator(".toast", { hasText: "New best row" }).count() <= 1);
     assert.deepEqual(errors, []);
     await page.close();
   } finally {

@@ -7,7 +7,7 @@
 // pocket to compare, when there is one; the blocks to add, suggested and
 // every one; and, at the foot, the manifest (drawn by the app).
 
-import { h, icon, tip, fmtT, fmtInt, fmtPct, fmtDelta, fmtP, inText, rangeText } from "./ui.js";
+import { h, icon, tip, fmtT, fmtInt, fmtPct, fmtDelta, fmtP, inText, rangeText, runName } from "./ui.js";
 import { ALPHA, MIN_N, blockTests, pocketStats, rowsIn, suggestions, summarize } from "./engine.js";
 import { boardDims, memberDims } from "./model.js";
 import { intervalBar } from "./charts.js";
@@ -110,7 +110,7 @@ function pocketAbout(m) {
 
 function pocketNotes(m, pocket, ps, verdicts) {
   const t = m.target;
-  const lines = [`Pocket on ${m.ds.meta.label}: ${t.label}`];
+  const lines = [`Pocket on ${runName(m.ds.meta)}: ${t.label}`];
   pocket.forEach((c, k) => {
     const d = m.schema.dimById.get(c.dim), v = verdicts[k];
     lines.push(`- ${name(d)} = ${labels(d, c.keys).join(" or ")}: ${VERDICT[v.kind].toLowerCase()}${Number.isFinite(v.q) ? ` (${fmtP(v.q)})` : ""}; without it ${fmtT(t, v.without.mean)} on ${fmtInt(v.without.n)} rows`);
