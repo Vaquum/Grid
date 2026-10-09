@@ -22,13 +22,21 @@ export function segmentOf(m) {
   return log.segments[log.segments.length - 1];
 }
 
-// Rows per second now: from arrival times when live, otherwise from the
-// last progress lines of the run's segment.
+// Rows per second now. The runner's own progress lines carry its elapsed
+// seconds, so they are used whenever the run has a log; arrival times are
+// the server's read times, which bunch up while it catches up with a file,
+// so they are used only when there is no log.
 export function runRate(m) {
   const ds = m.ds;
+  const seg = segmentOf(m);
+  if (seg && seg.progress.length >= 2) {
+    const p = seg.progress.filter(x => x[2] !== null);
+    if (p.length >= 2) {
+      const a = p[Math.max(0, p.length - 11)], b = p[p.length - 1];
+      if (b[2] > a[2]) return { rowsPerSec: (b[1] - a[1]) / (b[2] - a[2]), from: "log" };
+    }
+  }
   if (m.state.edge === null) {
-    // rows that arrived while the page's server was following the file,
-    // over the last five minutes: (rows - 1) / (time they span)
     const t = ds.arrivals;
     let last = NaN, first = NaN, k = 0;
     for (let i = ds.n - 1; i >= 0; i--) {
@@ -39,12 +47,6 @@ export function runRate(m) {
       k++;
     }
     if (k >= 10 && last - first >= 10) return { rowsPerSec: (k - 1) / (last - first), from: "arrivals" };
-  }
-  const seg = segmentOf(m);
-  if (seg && seg.progress.length >= 2) {
-    const p = seg.progress;
-    const a = p[Math.max(0, p.length - 11)], b = p[p.length - 1];
-    if (b[2] > a[2]) return { rowsPerSec: (b[1] - a[1]) / (b[2] - a[2]), from: "log" };
   }
   return null;
 }

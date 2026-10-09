@@ -64,6 +64,14 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
         def log_message(self, format: str, *args: Any) -> None:
             pass
 
+        def handle(self) -> None:
+            # a page that navigates away closes its connections; that is
+            # not an error of the server's
+            try:
+                super().handle()
+            except (ConnectionResetError, BrokenPipeError):
+                pass
+
         def send_bytes(self, body: bytes, ctype: str,
                        compressible: bool = True) -> None:
             gz = compressible and "gzip" in self.headers.get(
