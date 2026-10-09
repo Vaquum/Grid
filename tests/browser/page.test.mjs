@@ -9,7 +9,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { appendFileSync, copyFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -399,11 +399,45 @@ test("a Limen run reads with its manifest's parameters and Limen's metrics", asy
   const names = await page.locator(".pcard .pc-name").allInnerTexts();
   for (const p of ["take_profit_bps", "stop_loss_bps", "fee_bps", "num_leaves"]) assert.ok(names.includes(p), p);
   assert.ok(!names.includes("_round_index") && !names.includes("auc"));
-  for (const key of ["2", "3", "5", "6", "7", "1"]) {
+  for (const key of ["2", "3", "4", "5", "6", "7", "1"]) {
     await page.keyboard.press(key);
     await page.waitForTimeout(150);
     assert.equal(await page.locator("text=This view failed to draw").count(), 0, `view ${key}`);
   }
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("features on a Limen run: its groups from the manifest, its dropped columns from the round log", async () => {
+  const { page, errors } = await limenPage();
+  await page.goto(base + "limen");
+  await page.waitForSelector(".pcard");
+  await page.keyboard.press("4");
+  await page.waitForSelector("#ft-groups");
+  const strip = await page.locator(".strip").innerText();
+  assert.match(strip, /Best groups[\s\S]*Adding a group[\s\S]*Columns dropped\s+\d+\s+in 33 of 40 rounds/);
+  // the drawn combinations, each with what it switches on
+  const drawn = await page.locator("#ft-groups").locator("xpath=ancestor::section").locator("table").first().innerText();
+  assert.match(drawn, /lines\|momentum[\s\S]*lines: price_lines, quantile_price_lines · momentum: roc/);
+  assert.match(await page.locator("#ft-groups").locator("xpath=ancestor::section").innerText(), /every round also has cyclical_time_features/);
+  // the dropped columns, the roc column named by its parameter where it varies
+  const cols = await page.locator("#ft-cols").locator("xpath=ancestor::section").innerText();
+  assert.match(cols, /rounds dropped/);
+  assert.match(cols, /fewer than 10 drops/);
+  assert.match(cols, /One model over \d+ rounds/);
+  assert.match(await page.locator("#ft-next").locator("xpath=ancestor::section").innerText(), /keep_columns: \[.*\]\s+drop_columns: \[.*\]/);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("features on a sweep that draws subsets: each member's inclusion effect", async () => {
+  const { page, errors } = await open();
+  await page.keyboard.press("4");
+  await page.waitForSelector(".ft-island table");
+  assert.match(await page.locator(".strip").innerText(), /Members[\s\S]*Help[\s\S]*Hurt/);
+  assert.match(await page.locator(".ft-island").first().innerText(), /Including each of feats/);
+  assert.ok(await page.locator(".ft-island").first().locator("tbody tr").count() > 5);
+  assert.match(await page.locator("#ft-next").locator("xpath=ancestor::section").innerText(), /always_include: \[/);
   assert.deepEqual(errors, []);
   await page.close();
 });
@@ -484,6 +518,42 @@ async function liveSweep() {
 }
 
 const shownRows = page => page.evaluate(() => Number(document.querySelector(".progress-text").textContent.split(" rows")[0].replace(/,/g, "")));
+
+test("live: a Limen run's rounds arrive after its rows, and Features reads them", async () => {
+  // the fixture's first 30 rounds, then the last 10 written as limen run
+  // writes them: the round's row, then its line in the round log
+  const dir = mkdtempSync(join(tmpdir(), "grid-limen-live-"));
+  const fx = join(ROOT, "tests/fixtures/limen_run");
+  const csv = readFileSync(join(fx, "results.csv"), "utf8").trimEnd().split("\n");
+  const rounds = readFileSync(join(fx, "round_data.jsonl"), "utf8").trimEnd().split("\n");
+  writeFileSync(join(dir, "results.csv"), csv.slice(0, 31).join("\n") + "\n");
+  writeFileSync(join(dir, "round_data.jsonl"), rounds.slice(0, 30).join("\n") + "\n");
+  for (const name of ["metadata.json", "lightgbm_binary_full.yaml"]) copyFileSync(join(fx, name), join(dir, name));
+  const proc = spawn("python3", ["-m", "grid", "serve", "--limen", dir, "--port", "0"], { cwd: ROOT });
+  try {
+    const url = await new Promise((resolve, reject) => {
+      let out = "";
+      const t = setTimeout(() => reject(new Error(`no server line: ${out}`)), 20000);
+      proc.stdout.on("data", d => { out += d; const m = /at (http:\/\/127\.0\.0\.1:\d+\/)/.exec(out); if (m) { clearTimeout(t); resolve(m[1]); } });
+      proc.stderr.on("data", d => { out += d; });
+    });
+    const { page, errors } = await limenPage();
+    await page.goto(url);
+    await page.waitForSelector(".pcard");
+    await page.keyboard.press("4");
+    await page.waitForSelector("#ft-cols");
+    assert.match(await page.locator(".strip").innerText(), /in \d+ of 30 rounds/);
+    for (let k = 30; k < 40; k++) {
+      appendFileSync(join(dir, "results.csv"), csv[k + 1] + "\n");
+      appendFileSync(join(dir, "round_data.jsonl"), rounds[k] + "\n");
+    }
+    await page.waitForFunction(() => /in 33 of 40 rounds/.test(document.querySelector(".strip").textContent), null, { timeout: 20000 });
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    proc.kill();
+  }
+});
 
 // Wait until more rows are on screen than now, then one more redraw.
 async function moreRows(page, by = 30) {

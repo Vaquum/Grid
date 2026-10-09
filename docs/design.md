@@ -129,6 +129,17 @@ pocket, see below) and up to the replay edge.
   strongest parameters (by main effect or strongest pair: effect
   heredity), at most 2,000 sets or 4·10⁸ rows read a size, corrected with
   Benjamini–Hochberg across the sets tested at that size.
+- **Features on a Limen run**: groups compared where two drawn
+  combinations differ by one group (a difference of means, BH across the
+  pairs). Columns: Limen drops `feature_drop_count` columns chosen with
+  `random.Random(feature_drop_seed)`; with few seeds, columns dropped
+  together come in fixed sets, so one least-squares model over every
+  round with a record (fixed effects for the feature groups, the
+  parameters the features take and the parameters that move the needle;
+  one term per dropped column) gives each column the effect its varied
+  company allows, with HC3 errors (calibrated on null sweeps: 4.5–5.5% of
+  terms under p = 0.05, down to 10 drops) and BH across the columns.
+  Columns never dropped apart are one term; under 10 drops, no number.
 - **Rows like a row**: the other rows that share its values of the
   parameters that move the needle, strongest first, as many of them as
   leave at least 30 rows (the row itself is left out): their mean, with
@@ -169,7 +180,10 @@ text. A sweep without a manifest has no such section.
    dependence above), and beside them the chosen set: a pair as a
    value-by-value grid with each value's margin, three as that grid for
    each value of the third, more as their best and worst combinations.
-4. **Features**: inclusion effects of every set member.
+4. **Features**: on a Limen run, from its manifest and round log, the
+   drawn combinations of feature groups and what adding one group did,
+   and the effect of keeping each column its ablation dropped; on a sweep
+   that draws subsets of a pool, every member's inclusion effect.
 5. **Trials**: a strip that sets the best row against the luck line and
    the rows like it; the best rows ranked with their ties, and icons that
    add column sets (the parameters that move the needle, the other

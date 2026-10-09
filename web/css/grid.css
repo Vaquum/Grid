@@ -713,6 +713,17 @@ table.trials td.v { font-size: var(--fs-s); }
 .gt-stop-bar i { position: absolute; inset: 0 auto 0 0; background: var(--off-bar); border-radius: var(--r-s); }
 .gt-stop-set { min-width: 0; overflow-wrap: anywhere; }
 
+/* features: a run's feature groups, its dropped columns, a pool's members */
+.ft-island + .ft-island { margin-top: var(--sp-4); }
+.ft-island .isl-head .seg { margin-left: auto; }
+table.ft-table th.iv, table.ft-table td.iv { width: 28%; min-width: 120px; }
+.ft-funcs { color: var(--muted); font-size: var(--fs-s); }
+.ft-v { font-size: var(--fs-m); font-weight: 600; white-space: nowrap; }
+.ft-v.helps { color: var(--ink); }
+.ft-v.hurts { color: var(--critical-ink); }
+.ft-v.quiet { color: var(--muted); font-weight: 400; }
+.ft-island pre.code { margin: 0; }
+
 /* the manifest at the foot of every view */
 .manifest-sec { margin-top: 32px; }
 .manifest { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-l); }
