@@ -164,6 +164,24 @@ test("pairs: the strip, the ranked and linked pairs, and a chosen pair with its 
   await page.close();
 });
 
+test("pairs of three: when none acts, the closest, each meter against the strongest of them", async () => {
+  const { page, errors } = await open();
+  await page.keyboard.press("3");
+  await page.waitForSelector(".pr-map", { timeout: 20000 });
+  await page.locator(".pr-size button", { hasText: /^3$/ }).click();
+  await page.waitForSelector(".pr-row.quiet", { timeout: 60000 });
+  const rows = await page.$$eval(".pr-row.quiet", rs => rs.map(r => ({
+    width: parseFloat(r.querySelector(".pr-meter i").style.width),
+    omega: parseFloat(r.querySelector(".pr-fig").textContent.replace(/[^\d.]/g, "")) })));
+  assert.ok(rows.length >= 2, JSON.stringify(rows));
+  // no meter runs past its track, and the full ones are the strongest
+  assert.ok(rows.every(r => r.width <= 100), JSON.stringify(rows));
+  const full = rows.filter(r => r.width === 100);
+  assert.ok(full.length >= 1 && full.every(r => r.omega === Math.max(...rows.map(x => x.omega))), JSON.stringify(rows));
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("a card opens in the inspector and a value goes into the pocket", async () => {
   const { page, errors } = await open();
   await page.locator(".pcard .pc-name", { hasText: /^model$/ }).click();
