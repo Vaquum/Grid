@@ -123,7 +123,7 @@ export function renderRun(view, m, A) {
     const unit = longest > 3 * 3600 ? [3600, "h"] : longest > 600 ? [60, "min"] : [1, "s"];
     const series = log.segments.filter(s => s.progress.length > 1).map((s, i) => ({
       label: s.marker ? s.marker.label : "first run",
-      color: ["var(--better)", "var(--f-labels)", "var(--f-model)", "var(--f-hp)"][i % 4],
+      color: ["var(--cat-1)", "var(--cat-2)", "var(--cat-3)", "var(--cat-4)"][i % 4],
       points: s.progress.filter(p => p[2] !== null).map(p => [p[2] / unit[0], p[1]]),
     }));
     if (series.length) {
@@ -267,7 +267,7 @@ function runsTable(m, A) {
       return Number.isFinite(b) ? f(x, b) : "–";
     };
     const mine = ds.id === m.ds.id;
-    tb.append(h("tr", { class: "clickable", style: mine ? { background: "var(--accent-soft)" } : null,
+    tb.append(h("tr", { class: "clickable" + (mine ? " sel" : ""),
       onclick: () => A.set({ run: ds.id, sel: null, context: [], pocket: [], edge: null }) },
       h("td", null, h("b", { text: ds.meta.label }), ds.meta.live ? h("span", { class: "muted", text: " · being written" }) : null),
       h("td", { class: "r num", text: fmtInt(ds.n) }),

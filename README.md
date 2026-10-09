@@ -5,10 +5,11 @@ and log, and shows how each parameter moves the outcome, with the
 uncertainty of every number. Built for the plate sweeps on s0 (grand,
 PocketA, logregone); any sweep that writes one JSON object per line works.
 
-Everything is a block, as in blockable: a parameter is a block whose top
-face is its family's colour, raised when it moves the needle and flat when
-it does not, and it opens in five degrees, from colour to the code that
-defines it. Pockets are built by stacking value blocks.
+The Board leads: a strip that sums it up, then one card per parameter,
+strongest first, with how strong and how sure its effect is and the
+needle at each of its values (a number's values on x, small to large; a
+category's as bars), every card on one shared scale. Choosing a card opens
+it in the inspector. Pockets are built by stacking value blocks.
 
 ## Run it
 
@@ -57,7 +58,7 @@ python3 tools/live_demo.py --out /tmp/tessera-live --port 8765
 
 | Key | View | What it answers |
 | --- | --- | --- |
-| 1 | Board | Which parameters move the needle, how far each value puts it, where each acts |
+| 1 | Board | Which parameters move the needle, where each of their values puts it, where each acts |
 | 2 | Pocket | What a stack of values holds, what a sweep inside it would hit, its code |
 | 3 | Pairs | Which parameters change each other's effect; which the sampler drew together |
 | 4 | Features | What including each member of a sampled subset does |

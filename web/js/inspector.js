@@ -1,14 +1,14 @@
-// The inspector: a parameter in five degrees (family, kind, attributes,
-// arguments, code), a value, or one row in full.
+// The inspector: a parameter (what it is, its attributes, where it acts,
+// its values and how their estimates settled), a value, or one row in full.
 
-import { h, icon, tip, clear, fmtT, fmtP, fmtInt, fmtPct, fmtDelta, famColor, copyText } from "./ui.js";
+import { h, icon, tip, clear, fmtT, fmtP, fmtInt, fmtPct, fmtDelta, copyText } from "./ui.js";
 import { miniBar, lineChart, needleDomain } from "./charts.js";
 import { dimEffect, uniformity } from "./engine.js";
 import { rowObject } from "./pack.js";
 import { ensureModerators, independence, objectiveTop, effectOf } from "./model.js";
 import { actsPhrase, strengthText, scopeShare } from "./view-board.js";
 
-const KIND_TEXT = { cat: "category", num: "number", bool: "switch", member: "set member", scoped: "nested number", size: "subset size" };
+const KIND_TEXT = { cat: "Category", num: "Number", bool: "Switch", member: "Set member", scoped: "Nested number", size: "Subset size" };
 
 export function renderInspector(el, m, A) {
   clear(el);
@@ -30,8 +30,8 @@ function closeRow(A, title) {
     h("button", { class: "icon-btn close", "aria-label": "Close the inspector", onclick: () => A.select(null) }, icon("close")));
 }
 
-function degree(n, title, ...kids) {
-  return h("section", { class: "degree" }, h("h3", null, h("span", { class: "deg", text: String(n) }), title), ...kids);
+function part(title, ...kids) {
+  return h("section", { class: "part" }, h("h3", { text: title }), ...kids);
 }
 
 // ---------------------------------------------------------------------------
@@ -41,20 +41,16 @@ function dimDetail(box, m, A, d, levelKey) {
   const found = effectOf(m, d.id);
   const e = found ? found.effect : dimEffect(d, target, rows, base);
   const family = found ? `${found.tests} ${found.family}` : "no family: not corrected";
-  const fam = m.schema.families.find(f => f.id === d.family) || { label: d.family };
-  box.append(closeRow(A, h("div", null,
-    h("div", { class: "fam-chip" }, h("i", { style: { background: famColor(d.family) } }), fam.label),
-    h("h2", { text: d.kind === "scoped" ? d.name : d.label }))));
-  // degree 2: kind and scope
   const share = scopeShare(m, d);
-  box.append(h("div", { class: "muted", style: { marginTop: "4px" } },
-    `${KIND_TEXT[d.kind] || d.kind} with ${d.levels.length} values`,
-    d.scope ? ` · only inside ${d.scope.label} (${fmtPct(share, 1)} of rows)` : "",
-    d.role !== "param" ? ` · ${d.role}` : ""));
+  box.append(closeRow(A, h("div", null,
+    h("div", { class: "eyebrow" }, `${KIND_TEXT[d.kind] || d.kind} · ${d.levels.length} values`,
+      d.scope ? ` · only inside ${d.scope.label} (${fmtPct(share, 1)} of rows)` : "",
+      d.role !== "param" ? ` · ${d.role}` : ""),
+    h("h2", { text: d.kind === "scoped" ? d.name : d.label }))));
   // verdict
   box.append(verdict(m, d, e));
 
-  // degree 3: attributes
+  // attributes
   const mods = ensureModerators(m, A.rerender);
   const md = mods && mods.byDim.get(d.id);
   const facts = h("dl", { class: "facts" });
@@ -77,7 +73,7 @@ function dimDetail(box, m, A, d, levelKey) {
     fact("Independence", `${bad ? "depends on" : "largest link:"} ${other} (V ${indep.V.toFixed(3)})`,
       bad ? "These two were not drawn independently; this parameter's marginal effect carries some of the other's. Read it inside the other's levels (use the context)." : "Cramér's V against every other sampled parameter; the largest is shown. Near zero means drawn independently, which is what lets a marginal difference read as an effect.");
   }
-  box.append(degree(3, "Attributes", facts));
+  box.append(part("Attributes", facts));
   // moderators
   if (mods) {
     const list = h("div");
@@ -85,18 +81,18 @@ function dimDetail(box, m, A, d, levelKey) {
       const top = md.mods.slice(0, 4);
       for (const mo of top) {
         list.append(h("div", { class: "issue" },
-          h("span", { class: "sev " + (mo.detectable ? "warn" : "ok"), text: mo.detectable ? "changes it" : "no change" }),
+          h("span", { class: "sev " + (mo.detectable ? "on" : "off"), text: mo.detectable ? "changes it" : "no change" }),
           h("span", null, h("span", { class: "mono", text: mo.label }), h("span", { class: "muted", text: `  ${fmtP(mo.q)}` }))));
       }
       if (md.acts) list.prepend(h("p", { class: "note" }, h("b", { text: actsPhrase(m, md.acts) }), `. The ${md.acts.label} × ${d.label} interaction is detectable (${fmtP(md.acts.q)}, corrected across the board's ${fmtInt(mods.tests)} tests).`));
       else list.prepend(h("p", { class: "note", text: "No other parameter changes its effect detectably." }));
     } else list.append(h("p", { class: "muted", text: "No moderator tests for this parameter." }));
-    box.append(degree(3, "Where it acts", list));
+    box.append(part("Where it acts", list));
   } else {
-    box.append(degree(3, "Where it acts", h("p", { class: "muted", text: "Checking every other parameter…" })));
+    box.append(part("Where it acts", h("p", { class: "muted", text: "Checking every other parameter…" })));
   }
 
-  // degree 4: arguments (values)
+  // its values
   const domain = needleDomain([e], base.mean);
   const tbl = h("table", { class: "vals" },
     h("thead", null, h("tr", null, h("th", { text: "value" }), h("th", { class: "r", text: "rows" }), h("th", { class: "r", text: target.label }), h("th", { class: "r", text: "vs base" }), h("th", { style: { width: "34%" }, text: "95% interval" }))));
@@ -104,7 +100,7 @@ function dimDetail(box, m, A, d, levelKey) {
   const shareOf = new Map(d.levels.map((l, j) => [l.key, uni.shares ? uni.shares[j] : NaN]));
   for (const l of e.levels) {
     if (!(l.n > 0)) continue;
-    const tr = h("tr", { class: "clickable" + (l.withheld ? " withheld" : ""), tabindex: "0",
+    const tr = h("tr", { class: "clickable" + (l.withheld ? " withheld" : "") + (levelKey === l.key ? " sel" : ""), tabindex: "0",
       "aria-selected": levelKey === l.key ? "true" : "false",
       onclick: () => A.select({ kind: "level", dim: d.id, key: l.key }),
       onkeydown: (ev) => { if (ev.key === "Enter") A.select({ kind: "level", dim: d.id, key: l.key }); } },
@@ -113,13 +109,12 @@ function dimDetail(box, m, A, d, levelKey) {
       h("td", { class: "r num", text: l.withheld ? "–" : fmtT(target, l.mean) }),
       h("td", { class: "r num", text: l.withheld ? "–" : fmtDelta(target, l.lift) }),
       h("td", null, miniBar(l, domain, base.mean)));
-    if (levelKey === l.key) tr.style.background = "var(--accent-soft)";
     tip(tr.children[1], `${fmtPct(shareOf.get(l.key), 1)} of the rows where ${d.label} applies drew this value`);
     tip(tr.children[4], l.withheld ? "Fewer than 30 rows: no interval." : `[${fmtT(target, l.lo)}, ${fmtT(target, l.hi)}]`);
     tb.append(tr);
   }
   tbl.append(tb);
-  const deg4 = degree(4, "Arguments", h("div", { class: "table-wrap" }, tbl));
+  const deg4 = part("Values", h("div", { class: "table-wrap" }, tbl));
   if (levelKey) {
     const l = d.levels.find(x => x.key === levelKey);
     deg4.append(h("div", { class: "actions" },
@@ -130,10 +125,7 @@ function dimDetail(box, m, A, d, levelKey) {
     deg4.append(h("p", { class: "muted", style: { marginTop: "6px" }, text: "Choose a value to look inside it or to stack it into a pocket." }));
   }
   box.append(deg4);
-  box.append(degree(4, "How the estimates settled", settling(m, d, e)));
-
-  // degree 5: code
-  box.append(degree(5, "Code", ...codeFor(m, d)));
+  box.append(part("How the estimates settled", settling(m, d, e)));
 }
 
 function verdict(m, d, e) {
@@ -163,7 +155,7 @@ function settling(m, d, e) {
   const shown = e.levels.map((l, j) => j).filter(j => !e.levels[j].withheld && e.levels[j].n > 0)
     .sort((a, b) => e.levels[b].mean - e.levels[a].mean);
   const pick = shown.length > 4 ? [shown[0], shown[1], shown[shown.length - 2], shown[shown.length - 1]] : shown;
-  const series = pick.map((j, i) => ({ label: d.levels[j].label, color: ["var(--better)", "color-mix(in oklab, var(--better) 55%, var(--muted))", "color-mix(in oklab, var(--worse) 55%, var(--muted))", "var(--worse)"][pick.length === 2 ? i * 3 : i], points: [] }));
+  const series = pick.map((j, i) => ({ label: d.levels[j].label, color: ["var(--better)", "color-mix(in oklab, var(--better) 50%, var(--muted))", "color-mix(in oklab, var(--worse) 50%, var(--muted))", "var(--worse)"][pick.length === 2 ? i * 3 : i], points: [] }));
   const steps = 60, every = Math.max(1, Math.floor(rows.length / steps));
   for (let j = 0; j < rows.length; j++) {
     const i = rows[j], c = codes[i], v = y[i];
@@ -177,82 +169,12 @@ function settling(m, d, e) {
   return h("div", null, h("p", { class: "muted", style: { margin: "0 0 4px" }, text: pick.length < shown.length ? "The two highest and two lowest values; each line starts once a value has 30 rows." : "Each line starts once a value has 30 rows." }), fig);
 }
 
-function codeFor(m, d) {
-  const out = [];
-  const docs = m.sweep.docs || {};
-  const name = d.kind === "member" ? d.name : d.kind === "scoped" ? d.name : d.label;
-  const re = new RegExp(`(^|[^A-Za-z0-9_])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^A-Za-z0-9_]|$)`);
-  for (const [key, label] of [["space", "Space file"], ["source", "Sampler source"]]) {
-    const doc = docs[key];
-    if (!doc || !doc.text) continue;
-    const lines = doc.text.split("\n");
-    const hits = [];
-    lines.forEach((ln, i) => { if (re.test(ln)) hits.push(i); });
-    if (!hits.length) continue;
-    const show = new Set();
-    for (const i of hits.slice(0, 6)) for (let j = Math.max(0, i - 1); j <= Math.min(lines.length - 1, i + 1); j++) show.add(j);
-    const pre = h("pre", { class: "code" });
-    let prev = -2;
-    for (const j of [...show].sort((a, b) => a - b)) {
-      if (j !== prev + 1 && prev >= 0) pre.append(h("span", { class: "ln", text: "   …\n" }));
-      const line = h("span", { class: hits.includes(j) ? "hl" : null }, h("span", { class: "ln", text: String(j + 1).padStart(4) + "  " }), lines[j] + "\n");
-      pre.append(line);
-      prev = j;
-    }
-    out.push(h("div", { class: "code-head" }, h("span", { class: "mono", text: doc.path.split("/").pop() }), h("span", { class: "muted", text: `${hits.length} line${hits.length > 1 ? "s" : ""} name ${name}` })), pre);
-  }
-  const snippet = pandasSnippet(m, d);
-  const pre = h("pre", { class: "code", text: snippet });
-  out.push(h("div", { class: "code-head" }, h("span", { text: "Reproduce the table" }),
-    h("button", { class: "btn small", onclick: async () => { const ok = await copyText(snippet, pre); toastCopy(ok); } }, icon("copy"), "Copy")), pre);
-  if (!out.length) out.push(h("p", { class: "muted", text: "No space file or source was given to the page." }));
-  return out;
-}
-
 function toastCopy(ok) {
   const el = document.querySelector(".toasts");
   if (!el) return;
   const t = h("div", { class: "toast", text: ok ? "Copied." : "Copying was refused; the text is selected, copy it by hand." });
   el.append(t);
   setTimeout(() => t.remove(), 3000);
-}
-
-export function targetExpr(t) {
-  if (t.id === "tradeable") return '(df["gates"] >= 6) & (df["total"] >= 3000)';
-  if (t.id === "gates7") return 'df["gates"] >= 7';
-  if (t.gate) return `df["gates_detail.${t.gate}.pass"]`;
-  return `df["${t.id}"]`;
-}
-
-function pandasSnippet(m, d) {
-  const src = (m.ds.meta.source || "results.jsonl").split(":").pop();
-  const lines = ["import json", "import pandas as pd", "",
-    `df = pd.json_normalize([json.loads(l) for l in open("${src}")])`];
-  if (m.state.edge !== null && m.state.edge < m.ds.n) lines.push(`df = df.iloc[:${m.state.edge}]  # the replay edge`);
-  for (const c of m.context) {
-    const cd = m.schema.dimById.get(c.dim);
-    lines.push(`df = df[${dimSeries(cd)}.isin(${JSON.stringify(c.keys.map(k => keyValue(cd, k)))})]  # context`);
-  }
-  lines.push(`y = ${targetExpr(m.target)}`);
-  if (d.scope) {
-    const sd = m.schema.dimById.get(d.scope.dim);
-    lines.push(`inside = df["${sd.column}"] == ${JSON.stringify(sd.levels[d.scope.level].value)}`);
-    lines.push(`y.groupby(${dimSeries(d)}[inside]).agg(["size", "mean"])`);
-  } else {
-    lines.push(`y.groupby(${dimSeries(d)}).agg(["size", "mean"])`);
-  }
-  return lines.join("\n");
-}
-
-function dimSeries(d) {
-  if (d.kind === "member") return `df["${d.set.column}"].apply(lambda s: "${d.name}" in (s or []))`;
-  if (d.kind === "size") return `df["${d.column}"].apply(len)`;
-  return `df["${d.column}"]`;
-}
-
-function keyValue(d, key) {
-  const l = d.levels.find(x => x.key === key);
-  return l ? l.value : key;
 }
 
 // ---------------------------------------------------------------------------
@@ -266,7 +188,7 @@ function rowDetail(box, m, A, i) {
     const r = top.indexOf(i);
     return r >= 0 ? r + 1 : null;
   })();
-  box.append(closeRow(A, h("div", null, h("div", { class: "fam-chip", text: rank ? `#${rank} by ${sc.objectiveLabel || "the objective"}` : "row" }), h("h2", { text: `Row ${fmtInt(i)}` }))));
+  box.append(closeRow(A, h("div", null, h("div", { class: "eyebrow", text: rank ? `#${rank} by ${sc.objectiveLabel || "the objective"}` : "row" }), h("h2", { text: `Row ${fmtInt(i)}` }))));
   if (Number.isFinite(ds.arrivals[i])) box.append(h("p", { class: "muted", text: `Arrived ${new Date(ds.arrivals[i] * 1000).toISOString().replace("T", " ").slice(0, 19)} UTC` }));
   // gates
   if (sc.gates.length) {
@@ -279,7 +201,7 @@ function rowDetail(box, m, A, i) {
         h("td", { class: "muted", text: g.need }), h("td", null, h("span", { class: "sev " + (pass ? "ok" : "crit") }, icon(pass ? "check" : "close"), pass ? "pass" : "fail"))));
     }
     tbl.append(tb);
-    box.append(degree(3, "Gates", h("div", { class: "table-wrap" }, tbl)));
+    box.append(part("Gates", h("div", { class: "table-wrap" }, tbl)));
   }
   // outcomes
   const outs = h("dl", { class: "facts" });
@@ -288,19 +210,19 @@ function rowDetail(box, m, A, i) {
     if (!Number.isFinite(v)) continue;
     outs.append(h("dt", { text: t.label }), h("dd", { class: "num", text: fmtT(t, v) }));
   }
-  box.append(degree(3, "Outcomes", outs));
-  // parameters by family
+  box.append(part("Outcomes", outs));
+  // its parameters
   const params = h("dl", { class: "facts" });
   for (const d of sc.dims.filter(x => (x.role === "param" || x.role === "effective") && x.kind !== "member")) {
     const c = d.codes[i];
     if (c < 0) continue;
-    const dt = h("dt", null, h("i", { style: { display: "inline-block", width: "8px", height: "8px", borderRadius: "2px", background: famColor(d.family), marginRight: "5px" } }), d.kind === "scoped" ? d.name : d.label);
+    const dt = h("dt", { text: d.kind === "scoped" ? d.name : d.label });
     const dd = h("dd", { class: "mono" }, h("button", { class: "btn small", onclick: () => A.select({ kind: "level", dim: d.id, key: d.levels[c].key }), text: d.levels[c].label }));
     params.append(dt, dd);
   }
   const sets = sc.dims.filter(x => x.kind === "member" && x.codes[i] === 1).map(x => x.name);
   if (sets.length) params.append(h("dt", { text: "features" }), h("dd", { class: "mono", text: sets.join(", ") }));
-  box.append(degree(4, "Parameters", params));
+  box.append(part("Parameters", params));
   // code: replay and raw row
   const prof = sc.profile;
   const out = [];
@@ -314,6 +236,6 @@ function rowDetail(box, m, A, i) {
   const pre2 = h("pre", { class: "code", text: raw, style: { maxHeight: "320px" } });
   out.push(h("div", { class: "code-head" }, h("span", { text: "The row, rebuilt from its columns" }),
     h("button", { class: "btn small", onclick: async () => toastCopy(await copyText(raw, pre2)) }, icon("copy"), "Copy")), pre2);
-  box.append(degree(5, "Code", ...out));
+  box.append(part("Replay", ...out));
 }
 

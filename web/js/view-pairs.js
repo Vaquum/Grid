@@ -1,7 +1,7 @@
 // Pairs: which two parameters change each other's effect, and how the
 // sampler drew them together; a pair opens as a value-by-value grid.
 
-import { h, tip, fmtT, fmtInt, fmtP, fmtDelta, famColor } from "./ui.js";
+import { h, tip, fmtT, fmtInt, fmtP, fmtDelta } from "./ui.js";
 import { pairEffect, cramersV, summarize, ALPHA } from "./engine.js";
 import { bhQ } from "./stats.js";
 import { moderatorParents, background } from "./model.js";
@@ -40,12 +40,11 @@ export function renderPairs(view, m, A) {
   const maxV = Math.max(0.05, ...pairs.list.map(r => (Number.isFinite(r.V) ? r.V : 0)));
   const tbl = h("table", { class: "heat", style: { borderSpacing: "2px" } });
   const head = h("tr", null, h("th", { class: "corner" }));
-  dims.forEach((d, j) => head.append(h("th", { style: { writingMode: "vertical-rl", transform: "rotate(180deg)", height: "120px", textAlign: "left", fontSize: "10.5px" }, text: shortName(d) })));
+  dims.forEach((d) => head.append(h("th", { style: { writingMode: "vertical-rl", transform: "rotate(180deg)", height: "120px", textAlign: "left", fontSize: "11px" }, text: shortName(d) })));
   tbl.append(h("thead", null, head));
   const tb = h("tbody");
   dims.forEach((da, i) => {
-    const tr = h("tr", null, h("th", { style: { textAlign: "right", fontSize: "10.5px" } },
-      h("i", { style: { display: "inline-block", width: "7px", height: "7px", borderRadius: "2px", background: famColor(da.family), marginRight: "5px" } }), shortName(da)));
+    const tr = h("tr", null, h("th", { style: { textAlign: "right", fontSize: "11px" }, text: shortName(da) }));
     dims.forEach((db, j) => {
       if (i === j) { tr.append(h("td", { style: { background: "var(--surface-3)", minWidth: "22px", height: "22px" } })); return; }
       const r = i > j ? pairs.byKey.get(`${da.id}|${db.id}`) : pairs.byKey.get(`${db.id}|${da.id}`);
@@ -57,7 +56,7 @@ export function renderPairs(view, m, A) {
       } else {
         const t = Number.isFinite(r.V) ? Math.min(1, r.V / maxV) : 0;
         const linked = r.pV < 1e-6 && r.V > 0.03;
-        style = { background: linked ? `color-mix(in oklab, var(--f-labels) ${Math.round(20 + t * 70)}%, var(--surface-2))` : "var(--surface-2)" };
+        style = { background: linked ? `color-mix(in oklab, var(--cat-4) ${Math.round(20 + t * 70)}%, var(--surface-2))` : "var(--surface-2)" };
       }
       const td = h("td", { class: "click has-tip", style: { ...style, minWidth: "22px", height: "22px" }, tabindex: "0",
         onclick: () => A.set({ pair: [r.a, r.b] }), onkeydown: (e) => { if (e.key === "Enter") A.set({ pair: [r.a, r.b] }); } });
@@ -73,7 +72,7 @@ export function renderPairs(view, m, A) {
   grid.append(h("div", { class: "table-wrap" }, tbl,
     h("div", { class: "legend", style: { marginTop: "8px" } },
       h("span", null, h("i", { class: "box", style: { background: "var(--better)" } }), "interaction (darker is stronger)"),
-      h("span", null, h("i", { class: "box", style: { background: "var(--f-labels)" } }), "drawn together"),
+      h("span", null, h("i", { class: "box", style: { background: "var(--cat-4)" } }), "drawn together"),
       h("span", null, h("i", { class: "box", style: { background: "var(--surface-2)", outline: "1px solid var(--line)" } }), "nothing detectable"))));
   const top = pairs.list.filter(r => r.detectable).sort((a, b) => b.omega2 - a.omega2).slice(0, 10);
   const list = h("div", { style: { minWidth: "260px", flex: "1 1 260px" } }, h("div", { class: "section-title", style: { marginTop: 0 }, text: "Strongest interactions" }));

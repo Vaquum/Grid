@@ -1,11 +1,10 @@
-// Board: one block per parameter, sorted by how much it moves the target.
+// Board: what moves the needle. A strip sums the board up; below it, one
+// card per parameter, strongest first: how sure and how strong its effect
+// is, and the needle at each of its values on the board's shared scale.
 
-import { h, icon, tip, fmtT, fmtP, fmtInt, fmtPct, famColor, copyText } from "./ui.js";
-import { needle, needleDomain } from "./charts.js";
-import { dimEffect } from "./engine.js";
-import { ensureModerators, independence, memberDims } from "./model.js";
-
-const KIND_ICON = { cat: "cat", num: "numk", bool: "bool", member: "member", scoped: "scoped", size: "size" };
+import { h, icon, tip, fmtT, fmtP, fmtInt, fmtPct, copyText, rafThrottle } from "./ui.js";
+import { effectPlot, plotDomain, fitPlots } from "./main-effects.js";
+import { ensureModerators, independence, memberBoard, memberDims } from "./model.js";
 
 export function strengthText(e) {
   if (!Number.isFinite(e.omega2)) return "–";
@@ -32,188 +31,303 @@ export function actsPhrase(m, acts) {
   return `depends on ${P.label}`;
 }
 
+const sentence = t => t.charAt(0).toUpperCase() + t.slice(1);
+const nameOf = d => (d.kind === "scoped" ? d.name : d.label);
+const observed = new WeakSet();
+
 export function renderBoard(view, m, A) {
   const { schema, target, base, board } = m;
   const mods = ensureModerators(m, A.rerender);
-  const indep = independence(m);
-  const dependent = new Map();
-  for (const p of indep) {
-    if (p.p < 1e-6 && p.V > 0.03) {
-      for (const [x, y] of [[p.a, p.b], [p.b, p.a]]) {
-        const cur = dependent.get(x);
-        if (!cur || p.V > cur.V) dependent.set(x, { other: y, V: p.V });
-      }
-    }
-  }
-  // set blocks: one per set column, from its members' effects
-  const members = memberDims(schema);
-  const setEffects = new Map();
-  for (const d of members) {
-    const e = dimEffect(d, target, m.rows, base);
-    if (!setEffects.has(d.set.column)) setEffects.set(d.set.column, []);
-    setEffects.get(d.set.column).push({ d, e });
-  }
-  const domain = needleDomain(board.effects.concat([...setEffects.values()].flat().map(x => x.e)), base.mean);
+  const dependent = dependentOn(m);
+  const sets = setGroups(m);
+  const domain = plotDomain([...board.effects.map(e => e.levels), ...sets.map(g => g.members.map(x => x.level))], base.mean, target);
+  const strongest = Math.max(1e-9, ...board.effects.filter(e => e.detectable).map(e => e.omega2),
+    ...sets.flatMap(g => g.members.filter(x => x.e.detectable).map(x => x.e.omega2)));
+  const ctx = { mods, dependent, domain, strongest };
 
-  // header
-  const head = h("div", { class: "view-head" },
-    h("div", null,
-      h("h1", null, "What moves ", h("span", { text: target.label })),
-      h("div", { class: "sub" },
-        target.definition ? h("span", { text: `${target.definition}. ` }) : null,
-        "Each block is a parameter; each dot is one of its values, placed by ",
-        target.kind === "binary" ? `the share of its rows that are ${target.label.toLowerCase()}` : `the mean ${target.label.toLowerCase()} of its rows`,
-        ", with a 95% interval. The vertical line is the base. Raised blocks have a detectable effect after correcting for ",
-        h("span", { class: "num", text: fmtInt(board.tests) }), " tests; flat blocks do not.")),
-    h("div", { class: "tools" },
-      h("div", { class: "hero has-tip" }, h("span", { class: "big num", text: fmtT(target, base.mean) }),
-        h("span", { class: "ci num", text: `[${fmtT(target, base.lo)}, ${fmtT(target, base.hi)}] over ${fmtInt(base.n)} rows` })),
-      h("button", { class: "btn", onclick: async (e) => {
-        const text = boardSummary(m, mods);
-        const ok = await copyText(text, null);
-        A.toast(h("span", null, h("b", { text: ok ? "Summary copied. " : "Copying was refused. " }), ok ? "Paste it into the research notes." : "Your browser did not allow the clipboard."));
-        e.currentTarget.blur();
-      } }, icon("copy"), "Copy summary")));
-  tip(head.querySelector(".hero"), () => h("div", null, h("b", { text: "The base" }), h("div", { text: `${target.label} over every row in view${m.context.length ? " (the context)" : ""}, with its 95% interval${target.kind === "binary" ? " (Wilson)" : ""}.` }),
-    base.missing ? h("div", { class: "k", text: `${fmtInt(base.missing)} rows have no value for this target and are left out.` }) : null));
-  view.append(head);
+  view.append(h("h1", { class: "sr", text: `What moves ${target.label}` }));
+  view.append(summaryStrip(m, A, mods, sets));
 
-  const legend = h("div", { class: "family-legend", style: { marginBottom: "14px" } },
-    schema.families.filter(f => schema.dims.some(d => d.family === f.id && d.role === "param")).map(f =>
-      h("span", null, h("i", { style: { background: famColor(f.id) } }), f.label)),
-    h("span", { class: "muted" }, mods ? `${fmtInt(mods.tests)} interaction tests checked for where each acts` : "Checking where each parameter acts…"));
-  view.append(legend);
-
-  const grid = h("div", { class: "board", role: "list" });
-  const ordered = m.order;
-  const raised = ordered.filter(e => e.detectable);
-  const flat = ordered.filter(e => !e.detectable);
-  const setBlocks = [...setEffects.entries()].map(([col, list]) => setBlock(m, A, col, list, domain));
-  const anySetRaised = setBlocks.filter(b => b.detectable);
-  if (raised.length || anySetRaised.length) {
-    grid.append(h("div", { class: "board-group" }, h("b", { text: "Moves the needle" }), `${raised.length + anySetRaised.length} detectable · strongest first`));
-    for (const e of raised) grid.append(block(m, A, e, domain, mods, dependent));
-    for (const b of anySetRaised) grid.append(b.el);
+  const on = m.order.filter(e => e.detectable), off = m.order.filter(e => !e.detectable);
+  const setsOn = sets.filter(g => g.detectable), setsOff = sets.filter(g => !g.detectable);
+  if (on.length || setsOn.length) {
+    view.append(section("Moves the needle", on.length + setsOn.length, "strongest first",
+      [...on.map(e => card(m, A, schema.dimById.get(e.dim), e, ctx)), ...setsOn.map(g => setCard(m, A, g, ctx))]));
   }
-  if (flat.length && m.state.show.flat !== false) {
-    grid.append(h("div", { class: "board-group" }, h("b", { text: "No detectable effect" }), `${flat.length + setBlocks.filter(b => !b.detectable).length} parameters · their spread is within noise`));
-    for (const e of flat) grid.append(block(m, A, e, domain, mods, dependent));
-    for (const b of setBlocks.filter(x => !x.detectable)) grid.append(b.el);
+  if ((off.length || setsOff.length) && m.state.show.flat !== false) {
+    view.append(section("No detectable effect", off.length + setsOff.length, "their spread is within noise",
+      [...off.map(e => card(m, A, schema.dimById.get(e.dim), e, ctx)), ...setsOff.map(g => setCard(m, A, g, ctx))]));
   }
-  view.append(grid);
-  grid.addEventListener("keydown", (ev) => gridKeys(ev, grid));
+  const quiet = notOnBoard(m);
+  if (quiet) view.append(quiet);
 
-  // fixed, aliases and derived
-  const quiet = schema.fields.filter(f => f.role === "fixed" || f.role === "alias" || f.role === "effective");
-  const aliasDims = schema.dims.filter(d => d.role === "alias" && d.aliasOf);
-  if (quiet.length || aliasDims.length) {
-    view.append(h("div", { class: "section-title", text: "Not on the board" }));
-    const chips = h("div", { class: "chips" });
-    for (const f of quiet) {
-      const why = f.role === "fixed" ? f.note : f.role === "alias" ? `alias: ${f.note}` : "resolved by the runner from other parameters, not sampled";
-      const c = h("span", { class: "chip has-tip" }, h("i", { class: "fam", style: { background: famColor(f.family || "inferred") } }),
-        h("span", { class: "mono", text: f.name }), h("span", { class: "muted", text: f.role === "fixed" ? (f.note || "").replace("one value in every row: ", "= ") : f.role }));
-      tip(c, why);
-      chips.append(c);
-    }
-    for (const d of aliasDims) {
-      const c = h("span", { class: "chip has-tip" }, h("i", { class: "fam", style: { background: famColor(d.family) } }),
-        h("span", { class: "mono", text: d.label }), h("span", { class: "muted", text: `= ${d.aliasOf}` }));
-      tip(c, d.note);
-      chips.append(c);
-    }
-    view.append(chips);
+  fitPlots(view);
+  if (!observed.has(view)) {
+    observed.add(view);
+    new ResizeObserver(rafThrottle(() => fitPlots(view))).observe(view);
   }
 }
 
-function block(m, A, e, domain, mods, dependent) {
-  const d = m.schema.dimById.get(e.dim);
-  const sel = m.state.sel && m.state.sel.kind === "dim" && m.state.sel.id === d.id;
-  const lift = e.detectable ? Math.min(6, 2 + 60 * Math.max(0, e.omega2)) : 0;
-  const el = h("button", {
-    class: "block" + (e.detectable ? "" : " flat"), role: "listitem", "aria-pressed": sel ? "true" : "false",
-    dataset: { focus: "dim:" + d.id }, style: { "--fam": famColor(d.family), "--lift": `${lift.toFixed(1)}px` },
-    onclick: () => A.select({ kind: "dim", id: d.id }),
-  });
-  const share = scopeShare(m, d);
-  const nameEl = h("span", { class: "block-name" }, d.kind === "scoped" ? d.name : d.label,
-    d.scope ? h("span", { class: "block-scope", text: `inside ${d.scope.label} · ${fmtPct(share, 0)} of rows` }) : null);
-  const strength = h("span", { class: "strength has-tip" }, h("b", { class: "num", text: strengthText(e) }), " ω²");
-  tip(strength, () => h("div", null, h("b", { text: `ω² ${strengthText(e)}` }),
-    h("div", { text: `Share of the ${m.target.label.toLowerCase()} variance this parameter explains on its own${d.scope ? ", inside its scope" : ""}.` }),
-    h("div", { class: "k", text: `${e.test === "G" ? `G-test, ${e.k - 1} df` : `F(${e.df1}, ${e.df2}) = ${Number.isFinite(e.F) ? e.F.toFixed(2) : "–"}`} · ${fmtP(e.p, "p")} · ${fmtP(e.q)}` })));
-  const inner = h("div", { class: "block-in" },
-    h("div", { class: "block-head" }, h("span", { class: "kind" }, icon(KIND_ICON[d.kind] || "cat")), nameEl, strength),
-    needle(e, m.target, m.base.mean, domain, { label: `${d.label}: values against the base`, selected: m.state.sel && m.state.sel.dim === d.id ? m.state.sel.key : null }));
-  const ex = h("div", { class: "extremes" });
-  if (e.detectable && e.best && e.worst && e.best !== e.worst) {
-    ex.append(h("span", null, h("span", { class: "v", text: e.best.label }), " ", fmtT(m.target, e.best.mean)),
-      h("span", null, h("span", { class: "v", text: e.worst.label }), " ", fmtT(m.target, e.worst.mean)));
-  } else {
-    ex.append(h("span", { class: "muted", text: `${fmtP(e.q)} · ${d.levels.length} values` }));
+// ---------------------------------------------------------------------------
+// The strip: the board in one line of figures.
+
+function summaryStrip(m, A, mods, sets) {
+  const t = m.target, b = m.base;
+  const det = m.order.filter(e => e.detectable);
+  const dims = m.schema.dimById;
+  const top = det[0] || null;
+  let best = null;
+  for (const e of det) {
+    if (!e.best) continue;
+    if (!best || e.best.mean * (t.better || 1) > best.l.mean * (t.better || 1)) best = { e, l: e.best };
   }
-  inner.append(ex);
-  const badges = h("div", { class: "badges" });
-  const md = mods && mods.byDim.get(d.id);
-  if (md && md.acts) {
-    const phrase = actsPhrase(m, md.acts);
-    const b = h("span", { class: "badge acts has-tip" }, icon("target"), phrase);
-    tip(b, () => h("div", null, h("b", { text: phrase }), h("div", { text: `The ${md.acts.label} × ${d.label} interaction ${fmtP(md.acts.q)} after correcting across the board.` })));
-    badges.append(b);
-  }
-  if (e.dead.length) {
-    const labs = e.dead.map(k => (e.levels.find(l => l.key === k) || {}).label);
-    const counts = e.dead.map(k => e.levels.find(l => l.key === k)).map(l => `${fmtInt(l.hits)} of ${fmtInt(l.n)}`);
-    const b = h("span", { class: "badge crit has-tip" }, icon("alert"), `dead: ${labs.join(", ")}`);
-    tip(b, `${labs.join(", ")} gave ${counts.join(", ")} hits; even the top of its 95% interval is under a fifth of the base rate. Rows spent there are lost.`);
-    badges.append(b);
-  }
-  const dep = dependent.get(d.id);
-  if (dep) {
-    const other = m.schema.dimById.get(dep.other);
-    const b = h("span", { class: "badge warn has-tip" }, `not independent of ${other ? other.label : dep.other}`);
-    tip(b, `Cramér's V ${dep.V.toFixed(3)} against ${other ? other.label : dep.other}: the sampler does not draw these two independently, so this parameter's marginal effect carries some of the other's.`);
-    badges.append(b);
-  }
-  const withheld = e.levels.filter(l => l.withheld && l.n > 0).length;
-  if (withheld) {
-    const b = h("span", { class: "badge has-tip", text: `${withheld} withheld` });
-    tip(b, `${withheld} value${withheld > 1 ? "s have" : " has"} fewer than 30 rows: drawn hollow, with no number.`);
-    badges.append(b);
-  }
-  if (d.inferred) {
-    const b = h("span", { class: "badge has-tip", text: "role inferred" });
-    tip(b, "No profile names this field; it is treated as a sampled parameter because it has few distinct values.");
-    badges.append(b);
-  }
-  if (badges.children.length) inner.append(badges);
-  el.append(inner);
+  const dead = [];
+  for (const e of m.board.effects) for (const k of e.dead) dead.push({ e, l: e.levels.find(x => x.key === k) });
+  // parameters that act only under a condition (and nowhere else); one
+  // that is merely stronger somewhere is common at many rows and is told on
+  // its card. Members are counted on the Features view.
+  const conditional = mods ? m.board.effects.filter(e => { const md = mods.byDim.get(e.dim); return md && md.acts && md.acts.kind === "only"; }).length : null;
+  const range = t.kind === "binary" ? `${(b.lo * 100).toFixed(1)}–${(b.hi * 100).toFixed(1)}%` : `${fmtT(t, b.lo, { unit: false })}–${fmtT(t, b.hi)}`;
+
+  const cell = (label, value, suffix, tipFn, onPick, attrs = {}) => {
+    const el = h(onPick ? "button" : "div", { class: "sc" + (onPick ? " pick" : "") + " has-tip", type: onPick ? "button" : null, onclick: onPick || null, ...attrs },
+      h("span", { class: "sc-k", text: label }),
+      h("span", { class: "sc-v" }, h("b", { class: "num", title: value, text: value }), suffix ? h("small", { title: suffix, text: suffix }) : null));
+    tip(el, tipFn);
+    return el;
+  };
+  const strip = h("section", { class: "strip", "aria-label": "The board in figures" });
+  const cells = h("div", { class: "strip-cells" },
+    cell(t.label, fmtT(t, b.mean), range, () => h("div", null, h("b", { text: `${t.label} over the rows in view` }),
+      t.definition ? h("div", { text: t.definition }) : null,
+      h("div", { class: "k", text: `${fmtT(t, b.mean)} with its 95% interval ${range}${t.kind === "binary" ? " (Wilson)" : ""}. This is the dashed line on every card.` }),
+      b.missing ? h("div", { class: "k", text: `${fmtInt(b.missing)} rows have no value for it and are left out.` }) : null)),
+    cell("Rows", fmtInt(m.rows.length), m.rows.length < m.ds.n ? `of ${fmtInt(m.ds.n)}` : null,
+      () => h("div", null, h("b", { text: "Rows in view" }), h("div", { class: "k", text: m.context.length ? "Rows that hold every condition of the context." : m.edge < m.ds.n ? "Rows up to the replay edge." : "Every row of the run so far." }))),
+    cell("Move the needle", String(det.length + sets.filter(g => g.detectable).length), `of ${fmtInt(m.board.tests + sets.length)}`,
+      () => h("div", null, h("b", { text: "Parameters with a detectable effect" }), h("div", { class: "k", text: `After correcting for ${fmtInt(m.board.tests)} tests (Benjamini–Hochberg, q < 0.05). A set counts once, when any of its members moves the needle.` }))),
+    cell("Strongest", top ? nameOf(dims.get(top.dim)) : "–", top ? `ω² ${strengthText(top)}` : "nothing detectable",
+      () => h("div", null, h("b", { text: "The parameter that explains the most on its own" }), h("div", { class: "k", text: "ω²: the share of the needle's variance it explains, bias-corrected." })),
+      top ? () => A.select({ kind: "dim", id: top.dim }) : null),
+    cell("Best value", best ? fmtT(t, best.l.mean) : "–", best ? `${nameOf(dims.get(best.e.dim))} = ${best.l.label}` : "nothing detectable",
+      () => h("div", null, h("b", { text: "The single value with the best needle" }), h("div", { class: "k", text: "Among the parameters that move it; its interval is in the inspector." })),
+      best ? () => A.select({ kind: "level", dim: best.e.dim, key: best.l.key }) : null),
+    cell("Dead values", String(dead.length), dead.length ? `${nameOf(dims.get(dead[0].e.dim))} = ${dead[0].l.label}${dead.length > 1 ? ` and ${dead.length - 1} more` : ""}` : "none",
+      () => h("div", null, h("b", { text: "Values the sweep can stop drawing" }), h("div", { class: "k", text: "At least 30 rows and even the top of the 95% interval is under a fifth of the base." })),
+      dead.length ? () => A.select({ kind: "level", dim: dead[0].e.dim, key: dead[0].l.key }) : null),
+    cell("Conditional", conditional === null ? "…" : String(conditional), conditional === null ? "checking" : `of ${fmtInt(m.board.tests)}`,
+      () => h("div", null, h("b", { text: "Parameters that act only under a condition" }), h("div", { text: "Their effect is detectable inside some values of another parameter and nowhere else; the card names them." }), h("div", { class: "k", text: mods ? `${fmtInt(mods.tests)} interaction tests, corrected together.` : "Testing every pair in the background." })),
+      null, { dataset: { ready: mods ? "true" : "false" } }));
+  const copy = h("button", { class: "icon-btn strip-copy", "aria-label": "Copy the board as notes", onclick: async () => {
+    const ok = await copyText(boardSummary(m, mods), null);
+    A.toast(h("span", null, h("b", { text: ok ? "Board copied. " : "Copying was refused. " }), ok ? "Paste it into the research notes." : "The browser did not allow the clipboard."));
+  } }, icon("copy"));
+  tip(copy, () => h("div", null, h("b", { text: "Copy the board as notes" }), h("div", { class: "k", text: "Every parameter that moves the needle, with its values, strength and q." })));
+  strip.append(cells, copy);
+  return strip;
+}
+
+function section(title, count, note, cards) {
+  const grid = h("div", { class: "pgrid", role: "list" }, cards);
+  grid.addEventListener("keydown", (ev) => gridKeys(ev, grid));
+  return h("section", { class: "board-sec" },
+    h("h2", { class: "sec-title" }, h("span", { text: title }), h("span", { class: "count num", text: fmtInt(count) }), h("span", { class: "note", text: note })),
+    grid);
+}
+
+// ---------------------------------------------------------------------------
+// Cards
+
+function card(m, A, d, e, ctx) {
+  const t = m.target;
+  const on = e.detectable;
+  const sel = m.state.sel;
+  const selected = !!sel && ((sel.kind === "dim" && sel.id === d.id) || (sel.kind === "level" && sel.dim === d.id));
+  const el = h("div", { class: "pcard" + (on ? "" : " off"), role: "listitem", tabindex: "0", "aria-pressed": selected ? "true" : "false",
+    "aria-label": `${nameOf(d)}: ${on ? `moves ${t.label}, ω² ${strengthText(e)}, ${fmtP(e.q)}` : "no detectable effect"}`,
+    dataset: { focus: "dim:" + d.id, dim: d.id } });
+  const open = () => A.select({ kind: "dim", id: d.id });
+  el.addEventListener("click", open);
+  el.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); open(); } });
+
+  const sub = d.scope ? `only when ${d.scope.label} · ${fmtPct(scopeShare(m, d), 0)}` : `${d.levels.length} values`;
+  el.append(head(nameOf(d), sub, evidence(m, d, e, ctx.strongest)));
+  // a nested parameter is read against its scope's own level
+  const ref = d.scope ? scopeMean(e) : m.base.mean;
+  el.append(effectPlot(e.levels, {
+    kind: d.ordered ? "num" : "cat", target: t, domain: ctx.domain, ref, on,
+    best: e.best ? e.best.key : null, worst: e.worst ? e.worst.key : null, dead: e.dead,
+    selected: sel && sel.kind === "level" && sel.dim === d.id ? sel.key : null,
+    pick: key => A.select({ kind: "level", dim: d.id, key }),
+  }));
+  el.append(tags(m, d, e, ctx));
   return el;
 }
 
-function setBlock(m, A, column, list, domain) {
-  const detect = list.filter(x => x.e.detectable);
-  const best = list.reduce((a, b) => (Number.isFinite(b.e.omega2) && (!a || b.e.omega2 > a.e.omega2) ? b : a), null);
-  const fam = list[0].d.family;
-  const lift = detect.length ? Math.min(6, 2 + 60 * Math.max(0, best.e.omega2)) : 0;
-  const el = h("button", { class: "block" + (detect.length ? "" : " flat"), role: "listitem", dataset: { focus: "set:" + column },
-    style: { "--fam": famColor(fam), "--lift": `${lift.toFixed(1)}px` }, onclick: () => A.set({ view: "features" }) });
-  const pseudo = { levels: list.map(x => ({ ...x.e.levels[1], label: x.d.name, key: x.d.id })), best: null, worst: null, detectable: false };
-  const inner = h("div", { class: "block-in" },
-    h("div", { class: "block-head" }, h("span", { class: "kind" }, icon("member")),
-      h("span", { class: "block-name" }, column, h("span", { class: "block-scope", text: `${list.length} members · a dot is a member's rows when included` })),
-      h("span", { class: "strength" }, h("b", { class: "num", text: detect.length ? strengthText(best.e) : "–" }), " ω² max")),
-    needle(pseudo, m.target, m.base.mean, domain, { label: `${column}: rows that included each member` }),
-    h("div", { class: "extremes" }, h("span", { class: "muted", text: `${detect.length} of ${list.length} members move it` }), h("span", { class: "v", text: "Features →" })));
-  el.append(inner);
-  return { el, detectable: detect.length > 0 };
+function head(name, sub, ev) {
+  return h("div", { class: "pc-head" },
+    h("div", { class: "pc-row" }, h("span", { class: "pc-name", title: name, text: name }), ev.top),
+    h("div", { class: "pc-row" }, h("span", { class: "pc-sub", title: sub, text: sub }), ev.bottom));
+}
+
+// How strong (ω², and a meter against the strongest on the board) and how
+// sure (q, corrected across the board).
+function evidence(m, d, e, strongest) {
+  const on = e.detectable;
+  const w = on && Number.isFinite(e.omega2) ? Math.max(0.04, Math.min(1, e.omega2 / strongest)) : 0;
+  const top = h("span", { class: "pc-w2 has-tip" }, h("span", { class: "meter", "aria-hidden": "true" }, h("i", { style: { width: `${(w * 100).toFixed(1)}%` } })),
+    h("span", { class: "k", text: "ω²" }), h("b", { class: "num", text: strengthText(e) }));
+  const bottom = h("span", { class: "pc-q num has-tip", text: fmtP(e.q) });
+  const explain = () => h("div", null, h("b", { text: on ? `Moves ${m.target.label.toLowerCase()}: ω² ${strengthText(e)}` : "No detectable effect" }),
+    h("div", { text: `ω² is the share of the needle's variance this parameter explains on its own${d.scope ? ", inside its scope" : ""}; the bar compares it with the strongest on the board.` }),
+    h("div", { class: "k", text: `${e.test === "G" ? `G-test, ${e.k - 1} df` : `F(${e.df1}, ${e.df2}) = ${Number.isFinite(e.F) ? e.F.toFixed(2) : "–"}`} · ${fmtP(e.p, "p")} · ${fmtP(e.q)} after correcting across the board` }));
+  tip(top, explain);
+  tip(bottom, explain);
+  return { top, bottom };
+}
+
+function tags(m, d, e, ctx) {
+  const box = h("div", { class: "pc-foot" });
+  const md = ctx.mods && ctx.mods.byDim.get(d.id);
+  if (md && md.acts) {
+    const phrase = actsPhrase(m, md.acts);
+    box.append(tag(sentence(phrase), "acts", () => h("div", null, h("b", { text: sentence(phrase) }),
+      h("div", { text: `The ${md.acts.label} × ${nameOf(d)} interaction ${fmtP(md.acts.q)} after correcting across the board.` }))));
+  }
+  if (e.dead.length) {
+    const levels = e.dead.map(k => e.levels.find(l => l.key === k));
+    box.append(tag(`Dead: ${levels.map(l => l.label).join(", ")}`, "crit",
+      `${levels.map(l => `${l.label} gave ${fmtInt(l.hits)} of ${fmtInt(l.n)}`).join("; ")}: even the top of the 95% interval is under a fifth of the base rate. Rows spent there are lost.`));
+  }
+  const dep = ctx.dependent.get(d.id);
+  if (dep) {
+    const other = m.schema.dimById.get(dep.other);
+    box.append(tag(`Not independent of ${other ? nameOf(other) : dep.other}`, "warn",
+      `Cramér's V ${dep.V.toFixed(3)}: the sampler does not draw these two independently, so this parameter's difference carries some of the other's.`));
+  }
+  const withheld = e.levels.filter(l => l.withheld && l.n > 0).length;
+  if (withheld) box.append(tag(`${withheld} withheld`, null, `${withheld} value${withheld > 1 ? "s have" : " has"} fewer than 30 rows: drawn hollow, with no number.`));
+  if (d.inferred) box.append(tag("Role inferred", null, "No profile names this field; it is treated as a sampled parameter because it has few distinct values."));
+  return box;
+}
+
+function tag(text, kind, tipText) {
+  const el = h("span", { class: "tag" + (kind ? " " + kind : "") + " has-tip", text });
+  tip(el, tipText);
+  return el;
+}
+
+// A set (feature subsets): one bar per member, the needle on the rows that
+// included it, best first; members with no detectable effect are muted.
+function setCard(m, A, g, ctx) {
+  const t = m.target;
+  const sel = m.state.sel;
+  const selected = !!sel && g.members.some(x => (sel.kind === "dim" && sel.id === x.d.id) || (sel.kind === "level" && sel.dim === x.d.id));
+  const el = h("div", { class: "pcard" + (g.detectable ? "" : " off"), role: "listitem", tabindex: "0", "aria-pressed": selected ? "true" : "false",
+    "aria-label": `${g.column}: ${g.members.filter(x => x.e.detectable).length} of ${g.members.length} members move ${t.label}`,
+    dataset: { focus: "set:" + g.column } });
+  const open = () => A.set({ view: "features" });
+  el.addEventListener("click", open);
+  el.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); open(); } });
+  const movers = g.members.filter(x => x.e.detectable).length;
+  const top = g.best;
+  const w = top && top.e.detectable ? Math.max(0.04, Math.min(1, top.e.omega2 / ctx.strongest)) : 0;
+  const explain = () => h("div", null, h("b", { text: `${movers} of ${g.members.length} members move ${t.label.toLowerCase()}` }),
+    h("div", { text: "Each member's inclusion is tested on its own and corrected across the members. The Features view has every member's effect inside each subset size." }));
+  const ev = {
+    top: tip(h("span", { class: "pc-w2 has-tip" }, h("span", { class: "meter", "aria-hidden": "true" }, h("i", { style: { width: `${(w * 100).toFixed(1)}%` } })),
+      h("span", { class: "k", text: "ω² max" }), h("b", { class: "num", text: top ? strengthText(top.e) : "–" })), explain),
+    bottom: tip(h("span", { class: "pc-q num has-tip", text: `${movers} of ${g.members.length} move it` }), explain),
+  };
+  el.append(head(g.column, `${g.members.length} members · needle when included`, ev));
+  const better = t.better || 1;
+  const order = g.members.slice().sort((p, q) => (q.level.mean - p.level.mean) * better);
+  const levels = order.map(x => ({ ...x.level, key: x.d.id, label: x.d.name }));
+  // name the strongest member on each side of the base, if it moves the needle
+  const shown = order.filter(x => x.e.detectable && !x.level.withheld);
+  const above = shown.find(x => (x.level.mean - m.base.mean) * better > 0);
+  const below = [...shown].reverse().find(x => (x.level.mean - m.base.mean) * better < 0);
+  el.append(effectPlot(levels, {
+    kind: "cat", target: t, domain: ctx.domain, ref: m.base.mean, on: g.detectable, labels: "marked",
+    best: above ? above.d.id : null, worst: below ? below.d.id : null,
+    selected: sel && (sel.kind === "dim" || sel.kind === "level") ? (sel.kind === "dim" ? sel.id : sel.dim) : null,
+    tone: l => (order.find(x => x.d.id === l.key).e.detectable ? null : "off"),
+    pick: key => A.select({ kind: "dim", id: key }),
+  }));
+  el.append(h("div", { class: "pc-foot" }, h("span", { class: "tag link", text: "Every member in Features →" })));
+  return el;
+}
+
+// Set members grouped by their set, with each member's effect from the
+// members' own board (q corrected across the members).
+function setGroups(m) {
+  const members = memberDims(m.schema);
+  if (!members.length) return [];
+  const mb = memberBoard(m);
+  const byDim = new Map(mb.effects.map(e => [e.dim, e]));
+  const groups = new Map();
+  for (const d of members) {
+    const e = byDim.get(d.id);
+    const level = e.levels[1];
+    if (!(level.n > 0)) continue;
+    if (!groups.has(d.set.column)) groups.set(d.set.column, []);
+    groups.get(d.set.column).push({ d, e, level });
+  }
+  return [...groups.entries()].map(([column, list]) => {
+    const best = list.reduce((a, x) => (x.e.detectable && (!a || x.e.omega2 > a.e.omega2) ? x : a), null);
+    return { column, members: list, detectable: list.some(x => x.e.detectable), best };
+  });
+}
+
+// The mean over a nested parameter's own rows (its scope).
+function scopeMean(e) {
+  let n = 0, s = 0;
+  for (const l of e.levels) if (l.n > 0 && Number.isFinite(l.mean)) { n += l.n; s += l.n * l.mean; }
+  return n ? s / n : NaN;
+}
+
+function dependentOn(m) {
+  const out = new Map();
+  for (const p of independence(m)) {
+    if (!(p.p < 1e-6 && p.V > 0.03)) continue;
+    for (const [x, y] of [[p.a, p.b], [p.b, p.a]]) {
+      const cur = out.get(x);
+      if (!cur || p.V > cur.V) out.set(x, { other: y, V: p.V });
+    }
+  }
+  return out;
+}
+
+// Fixed values, aliases and runner-resolved fields: named, not plotted.
+function notOnBoard(m) {
+  const { schema } = m;
+  const quiet = schema.fields.filter(f => f.role === "fixed" || f.role === "alias" || f.role === "effective");
+  const aliasDims = schema.dims.filter(d => d.role === "alias" && d.aliasOf);
+  if (!quiet.length && !aliasDims.length) return null;
+  const chips = h("div", { class: "chips" });
+  for (const f of quiet) {
+    const why = f.role === "fixed" ? f.note : f.role === "alias" ? `alias: ${f.note}` : "resolved by the runner from other parameters, not sampled";
+    const c = h("span", { class: "chip has-tip" }, h("span", { class: "mono", text: f.name }),
+      h("span", { class: "muted", text: f.role === "fixed" ? (f.note || "").replace("one value in every row: ", "= ") : f.role }));
+    tip(c, why);
+    chips.append(c);
+  }
+  for (const d of aliasDims) {
+    const c = h("span", { class: "chip has-tip" }, h("span", { class: "mono", text: d.label }), h("span", { class: "muted", text: `= ${d.aliasOf}` }));
+    tip(c, d.note);
+    chips.append(c);
+  }
+  return h("section", { class: "board-sec quiet" },
+    h("h2", { class: "sec-title" }, h("span", { text: "Not on the board" }), h("span", { class: "count num", text: fmtInt(quiet.length + aliasDims.length) }), h("span", { class: "note", text: "fixed, aliases and fields the runner resolves" })),
+    chips);
 }
 
 function gridKeys(ev, grid) {
-  const items = [...grid.querySelectorAll(".block")];
+  const items = [...grid.querySelectorAll(".pcard")];
   const i = items.indexOf(document.activeElement);
   if (i < 0) return;
-  const cols = Math.max(1, Math.round(grid.clientWidth / (items[0].getBoundingClientRect().width + 16)));
+  const w = items[0].getBoundingClientRect().width;
+  const cols = Math.max(1, Math.round((grid.clientWidth + 12) / (w + 12)));
   let j = i;
   if (ev.key === "ArrowRight") j = i + 1;
   else if (ev.key === "ArrowLeft") j = i - 1;

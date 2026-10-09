@@ -4,8 +4,8 @@
 
 import { h, s, tip, fmtT, fmtDelta, fmtInt, fmtNum } from "./ui.js";
 
-// A shared horizontal domain for needle strips: every shown level mean and
-// interval, plus the base, with a little air.
+// A horizontal domain for interval bars (the inspector's table): every
+// shown level mean and interval, plus the base, with a little air.
 export function needleDomain(effects, base) {
   let lo = base, hi = base;
   for (const e of effects) for (const l of e.levels) {
@@ -15,52 +15,6 @@ export function needleDomain(effects, base) {
   if (!(hi > lo)) { lo -= 1; hi += 1; }
   const pad = (hi - lo) * 0.06;
   return [lo - pad, hi + pad];
-}
-
-const NW = 240, NH = 40, AXIS_Y = 33;
-
-// The needle strip of one dim: where each value puts the target, against
-// the base (vertical line). Lanes keep close dots apart.
-export function needle(effect, target, base, domain, opts = {}) {
-  const [d0, d1] = domain;
-  if (![base, d0, d1].every(Number.isFinite) || !(d1 > d0)) {
-    return s("svg", { class: "needle", viewBox: `0 0 ${NW} ${NH}`, role: "img", "aria-label": "no rows to place" },
-      s("line", { class: "axis-line", x1: 0, x2: NW, y1: AXIS_Y, y2: AXIS_Y }));
-  }
-  const X = v => 6 + (v - d0) / (d1 - d0) * (NW - 12);
-  const svgEl = s("svg", { class: "needle", viewBox: `0 0 ${NW} ${NH}`, role: "img",
-    "aria-label": opts.label || "values against the base" });
-  svgEl.append(s("line", { class: "axis-line", x1: 0, x2: NW, y1: AXIS_Y, y2: AXIS_Y }));
-  const bx = X(base);
-  svgEl.append(s("line", { class: "base-line", x1: bx, x2: bx, y1: 3, y2: NH - 1 }));
-  const shown = effect.levels.filter(l => l.n > 0).map(l => ({ l, x: Number.isFinite(l.mean) ? X(l.mean) : NaN }))
-    .filter(o => Number.isFinite(o.x)).sort((a, b) => a.x - b.x);
-  const lanes = [];
-  for (const o of shown) {
-    let lane = 0;
-    while (lanes[lane] !== undefined && o.x - lanes[lane] < 9) lane++;
-    lanes[lane] = o.x;
-    o.lane = Math.min(lane, 2);
-  }
-  const laneY = [AXIS_Y - 9, AXIS_Y - 19, AXIS_Y - 28];
-  for (const o of shown) {
-    const { l } = o;
-    const y = laneY[o.lane];
-    const g = s("g", { class: "has-tip", tabindex: opts.focusable ? "0" : null });
-    if (!l.withheld && Number.isFinite(l.lo)) {
-      g.append(s("line", { class: "ci-bar", x1: X(l.lo), x2: X(l.hi), y1: y, y2: y }));
-    }
-    let cls = "dot";
-    if (l.withheld) cls += " hollow";
-    else if (effect.best && l.key === effect.best.key && effect.detectable) cls += " best";
-    else if (effect.worst && l.key === effect.worst.key && effect.detectable) cls += " worst";
-    if (opts.selected && opts.selected === l.key) cls += " sel";
-    g.append(s("circle", { class: cls, cx: o.x, cy: y, r: 4 }));
-    g.append(s("circle", { class: "hit", cx: o.x, cy: y, r: 11 }));
-    tip(g, () => levelTip(l, target, base));
-    svgEl.append(g);
-  }
-  return svgEl;
 }
 
 export function levelTip(l, target, base) {

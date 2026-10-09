@@ -230,32 +230,15 @@ const ICONS = {
   fwd: "M9 6l6 6-6 6",
   end: "M7 6l6 6-6 6M17 6v12",
   start: "M17 6l-6 6 6 6M7 6v12",
-  plus: "M12 5v14M5 12h14",
   copy: "M9 9h10v10H9zM5 15V5h10",
   alert: "M12 3 2 20h20zM12 10v4M12 17h.01",
   check: "M5 12l5 5 9-10",
-  cat: "M5 5h6v6H5zM13 13h6v6h-6zM13 5h6v6h-6z",
-  numk: "M4 18 9 6l4 8 3-5 4 9",
-  bool: "M4 12a5 5 0 0 1 5-5h6a5 5 0 0 1 0 10H9a5 5 0 0 1-5-5zM15 12h.01",
-  member: "M4 6h3M4 12h3M4 18h3M10 6h10M10 12h10M10 18h10",
-  scoped: "M4 4h16v16H4zM8 8h8v8H8z",
-  size: "M4 18h4V12H4zM10 18h4V8h-4zM16 18h4V4h-4z",
-  target: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z",
 };
 
 export function icon(name, cls) {
   const d = ICONS[name];
   if (!d) throw new Error(`no icon ${name}`);
   return s("svg", { viewBox: "0 0 24 24", class: cls, "aria-hidden": "true" }, s("path", { d }));
-}
-
-export const FAMILY_VAR = {
-  backtest: "--f-backtest", labels: "--f-labels", model: "--f-model", features: "--f-features",
-  sizing: "--f-sizing", logreg: "--f-logreg", hp: "--f-hp", inferred: "--f-inferred",
-};
-
-export function famColor(family) {
-  return `var(${FAMILY_VAR[family] || "--f-inferred"})`;
 }
 
 // Debounce to one call per animation frame.

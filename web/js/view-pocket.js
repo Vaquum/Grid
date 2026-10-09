@@ -1,7 +1,7 @@
 // Pocket: stack value blocks into a pocket (a conjunction), read what it
 // holds, and take its code to the next sweep.
 
-import { h, icon, tip, fmtT, fmtInt, fmtPct, fmtDelta, fmtP, famColor, copyText } from "./ui.js";
+import { h, icon, tip, fmtT, fmtInt, fmtPct, fmtDelta, fmtP, copyText } from "./ui.js";
 import { pocketStats, rowsIn, suggestions, summarize, MIN_N } from "./engine.js";
 import { boardDims, memberDims } from "./model.js";
 import { runRate } from "./view-run.js";
@@ -23,7 +23,7 @@ export function renderPocket(view, m, A) {
   const stack = h("div", { class: "stack", "aria-label": "The pocket's blocks, first at the bottom" });
   stack.append(h("div", { class: "floor", text: pocket.length ? `All ${fmtInt(m.rows.length)} rows · ${fmtT(target, m.base.mean)}` : "Drop or add a block to start" }));
   pocket.forEach((c, k) => stack.append(brick(m, A, pocket, c, k, steps[k])));
-  stack.addEventListener("dragover", (e) => { e.preventDefault(); stack.style.borderColor = "var(--accent)"; });
+  stack.addEventListener("dragover", (e) => { e.preventDefault(); stack.style.borderColor = "var(--ink)"; });
   stack.addEventListener("dragleave", () => { stack.style.borderColor = ""; });
   stack.addEventListener("drop", (e) => {
     e.preventDefault();
@@ -83,7 +83,7 @@ function brick(m, A, pocket, c, k, step) {
   const d = m.schema.dimById.get(c.dim);
   const labels = c.keys.map(key => (d.levels.find(l => l.key === key) || { label: key }).label);
   const name = d.kind === "scoped" ? `${d.name} (${d.scope.label})` : d.label;
-  const el = h("div", { class: "brick", style: { "--fam": famColor(d.family) }, draggable: "true" },
+  const el = h("div", { class: "brick", draggable: "true" },
     h("div", { class: "what" }, h("b", { text: name }), " = ", labels.join(" or "),
       h("div", { class: "muted num", text: `${fmtInt(step.s.n)} rows · ${fmtT(m.target, step.s.mean)}` })),
     h("button", { class: "icon-btn x", "aria-label": `Remove ${name}`, onclick: () => A.set({ pocket: pocket.filter((_, j) => j !== k) }) }, icon("close")));
@@ -118,8 +118,7 @@ function palette(m, A, pocket) {
       const levels = d.levels.filter(l => !q || name.toLowerCase().includes(q) || String(l.label).toLowerCase().includes(q));
       if (!levels.length) continue;
       if (++shown > 40) break;
-      const row = h("div", null, h("div", { class: "mono", style: { fontSize: "11.5px", color: "var(--ink-2)", marginBottom: "3px" } },
-        h("i", { style: { display: "inline-block", width: "8px", height: "8px", borderRadius: "2px", background: famColor(d.family), marginRight: "6px" } }), name));
+      const row = h("div", null, h("div", { class: "mono", style: { fontSize: "11px", color: "var(--ink-2)", marginBottom: "4px" }, text: name }));
       const chips = h("div", { class: "chips" });
       for (const l of (d.kind === "member" ? levels.filter(x => x.key === "in") : levels)) {
         const inPocket = pocket.some(c => c.dim === d.id && c.keys.includes(l.key));
@@ -256,7 +255,7 @@ function suggestBlock(m, A, pocket, rows) {
     const d = m.schema.dimById.get(sgt.dim);
     const name = d.kind === "member" ? `${sgt.dimLabel} included` : `${d.kind === "scoped" ? `${d.name} (${d.scope.label})` : sgt.dimLabel} = ${sgt.label}`;
     tb.append(h("tr", { class: "clickable", tabindex: "0", onclick: () => A.addPocket(sgt.dim, sgt.key), onkeydown: (e) => { if (e.key === "Enter") A.addPocket(sgt.dim, sgt.key); } },
-      h("td", { class: "v" }, h("i", { style: { display: "inline-block", width: "8px", height: "8px", borderRadius: "2px", background: famColor(d.family), marginRight: "6px" } }), name),
+      h("td", { class: "v", text: name }),
       h("td", { class: "r num", text: fmtInt(sgt.n) }), h("td", { class: "r num", text: fmtT(t, sgt.mean) }),
       h("td", { class: "r num", text: `${fmtT(t, sgt.lo)} – ${fmtT(t, sgt.hi)}` })));
   }

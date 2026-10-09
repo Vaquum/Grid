@@ -6,7 +6,7 @@ import { decodePack, Dataset } from "./pack.js";
 import { buildSchema } from "./schema.js";
 import { rowsIn, summarize, board, boardOrder } from "./engine.js";
 import { boardDims, objectiveTop } from "./model.js";
-import { h, s, clear, icon, installTips, hideTip, fmtInt, fmtAgo, fmtT, tip } from "./ui.js";
+import { h, clear, icon, installTips, hideTip, fmtInt, fmtAgo, fmtT, tip } from "./ui.js";
 import { renderBoard } from "./view-board.js";
 import { renderInspector } from "./inspector.js";
 import { renderPocket } from "./view-pocket.js";
@@ -301,18 +301,12 @@ function updateTop(m0) {
   clear(t);
   const ds = m.ds;
   const runs = app.sweep.runs;
-  t.append(h("div", { class: "brand" },
-    s("svg", { class: "cube", viewBox: "0 0 24 24", "aria-hidden": "true" },
-      s("path", { class: "cube-top", d: "M12 2 21 7 12 12 3 7Z" }),
-      s("path", { class: "cube-left", d: "M3 7 12 12V22L3 17Z" }),
-      s("path", { class: "cube-right", d: "M21 7 12 12V22L21 17Z" })),
-    h("span", { class: "brand-name", text: "Tessera" })));
   const runSel = h("select", { class: "run-pick", id: "run-pick", "aria-label": "Run" },
     runs.map(r => h("option", { value: r.id, selected: r.id === ds.id ? "selected" : null, text: `${r.meta.label} · ${fmtInt(r.n)} rows` })));
   runSel.addEventListener("change", () => setState({ run: runSel.value, sel: null, context: [], pocket: [], edge: null }));
   const health = runHealth(m);
   const st = statusOf(m);
-  const pill = h("span", { class: "status", dataset: { kind: st.kind } }, h("span", { class: "dot" }), st.text);
+  const pill = h("span", { class: "status", dataset: { kind: st.kind } }, h("b", { text: st.label }), st.detail ? h("span", { class: "detail", text: `· ${st.detail}` }) : null);
   tip(pill, st.tip);
   t.append(h("div", { class: "sweep" },
     h("div", { class: "sweep-line" },
@@ -332,7 +326,7 @@ function updateTop(m0) {
   for (const cnd of m.context) {
     const d = m.schema.dimById.get(cnd.dim);
     const labels = cnd.keys.map(k => (d.levels.find(l => l.key === k) || { label: k }).label);
-    chips.append(h("span", { class: "chip" }, h("i", { class: "fam", style: { background: `var(--f-${d.family})` } }),
+    chips.append(h("span", { class: "chip" },
       h("span", { class: "mono", text: `${d.label} = ${labels.join(" or ")}` }),
       h("button", { "aria-label": `Remove ${d.label} from the context`, onclick: () => setState({ context: app.state.context.filter(x => x !== cnd) }), text: "×" })));
   }
@@ -343,15 +337,16 @@ function updateTop(m0) {
   const right = h("div", { class: "top-right" });
   const playing = !!app.playback;
   right.append(
-    btnIcon("start", "Start of the run", "Home", () => setState({ edge: 0 }, { replace: true })),
-    btnIcon("back", "Step back", "[", () => stepEdge(-1)),
-    btnIcon(playing ? "pause" : "play", playing ? "Pause the replay" : "Replay the rows as they arrived", "Space", togglePlay, playing),
-    btnIcon("fwd", "Step forward", "]", () => stepEdge(1)),
-    btnIcon("end", "Latest row (follow live)", "End", () => { stopPlay(); setState({ edge: null }, { replace: true }); }),
-    h("span", { style: { width: "8px" } }),
-    btnIcon("sun", "Light or dark", "D", toggleTheme),
-    btnIcon("keys", "Keys", "?", () => openReference("keys")),
-    btnIcon("info", "System reference", "I", () => openReference()));
+    h("div", { class: "group", role: "group", "aria-label": "Replay" },
+      btnIcon("start", "Start of the run", "Home", () => setState({ edge: 0 }, { replace: true })),
+      btnIcon("back", "Step back", "[", () => stepEdge(-1)),
+      btnIcon(playing ? "pause" : "play", playing ? "Pause the replay" : "Replay the rows as they arrived", "Space", togglePlay, playing),
+      btnIcon("fwd", "Step forward", "]", () => stepEdge(1)),
+      btnIcon("end", "Latest row (follow live)", "End", () => { stopPlay(); setState({ edge: null }, { replace: true }); })),
+    h("div", { class: "group", role: "group", "aria-label": "Help" },
+      btnIcon("sun", "Light or dark", "D", toggleTheme),
+      btnIcon("keys", "Keys", "?", () => openReference("keys")),
+      btnIcon("info", "System reference", "I", () => openReference())));
   t.append(right);
 }
 
@@ -366,18 +361,18 @@ function statusOf(m) {
   const mode = app.config.mode;
   if (app.state.edge !== null && app.state.edge < ds.n) {
     const pb = app.playback;
-    return { kind: "replay", text: `${pb ? "Replaying" : "Replay"} · row ${fmtInt(app.state.edge)} of ${fmtInt(ds.n)}`,
+    return { kind: "replay", label: pb ? "Replaying" : "Replay", detail: `row ${fmtInt(app.state.edge)} of ${fmtInt(ds.n)}`,
       tip: pb ? "Rows appear in the order the sweep wrote them. Every view shows only the rows up to the edge." : "Every view shows only the rows up to the replay edge. End returns to the latest row." };
   }
   if (mode === "live") {
-    if (!app.live || !app.live.connected) return { kind: "down", text: "Reconnecting", tip: "The stream from the server stopped; the page reads the sweep again." };
+    if (!app.live || !app.live.connected) return { kind: "down", label: "Reconnecting", detail: null, tip: "The stream from the server stopped; the page reads the sweep again." };
     const t = ds.arrivals;
     const last = ds.n ? t[ds.n - 1] : NaN;
     const ago = Number.isFinite(last) ? Date.now() / 1000 - last : NaN;
-    if (ds.meta.live && Number.isFinite(ago) && ago > 600) return { kind: "stale", text: `Live · last row ${fmtAgo(ago)}`, tip: "No row has arrived for over ten minutes. Check the Run view for a crash." };
-    return { kind: "live", text: Number.isFinite(ago) ? `Live · last row ${fmtAgo(ago)}` : "Live", tip: `Following ${ds.meta.source}` };
+    if (ds.meta.live && Number.isFinite(ago) && ago > 600) return { kind: "stale", label: "Live", detail: `last row ${fmtAgo(ago)}`, tip: "No row has arrived for over ten minutes. Check the Run view for a crash." };
+    return { kind: "live", label: "Live", detail: Number.isFinite(ago) ? `last row ${fmtAgo(ago)}` : null, tip: `Following ${ds.meta.source}` };
   }
-  return { kind: "recorded", text: mode === "demo" ? "Recorded" : "Recorded file", tip: "A snapshot of the sweep's files. Press play to replay its rows as they arrived." };
+  return { kind: "recorded", label: "Recorded", detail: mode === "demo" ? null : "file", tip: "A snapshot of the sweep's files. Press play to replay its rows as they arrived." };
 }
 
 function updateRail(m) {

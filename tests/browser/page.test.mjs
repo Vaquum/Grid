@@ -51,24 +51,53 @@ async function open(width = 1440, height = 900) {
   page.on("pageerror", e => errors.push(String(e)));
   page.on("console", m => { if (m.type() === "error") errors.push(m.text()); });
   await page.goto(base);
-  await page.waitForSelector(".block");
+  await page.waitForSelector(".pcard");
   return { page, errors };
 }
 
-test("the board draws the sweep with its base and raised blocks", async () => {
+test("the board sums itself up in a strip and plots every parameter", async () => {
   const { page, errors } = await open();
   assert.equal(await page.locator(".view h1").innerText(), "What moves Tradeable");
-  assert.match(await page.locator(".hero").innerText(), /over 6,000 rows/);
-  const raised = await page.locator(".block:not(.flat)").count();
-  assert.ok(raised >= 3, `raised blocks: ${raised}`);
-  // the planted strong effects are raised, the inert one is flat
-  const names = await page.locator(".block:not(.flat) .block-name").allInnerTexts();
-  assert.ok(names.some(n => n.startsWith("model")), names.join(","));
-  assert.ok(names.some(n => n.startsWith("tp")), names.join(","));
-  const flat = await page.locator(".block.flat .block-name").allInnerTexts();
-  assert.ok(flat.some(n => n.startsWith("sizing")), "sizing is flat");
-  // moderators arrive in the background
-  await page.waitForSelector("text=interaction tests checked", { timeout: 20000 });
+  const strip = await page.locator(".strip").innerText();
+  assert.match(strip, /Rows\s+6,000/);
+  assert.match(strip, /Move the needle/);
+  const on = await page.locator(".pcard:not(.off)").count();
+  assert.ok(on >= 3, `cards that move the needle: ${on}`);
+  // the planted strong effects move the needle, the inert one does not
+  const names = await page.locator(".pcard:not(.off) .pc-name").allInnerTexts();
+  assert.ok(names.includes("model"), names.join(","));
+  assert.ok(names.includes("tp"), names.join(","));
+  const off = await page.locator(".pcard.off .pc-name").allInnerTexts();
+  assert.ok(off.includes("sizing"), "sizing has no detectable effect");
+  // a category is drawn as bars, a number as dots joined in order
+  const model = page.locator(".pcard", { has: page.locator(".pc-name", { hasText: /^model$/ }) });
+  assert.equal(await model.locator(".plot[data-kind=cat] .bar").count(), 8);
+  const tp = page.locator(".pcard", { has: page.locator(".pc-name", { hasText: /^tp$/ }) });
+  assert.ok(await tp.locator(".plot[data-kind=num] .pt").count() >= 5);
+  assert.equal(await tp.locator(".trend polyline").count(), 1);
+  // every card reads the same scale
+  const scales = await page.$$eval(".plot-y", ys => ys.map(y => [...y.querySelectorAll(".yl:not(.ref-l)")].map(l => l.textContent).join("|")));
+  assert.equal(new Set(scales).size, 1, `scales: ${[...new Set(scales)].join(" / ")}`);
+  // no two shown x labels of one card overlap
+  const clashes = await page.$$eval(".plot-x", rows => rows.flatMap(row => {
+    const rs = [...row.querySelectorAll(".xl")].filter(l => !l.hidden).map(l => l.getBoundingClientRect());
+    return rs.flatMap((a, i) => rs.slice(i + 1).filter(b => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom).map(() => row.closest(".pcard").dataset.focus));
+  }));
+  assert.deepEqual(clashes, []);
+  // where each parameter acts arrives in the background
+  await page.waitForSelector(".sc[data-ready=true]", { timeout: 20000 });
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("the strip copies the board as notes", async () => {
+  const { page, errors } = await open();
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: base });
+  await page.locator(".strip-copy").click();
+  await page.waitForSelector("text=Board copied.");
+  const text = await page.evaluate(() => navigator.clipboard.readText());
+  assert.match(text, /Synthetic sweep/);
+  assert.match(text, /Moves it \(\d+ of \d+ parameters, q < 0.05\):/);
   assert.deepEqual(errors, []);
   await page.close();
 });
@@ -86,12 +115,15 @@ test("every view draws without an error", async () => {
   await page.close();
 });
 
-test("a block opens in five degrees and a value goes into the pocket", async () => {
+test("a card opens in the inspector and a value goes into the pocket", async () => {
   const { page, errors } = await open();
-  await page.locator(".block", { has: page.locator(".block-name", { hasText: /^model$/ }) }).click();
-  await page.waitForSelector("#inspector .degree");
-  const degrees = await page.locator("#inspector .degree h3").allInnerTexts();
-  for (const d of ["ATTRIBUTES", "ARGUMENTS", "CODE"]) assert.ok(degrees.some(x => x.toUpperCase().includes(d)), `${d} in ${degrees}`);
+  await page.locator(".pcard .pc-name", { hasText: /^model$/ }).click();
+  await page.waitForSelector("#inspector .part");
+  const parts = await page.locator("#inspector .part h3").allInnerTexts();
+  assert.deepEqual(parts, ["Attributes", "Where it acts", "Values", "How the estimates settled"]);
+  // a value chosen on the card is chosen in the table
+  await page.locator(".pcard", { has: page.locator(".pc-name", { hasText: /^model$/ }) }).locator(".col[data-key=xgb_tuned]").click();
+  assert.equal(await page.locator("#inspector table.vals tr.sel td.v").innerText(), "xgb_tuned");
   await page.locator("#inspector table.vals tbody tr", { hasText: "xgb_def" }).click();
   await page.keyboard.press("p");
   await page.keyboard.press("2");

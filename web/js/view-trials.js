@@ -30,7 +30,7 @@ export function renderTrials(view, m, A) {
     const tr = h("tr", { class: "clickable", tabindex: "0", "aria-selected": sel ? "true" : "false",
       onclick: () => A.select({ kind: "row", i }), onkeydown: (e) => { if (e.key === "Enter") A.select({ kind: "row", i }); } },
       h("td", { class: "r num", text: String(k + 1) }), h("td", { class: "r num muted", text: fmtInt(i) }));
-    if (sel) tr.style.background = "var(--accent-soft)";
+    if (sel) tr.classList.add("sel");
     if (sc.gates.length) {
       const pills = h("span", { class: "pills has-tip" });
       for (const g of sc.gates) pills.append(h("span", { class: "pill" + (g.pass[i] === 1 ? " pass" : "") }));

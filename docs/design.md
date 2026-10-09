@@ -13,15 +13,20 @@ scale target: one million rows must stay interactive.
 
 ## Sources of the design
 
-- **blockable** (eka-foundation): every interaction is a block, and a block
-  reveals itself in five degrees of depth: colour, icon, attributes,
-  arguments, code. Blocks are arranged in two dimensions, side by side or on
-  top of each other, and the arrangement computes code.
+- **blockable** (eka-foundation): an interaction is a block that reveals
+  itself in degrees of depth, and blocks arranged side by side or on top of
+  each other compute something (the Pocket stacks value blocks).
 - **Market State Cube Explorer**: every number says what it measures, its
   basis, its support and its clipping; a value below its sample floor is
   withheld, never drawn; missing is never zero; the address holds the view;
   every control has a key and a label; a reference pane explains each
   surface with Purpose, Read and Use; replay hides everything after an edge.
+  Its look too: restrained neutrals, colour kept for data and states, one
+  type scale, hairlines, small radii. Tessera's neutrals are warm stone and
+  its data colour lapis, so the two read as different instruments.
+- **Designed experiments**: a random search is one, so the board reads like
+  a main-effects plot: the response at each level of each factor, every
+  panel on one scale, against the grand mean.
 
 ## Data model
 
@@ -108,7 +113,8 @@ pocket, see below) and up to the replay edge.
 
 ## Views
 
-1. **Board**: one block per param, sorted by effect strength on the target.
+1. **Board**: a strip that sums the board up, then one card per param,
+   sorted by effect strength on the target.
 2. **Pocket**: compose a pocket by stacking value blocks; read its numbers;
    copy the predicate and the narrowed space for the next sweep.
 3. **Pairs**: interaction strength for every pair; a pair opens as a
@@ -120,17 +126,31 @@ pocket, see below) and up to the replay edge.
 7. **Run**: throughput, ETA, segments, crashes, warnings, invariants, the
    record curve against the luck line.
 
-## A block's five degrees
+## A card
 
-1. **Colour**: the family (backtest, labels, model, features, sizing, logreg,
-   hyperparameters).
-2. **Icon**: the param's kind (category, number, switch, set member, nested).
-3. **Attributes**: on the block's face: effect strength, its interval, q,
-   and badges (fixed, alias, acts when, dead value, not independent, so far).
-4. **Arguments**: inside the block: every value with n, mean, interval and
-   lift, and how its estimate settled as rows arrived.
-5. **Code**: the space file lines and sampler lines that define the param,
-   and the expressions that reproduce every number shown.
+Nothing on a card depends on knowing the experiment beyond its results:
+no colour per family and no icon per kind, which a hand-written profile or
+an agent would have to supply for every new sweep.
+
+1. **Name and scope**: the param, how many values it has, and for a nested
+   param the value it varies under with that value's share of the rows.
+2. **Strength and evidence**: ω² with a bar against the strongest param on
+   the board, and q after correcting across the board.
+3. **The plot**: the needle (y) at each value (x). A number's values sit at
+   their own place, small to large, on a log axis when they are spaced by
+   factors, as dots with their 95% interval joined in order; `none` stands
+   apart. A category's values are bars from zero with the interval on top.
+   Every card shares the y scale, which always holds zero, and the
+   reference (the base, or a nested param's own scope) is the dashed line.
+   The best and worst value of a param that moves the needle carry their
+   number. Lapis marks a param that moves the needle, grey one that does
+   not; a value under 30 rows is hollow.
+4. **Tags**: where it acts, dead values, not independent, withheld values,
+   an inferred role.
+
+The inspector opens a card in depth: its kind and scope, a sentence on
+what it does, its attributes and tests, where it acts, every value with its
+interval, and how each estimate settled as rows arrived.
 
 ## Live and replay
 
