@@ -279,6 +279,20 @@ The server tails the results file and the log (locally, or over SSH with
 A truncated results file starts a new segment. The replay edge hides every
 row after it in every view.
 
+A page is watched all day, among others, so it says what the run is doing:
+the status pill reads the run's own state (Live; Quiet after ten minutes
+without a row; Crashed when its latest log segment ends in a crash;
+Finished at the log's closing summary; Archived, Earlier run, Recorded,
+Replay, Reconnecting), the tab's title names the sweep and the view, or
+the trouble in the view's place, and its icon carries a dot for a run
+live, quiet or down. Times are the reader's: a clock time, or in full with
+the reader's zone. When the run on screen starts over, the page stays on
+the rows it had, kept as an archived run, and offers the run from its
+first new row. Toasts say their kind at their edge, and the Run view keeps
+what they said while the page is open. The board holds its cards' places
+while rows arrive and re-sorts when asked; a new question (the run, the
+needle, the context, the edge) sorts afresh.
+
 ## Non-goals
 
 No model of why a config scores what it scores; no recommendation presented
