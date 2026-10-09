@@ -4,8 +4,9 @@
 import { readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const dir = new URL("../web/js/", import.meta.url).pathname;
+const dir = fileURLToPath(new URL("../web/js/", import.meta.url));
 const files = readdirSync(dir).filter(f => f.endsWith(".js")).sort();
 for (const f of files) execFileSync(process.execPath, ["--check", join(dir, f)], { stdio: "inherit" });
 console.log(`${files.length} modules parse`);
