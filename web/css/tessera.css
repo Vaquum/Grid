@@ -363,14 +363,15 @@ button.sc:hover { background: var(--hover); }
   white-space: nowrap; font-variant-numeric: tabular-nums; pointer-events: none;
 }
 .dl.best { color: var(--ink); font-weight: 600; }
-.col.withheld .pt { background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--muted); }
-.col.withheld .bar { background: transparent; box-shadow: inset 0 0 0 1px var(--muted); }
-.col.sel .pt { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--ink); }
-.col.sel .bar { box-shadow: 0 0 0 1.5px var(--ink); }
 .pcard.off .bar, .col.off .bar { background: var(--off-bar); }
 .pcard.off .pt { background: var(--off); }
 .pcard.off .ci, .col.off .ci { border-left-color: var(--off); }
 .pcard.off .trend polyline { stroke: var(--off); }
+/* after the colours: a withheld value is hollow on any card */
+.col.withheld .pt { background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--muted); }
+.col.withheld .bar { background: transparent; box-shadow: inset 0 0 0 1px var(--muted); }
+.col.sel .pt { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--ink); }
+.col.sel .bar { box-shadow: 0 0 0 1.5px var(--ink); }
 .xl {
   position: absolute; top: 7px; transform: translateX(-50%); font-size: var(--fs-s); line-height: 1.2;
   color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums;

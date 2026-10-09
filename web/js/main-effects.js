@@ -179,12 +179,11 @@ export function effectPlot(levels, opts) {
   return box;
 }
 
+// A tick in as many decimals as its step has (0.025 needs three).
 function tickText(target, t, step) {
-  if (target.kind === "binary") {
-    const pct = t * 100, st = step * 100;
-    return `${pct.toFixed(st < 1 ? 1 : 0)}%`;
-  }
-  const digits = step >= 1 ? 0 : step >= 0.1 ? 1 : 2;
+  const decimals = s => { const m = /\.(\d+)$/.exec(String(+s.toPrecision(12))); return m ? m[1].length : 0; };
+  if (target.kind === "binary") return `${(t * 100).toFixed(decimals(step * 100))}%`;
+  const digits = decimals(step);
   if (target.unit === "$") return (t < 0 ? "−$" : "$") + Math.abs(t).toLocaleString("en-US", { maximumFractionDigits: digits });
   return (t < 0 ? "−" : "") + Math.abs(t).toFixed(digits);
 }

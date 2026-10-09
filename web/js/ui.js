@@ -61,7 +61,9 @@ export function fmtNum(x, digits = 2) {
   const a = Math.abs(x);
   if (a >= 1e6) return (x / 1e6).toFixed(a >= 1e7 ? 1 : 2) + "M";
   if (a >= 1e4) return Math.round(x).toLocaleString("en-US");
-  return x.toFixed(digits);
+  // a value that rounds to zero is printed without a sign
+  const t = x.toFixed(digits);
+  return /^-0\.?0*$/.test(t) ? t.slice(1) : t;
 }
 
 export function fmtPct(x, digits = 1) {
