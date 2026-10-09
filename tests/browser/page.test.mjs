@@ -300,7 +300,7 @@ test("trials: a strip, and column sets that toggle, join the table under their n
   await page.close();
 });
 
-test("trials: a toggle names itself after half a second of rest", async () => {
+test("trials: a toggle names itself and its key after half a second of rest", async () => {
   const { page, errors } = await open();
   await page.keyboard.press("5");
   await page.waitForSelector(".tr-tools");
@@ -310,7 +310,7 @@ test("trials: a toggle names itself after half a second of rest", async () => {
   assert.equal(await page.locator("#tip").isVisible(), false);
   await page.clock.runFor(200);
   assert.equal(await page.locator("#tip").isVisible(), true);
-  assert.match(await page.locator("#tip").innerText(), /^Rows like it\n.+/);
+  assert.match(await page.locator("#tip").innerText(), /^Rows like it X\n.+/);
   assert.deepEqual(errors, []);
   await page.close();
 });
@@ -474,17 +474,16 @@ test("charts are drawn at their box's width, so their text is the small size at 
     assert.ok(charts.length >= 8, `charts: ${charts.length}`);
     for (const c of charts) assert.equal(c.fs, "11px");
   }
-  // the cards of a row start their charts at one height, however their tags wrap
-  const tops = await page.$$eval(".rn-grid", grids => grids.flatMap(g => {
-    const rows = new Map();
-    for (const c of g.querySelectorAll(".rn-card")) {
-      const at = Math.round(c.getBoundingClientRect().top);
-      if (!rows.has(at)) rows.set(at, new Set());
-      rows.get(at).add(Math.round(c.querySelector(".chart").getBoundingClientRect().top));
-    }
-    return [...rows.values()].map(s => s.size);
-  }));
-  assert.ok(tops.length > 1 && tops.every(n => n === 1), `chart tops per row: ${tops.join(",")}`);
+  // the cards of a row start their charts at one height, however their tags
+  // wrap: each row's chart tops, by the row's top
+  const rows = await page.$$eval(".rn-grid .rn-card", cards => {
+    const by = {};
+    for (const c of cards) (by[Math.round(c.getBoundingClientRect().top)] ||= []).push(Math.round(c.querySelector(".chart").getBoundingClientRect().top));
+    return by;
+  });
+  const said = `chart tops by row (900 px wide, ${await page.evaluate(() => document.documentElement.scrollWidth)} px of page): ${JSON.stringify(rows)}`;
+  assert.ok(Object.keys(rows).length > 1, said);
+  assert.ok(Object.values(rows).every(tops => new Set(tops).size === 1), said);
   assert.deepEqual(errors, []);
   await page.close();
 });
@@ -746,7 +745,7 @@ test("a Limen round replays with Limen's Trainer, its board has no dead values, 
   await page.keyboard.press("6");
   await page.waitForSelector(".gt-needle");
   await page.keyboard.press("n");
-  assert.equal(await page.evaluate(() => document.activeElement.className), "gt-needle");
+  assert.ok(await page.evaluate(() => document.activeElement.classList.contains("gt-needle")));
   await page.keyboard.press("Escape");
   // M turns Compare two on, on the Run view
   await page.goto(base + "limen200");
@@ -774,7 +773,7 @@ test("S chooses the next number of parameters at once on Pairs, and X reaches Tr
   await page.waitForSelector(".pr-map", { timeout: 20000 });
   await page.keyboard.press("s");
   await page.waitForFunction(() => document.querySelector('.pr-size [aria-pressed="true"]').textContent === "3");
-  await page.keyboard.press("S");
+  await page.keyboard.press("Shift+S");
   await page.waitForFunction(() => document.querySelector('.pr-size [aria-pressed="true"]').textContent === "2");
   assert.deepEqual(errors, []);
   await page.close();
