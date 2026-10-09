@@ -5,7 +5,7 @@
 // row, and the activity, risk, model skill and run time behind each score
 // where the sweep records them.
 
-import { h, tip, icon, fmtT, fmtInt, fmtP, fmtRowValue, inText, rangeText, runName } from "./ui.js";
+import { h, tip, keyTip, icon, fmtT, fmtInt, fmtP, fmtRowValue, inText, rangeText, runName } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { summarize, MIN_N } from "./engine.js";
 import { expectedMaxZ } from "./stats.js";
@@ -224,7 +224,7 @@ function likeTip(m, ranked, x) {
 // in a group for each part (a row's parameters, the checks on its score,
 // what it cost).
 function colTools(m, A, cols) {
-  const bar = h("div", { class: "tr-tools", role: "toolbar", "aria-label": "Columns" });
+  const bar = h("div", { class: "tr-tools", role: "toolbar", "aria-label": "Columns", dataset: { key: "x" } });
   const on = m.state.trialCols;
   let part = null, group = null;
   for (const p of PRESETS) {
@@ -240,7 +240,7 @@ function colTools(m, A, cols) {
         if (empty) return;
         A.set({ trialCols: on.includes(p.id) ? on.filter(x => x !== p.id) : [...on, p.id] }, { replace: true });
       } }, icon(p.icon), h("span", { text: p.name }));
-    tip(b, () => h("div", null, h("b", { text: p.name }), h("div", { class: "k", text: presetWhat(p.id, m, c) })));
+    tip(b, keyTip(p.name, "X", `${presetWhat(p.id, m, c)} X reaches these toggles, ← → move between them.`));
     group.append(b);
   }
   return bar;

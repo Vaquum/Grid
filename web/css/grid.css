@@ -577,6 +577,7 @@ pre.code.capped { max-height: 320px; overflow: auto; }
 .isl-note { margin: var(--sp-2) 0 0; color: var(--muted); font-size: var(--fs-m); }
 /* a note that opens its panel, part or box sits right under its head */
 .isl-head + .isl-note, .isl-note:first-child { margin-top: 0; }
+.pin-blocks { margin-bottom: var(--sp-3); }
 .isl-note + .fig { margin-top: var(--sp-1); }
 /* a panel's actions at its foot, in buttons of one size */
 .isl-foot { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-4); padding-top: var(--sp-3); border-top: 1px solid var(--line); }
@@ -800,8 +801,9 @@ table.ft-table th.iv, table.ft-table td.iv { width: 28%; min-width: 120px; }
 @media (prefers-reduced-motion: reduce) { .mf-chev { transition: none; } }
 
 /* reference pane */
+/* beside the rail, so the views stay a click away */
 .reference {
-  position: fixed; left: 0; top: 0; bottom: 0; width: min(560px, 100vw); z-index: 40; overflow-y: auto;
+  position: fixed; left: var(--rail-w); top: 0; bottom: 0; width: min(560px, calc(100vw - var(--rail-w))); z-index: 40; overflow-y: auto;
   background: var(--surface); border-right: 1px solid var(--line-2); box-shadow: 8px 0 30px var(--shadow);
   padding: calc(var(--sp-4) + env(safe-area-inset-top, 0px)) var(--sp-5) 40px;
 }
@@ -938,10 +940,11 @@ tr.sel td { background: var(--on); }
 .app[data-insp="open"] .pk-grid { grid-template-columns: minmax(0, 1fr); }
 .app[data-insp="open"] .pr-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "list" "pair" "map"; }
 .app[data-insp="open"] .pr-pair { position: static; }
+/* the inspector stays beside the view, narrower, down to a phone's width,
+   so it covers nothing (the strip's tools stay in reach); on a phone it
+   takes the screen */
 @media (max-width: 1180px) {
-  .shell { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
-  .inspector { position: fixed; right: 0; top: var(--top-h); bottom: 0; width: min(420px, 100vw); z-index: 35; box-shadow: -8px 0 30px var(--shadow); }
-  .app[data-insp="closed"] .shell { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
+  :root { --insp-w: 340px; }
 }
 @media (max-width: 720px) {
   :root { --rail-w: 0px; }
@@ -961,7 +964,8 @@ tr.sel td { background: var(--on); }
   .progress-text { white-space: normal; }
   .palette { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .seg-row { grid-template-columns: minmax(0, 1fr); }
-  .inspector { top: 0; width: 100vw; }
+  .inspector { position: fixed; right: 0; top: 0; bottom: 0; width: 100vw; z-index: 35; }
+  .reference { bottom: calc(60px + env(safe-area-inset-bottom, 0px)); }
   .strip-cells { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-radius: var(--r-l); }
   .sc { padding: var(--sp-3); }
   .sc-v { flex-wrap: wrap; row-gap: 0; }

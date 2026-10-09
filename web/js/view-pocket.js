@@ -243,8 +243,11 @@ function compareIsland(m, A, pinned, ps) {
   if (t.kind === "binary") row("Hits", fmtInt(pb.hits), fmtInt(ps.hits));
   tbl.append(tb);
   const overlap = !(pb.hi < ps.lo || ps.hi < pb.lo);
+  // the pinned pocket's blocks, as the stack names this one's
+  const blocks = pinned.map(c => { const d = m.schema.dimById.get(c.dim); return `${d.label} = ${labels(d, c.keys).join(" or ")}`; });
   return h("section", { class: "island", "aria-labelledby": "pin-title" },
     h("header", { class: "isl-head" }, h("h2", { class: "isl-title", id: "pin-title", text: "Against the pinned pocket" })),
+    h("p", { class: "isl-note pin-blocks" }, "Pinned: ", h("span", { class: "mono", text: blocks.join(" · ") })),
     h("div", { class: "table-wrap" }, tbl),
     h("p", { class: "isl-note", text: overlap ? "Their intervals overlap: these rows do not tell the two pockets apart." : "Their intervals do not overlap." }),
     h("footer", { class: "isl-foot" },
@@ -317,25 +320,39 @@ function everyPart(m, A, pocket, raw) {
     h("span", { class: "note", text: "click to add or take out, or drag onto the stack" })));
   const list = h("div", { class: "palette", dataset: { scroll: "pocket-palette" } });
   let shown = 0;
-  for (const d of boardDims(m.schema).concat(memberDims(m.schema))) {
-    const nm = d.label;
-    const levels = (d.kind === "member" ? d.levels.filter(x => x.key === "in") : d.levels).filter(l => matches(q, nm, l.label));
-    if (!levels.length) continue;
-    shown++;
+  // one value's chip: it adds the value, or takes it out when it is in
+  const chip = (d, l, text, said) => {
     const block = pocket.find(c => c.dim === d.id);
-    const vals = h("div", { class: "pal-vals" });
-    for (const l of levels) {
-      const on = !!block && block.keys.includes(l.key);
-      const chip = h("button", { class: "vchip", type: "button", draggable: "true", "aria-pressed": on ? "true" : "false",
-        "aria-label": `${on ? "Take out" : "Add"} ${nm} = ${l.label}`,
-        onclick: () => (on ? takeOut(A, pocket, d.id, l.key) : A.addPocket(d.id, l.key)) }, d.kind === "member" ? "included" : l.label);
-      chip.addEventListener("dragstart", (e) => {
-        e.dataTransfer.setData(VALUE, JSON.stringify({ dim: d.id, key: l.key }));
-        e.dataTransfer.setData("text/plain", `${nm} = ${l.label}`);
-      });
-      vals.append(chip);
+    const on = !!block && block.keys.includes(l.key);
+    const b = h("button", { class: "vchip", type: "button", draggable: "true", "aria-pressed": on ? "true" : "false",
+      "aria-label": `${on ? "Take out" : "Add"} ${said}`,
+      onclick: () => (on ? takeOut(A, pocket, d.id, l.key) : A.addPocket(d.id, l.key)) }, text);
+    b.addEventListener("dragstart", (e) => {
+      e.dataTransfer.setData(VALUE, JSON.stringify({ dim: d.id, key: l.key }));
+      e.dataTransfer.setData("text/plain", said);
+    });
+    return b;
+  };
+  const item = (name, chips, inPocket) => {
+    shown++;
+    list.append(h("div", { class: "pal-item" + (inPocket ? " in" : "") }, h("div", { class: "pal-name", text: name }), h("div", { class: "pal-vals" }, chips)));
+  };
+  for (const d of boardDims(m.schema)) {
+    const levels = d.levels.filter(l => matches(q, d.label, l.label));
+    if (levels.length) item(d.label, levels.map(l => chip(d, l, l.label, `${d.label} = ${l.label}`)), pocket.some(c => c.dim === d.id));
+  }
+  // a set's members together under the set, as the board's card has them:
+  // each member's chip includes it
+  const sets = new Map();
+  for (const d of memberDims(m.schema)) {
+    if (!sets.has(d.set.column)) sets.set(d.set.column, []);
+    sets.get(d.set.column).push(d);
+  }
+  for (const [column, members] of sets) {
+    const matched = members.filter(d => matches(q, column, d.label));
+    if (matched.length) {
+      item(column, matched.map(d => chip(d, d.levels.find(l => l.key === "in"), d.label, `${d.label} included`)), matched.some(d => pocket.some(c => c.dim === d.id)));
     }
-    list.append(h("div", { class: "pal-item" + (block ? " in" : "") }, h("div", { class: "pal-name", text: nm }), vals));
   }
   part.append(shown ? list : h("p", { class: "isl-note", text: "Nothing matches." }));
   return part;

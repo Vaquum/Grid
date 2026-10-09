@@ -93,6 +93,10 @@ class Wiring:
         name = args.name
         if args.limen:
             self.experiment = self.read_experiment(args.limen)
+            # where the run's directory is, for the command that replays a
+            # round of it (Limen's Trainer reads the directory itself)
+            self.experiment["dir"] = args.limen
+            self.experiment["host"] = args.ssh or None
             name = name or experiment_name(self.experiment)
         self.sweep = Sweep(name or default_name(self.results_path()))
         self.followers: list[FileFollower | SSHFollower] = []

@@ -237,7 +237,8 @@ function rowDetail(box, m, A, i) {
   // code: replay and raw row
   const prof = sc.profile;
   const out = [];
-  if (prof && prof.replay) out.push(...codeBlock("Replay it exactly (in research/, with its .venv)", prof.replay.python(obj), A.toast, "Replay copied."));
+  const replay = prof && prof.replay ? prof.replay.python(obj) : null;
+  if (replay) out.push(...codeBlock(prof.replay.title, replay, A.toast, "Replay copied."));
   out.push(...codeBlock("The row, rebuilt from its columns", JSON.stringify(obj, null, 1), A.toast, `Row ${fmtInt(i)} copied.`, "capped"));
   box.append(part("Replay", ...out));
 }

@@ -191,6 +191,9 @@ class PackLimen(unittest.TestCase):
                          ["n_permutations"], 500)
         self.assertEqual(run["experiment"]["manifestFile"],
                          "lightgbm_binary_full.yaml")
+        # where the directory is, for the command that replays a round
+        self.assertEqual(run["experiment"]["dir"], FIXTURE)
+        self.assertIsNone(run["experiment"]["host"])
         self.assertIn("n_permutations: 500",
                       run["experiment"]["manifestText"])
         kinds = {c["name"]: c["kind"] for c in run["columns"]}
