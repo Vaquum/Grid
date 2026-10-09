@@ -114,8 +114,10 @@ pocket, see below) and up to the replay edge.
   the rows it takes away (those holding every other block but not this
   one): a two-sample z test, Benjamini–Hochberg across the blocks.
 - **Shown digits**: a target is printed with its profile's digits, or more
-  when a tenth of its rows' standard deviation would not show (Limen's net
-  PnL per bar moves in thousandths of a bps).
+  when its means are smaller than those can print: two significant digits
+  at the larger of the mean's size and its 95% half-width over every row
+  (Limen's net PnL per bar sits near −0.02 bps). Not the rows' spread: most
+  rounds can score exactly 0 and a few far out.
 
 ## Views
 

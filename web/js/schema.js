@@ -228,10 +228,13 @@ function inferRole(col, n) {
   return { role: "metric", sv };
 }
 
-// The digits a target is shown with: the profile's, or more when its rows
-// spread so little that those would round different means together (a
-// tenth of the rows' standard deviation always shows). A rate is shown in
-// percent whatever its digits.
+// The digits a target is shown with: the profile's, or more when its
+// means are smaller than those can print: two significant digits at the
+// larger of its mean's size and the 95% half-width of that mean over every
+// row (Limen's net PnL per bar sits near -0.02 bps, which two decimals
+// round to nothing). Not the rows' spread: most rounds of a sweep can
+// score exactly 0 and a few far out, so the spread says little about the
+// scale of the means. A rate is shown in percent whatever its digits.
 export function shownDigits(values, digits, kind) {
   if (kind === "binary") return digits;
   let n = 0, s = 0;
@@ -240,9 +243,9 @@ export function shownDigits(values, digits, kind) {
   const mean = s / n;
   let ss = 0;
   for (let i = 0; i < values.length; i++) { const v = values[i]; if (v === v) ss += (v - mean) * (v - mean); }
-  const sd = Math.sqrt(ss / (n - 1));
-  if (!(sd > 0)) return digits;
-  return Math.min(6, Math.max(digits, -Math.floor(Math.log10(sd / 10))));
+  const scale = Math.max(Math.abs(mean), 1.96 * Math.sqrt(ss / (n - 1) / n));
+  if (!(scale > 0)) return digits;
+  return Math.min(6, Math.max(digits, 1 - Math.floor(Math.log10(scale))));
 }
 
 export function buildSchema(ds, opts = {}) {
