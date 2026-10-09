@@ -4,6 +4,7 @@
 
 import { decodePack, Dataset } from "./pack.js";
 import { buildSchema } from "./schema.js";
+import { limenProfile } from "./profiles.js";
 import { rowsIn, summarize, board, boardOrder } from "./engine.js";
 import { boardDims, objectiveTop } from "./model.js";
 import { h, clear, icon, installTips, hideTip, fmtInt, fmtAgo, fmtT, tip } from "./ui.js";
@@ -208,7 +209,10 @@ export function model() {
   const c = app.cache;
   if (c.ds !== ds || c.version !== ds.version) {
     c.ds = ds; c.version = ds.version;
-    c.schema = buildSchema(ds);
+    // a Limen run says what its columns are; other runs are matched to a
+    // known profile or inferred
+    const exp = ds.meta.experiment;
+    c.schema = buildSchema(ds, exp && exp.kind === "limen" ? { profile: limenProfile(exp) } : {});
     c.key = null; c.indep = null;  // background results (mods, pairs) refresh on their own
   }
   const schema = c.schema;

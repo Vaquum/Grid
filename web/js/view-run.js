@@ -54,7 +54,9 @@ export function runRate(m) {
 export function runHealth(m) {
   const ds = m.ds;
   const seg = segmentOf(m);
-  const total = seg ? seg.total : null;
+  // the rows planned: the log's start line, or the experiment's manifest
+  const planned = m.schema.profile && m.schema.profile.planned;
+  const total = seg && seg.total ? seg.total : planned || null;
   const rate = runRate(m);
   const parts = [`${fmtInt(m.edge)} rows`];
   if (total) parts.push(`${fmtPct(m.edge / total, m.edge / total < 0.1 ? 1 : 0)} of ${fmtInt(total)}`);

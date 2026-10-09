@@ -37,6 +37,16 @@ earlier run kept under another name (its rows came from that segment of
 the same log); `--run label=…,results=…,log=…` adds a run with a log of its
 own.
 
+A Limen experiment, live while `limen run` writes it: give the result
+directory. Its `metadata.json` holds the manifest, whose `sfd.params` are
+the parameters; every other column of `results.csv` is one of Limen's
+round metrics (named and given a direction once, in
+`web/js/profiles.js`) or the round's bookkeeping. Nothing is inferred.
+
+```sh
+python3 -m tessera serve --limen ~/dev/Limen/results/dev/lightgbm_binary_full_20261009_091248 --open
+```
+
 A static snapshot, for reading offline or sharing:
 
 ```sh
@@ -76,8 +86,10 @@ with Purpose, Read and Use.
 
 ## What it reads
 
-One row per results line. Nested dicts become dotted names, lists of
-strings sets, short lists of numbers one column per position. A null value
+One row per results line (JSON lines, or a Limen `results.csv`, whose
+empty fields are none and `True`/`False` booleans). Nested dicts become
+dotted names, lists of strings sets, short lists of numbers one column
+per position. A null value
 (`tp: null`, no take-profit) is a value; an absent key (no `max_depth` on a
 logreg row) means the parameter does not apply. The plate profile
 (`web/js/profiles.js`) names the roles of grand and PocketA fields, the

@@ -113,3 +113,70 @@ export const PROFILES = [PLATE];
 export function matchProfile(cols) {
   return PROFILES.find(p => p.matches(cols)) || null;
 }
+
+// Limen's round metrics, as its docs define them (docs/Backtest.md, Output
+// ledger; docs/Reference-Architecture.md). The same for every Limen
+// experiment, so nothing here is about one experiment.
+const BPS = "bps";
+const quantiles = (key, label, better) => Object.fromEntries(["p5", "p50", "p95"].map(q =>
+  [`${key}_${q}`, { label: `${label} ${q}`, unit: BPS, better, digits: 2 }]));
+export const LIMEN_METRICS = {
+  auc: { label: "AUC", unit: "", better: 1, digits: 3 },
+  accuracy: { label: "Accuracy", unit: "", better: 1, digits: 3 },
+  precision: { label: "Precision", unit: "", better: 1, digits: 3 },
+  recall: { label: "Recall", unit: "", better: 1, digits: 3 },
+  fpr: { label: "False positive rate", unit: "", better: -1, digits: 3 },
+  val_score: { label: "Validation score at the threshold", unit: "", better: 1, digits: 3 },
+  confusion_precision: { label: "Precision (test window)", unit: "", better: 1, digits: 3 },
+  confusion_recall: { label: "Recall (test window)", unit: "", better: 1, digits: 3 },
+  confusion_tp: { label: "True positives", unit: "bars", better: 0, digits: 0 },
+  confusion_fp: { label: "False positives", unit: "bars", better: 0, digits: 0 },
+  confusion_tn: { label: "True negatives", unit: "bars", better: 0, digits: 0 },
+  confusion_fn: { label: "False negatives", unit: "bars", better: 0, digits: 0 },
+  confusion_tp_mean_return_pct: { label: "Mean return of true positives", unit: "%", better: 1, digits: 3 },
+  confusion_fp_mean_return_pct: { label: "Mean return of false positives", unit: "%", better: 0, digits: 3 },
+  confusion_tn_mean_return_pct: { label: "Mean return of true negatives", unit: "%", better: 0, digits: 3 },
+  confusion_fn_mean_return_pct: { label: "Mean return of false negatives", unit: "%", better: 0, digits: 3 },
+  ...quantiles("backtest_edge_bps", "Gross return per bar", 1),
+  ...quantiles("backtest_pnl_bps", "Net return per bar", 1),
+  ...quantiles("backtest_cost_bps", "Cost per bar", -1),
+  // drawdowns are at most 0: the higher, the shallower
+  ...quantiles("backtest_drawdown_bps", "Drawdown", 1),
+  backtest_pnl_per_bar_bps: { label: "Net PnL per bar", unit: BPS, better: 1, digits: 2 },
+  backtest_wins_per_bar: { label: "Winning bars", unit: "share of bars", better: 1, digits: 4 },
+  backtest_avg_win_bps: { label: "Mean winning bar", unit: BPS, better: 1, digits: 2 },
+  backtest_avg_loss_bps: { label: "Mean losing bar", unit: BPS, better: 1, digits: 2 },
+  backtest_cvar_95_pnl_bps: { label: "Mean of the worst 5% of bars", unit: BPS, better: 1, digits: 2 },
+  backtest_trades_per_bar: { label: "Entries per bar", unit: "", better: 0, digits: 4 },
+  backtest_inventory_per_bar: { label: "Mean deployed notional", unit: "", better: 0, digits: 3 },
+  backtest_cost_per_bar_bps: { label: "Mean cost per bar", unit: BPS, better: -1, digits: 2 },
+  execution_time: { label: "Seconds per round", unit: "s", better: -1, digits: 2, cost: true },
+  optimal_threshold: { label: "Chosen threshold", unit: "", better: 0, digits: 3 },
+};
+
+// A Limen experiment's profile, read from its own manifest: the manifest's
+// sfd.params are the sampled parameters; the rest are Limen's metrics and
+// the round's bookkeeping.
+export function limenProfile(experiment) {
+  const m = experiment.manifest || {};
+  const sfd = m.sfd || {};
+  const uel = m.uel || {};
+  const meta = m.metadata || {};
+  return {
+    id: "limen",
+    name: meta.name || "Limen experiment",
+    describes: meta.description || "a Limen experiment",
+    families: [],
+    params: Object.fromEntries(Object.keys(sfd.params || {}).map(k => [k, null])),
+    nested: {}, effective: {}, alias: {}, setSize: {},
+    ids: ["_round_index"],
+    diagnostic: ["execution_time", "optimal_threshold", "_generation_index", "_injected"],
+    text: ["id", "_id", "_warnings", "_search_strategy", "strict_mode_error"],
+    metrics: LIMEN_METRICS,
+    derived: [], gates: [], gatesPrefix: null, invariants: [],
+    defaultTarget: "backtest_pnl_per_bar_bps",
+    objective: [["backtest_pnl_per_bar_bps", -1]],
+    objectiveLabel: "net PnL per bar",
+    planned: Number.isInteger(uel.n_permutations) ? uel.n_permutations : null,
+  };
+}

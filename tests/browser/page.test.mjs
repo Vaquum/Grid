@@ -28,9 +28,12 @@ before(async () => {
   execFileSync("python3", ["-m", "tessera", "pack", "--results", join(dir, "results.jsonl"), "--log", join(dir, "sweep.log"),
     "--name", "Synthetic sweep", "--out", join(dir, "pack.json.gz")], { cwd: ROOT });
   execFileSync("python3", ["tools/build.py", "--pack", join(dir, "pack.json.gz"), "--out", join(dir, "demo.html")], { cwd: ROOT, stdio: "ignore" });
+  // a real Limen run's first rounds, read from its result directory
+  execFileSync("python3", ["-m", "tessera", "pack", "--limen", "tests/fixtures/limen_run", "--out", join(dir, "limen.pack.json.gz")], { cwd: ROOT });
+  execFileSync("python3", ["tools/build.py", "--pack", join(dir, "limen.pack.json.gz"), "--out", join(dir, "limen.html")], { cwd: ROOT, stdio: "ignore" });
   server = createServer(async (req, res) => {
     try {
-      const body = await readFile(join(dir, "demo.html"));
+      const body = await readFile(join(dir, req.url.startsWith("/limen") ? "limen.html" : "demo.html"));
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       res.end(body);
     } catch (err) { res.writeHead(500); res.end(String(err)); }
@@ -171,6 +174,27 @@ test("theme toggle and phone width", async () => {
     await page.waitForTimeout(150);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     assert.ok(overflow <= 0, `view ${key} scrolls sideways by ${overflow}px at phone width`);
+  }
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("a Limen run reads with its manifest's parameters and Limen's metrics", async () => {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const errors = [];
+  page.on("pageerror", e => errors.push(String(e)));
+  page.on("console", m => { if (m.type() === "error") errors.push(m.text()); });
+  await page.goto(base + "limen");
+  await page.waitForSelector(".pcard");
+  assert.equal(await page.locator(".view h1").innerText(), "What moves Net PnL per bar");
+  assert.match(await page.locator(".progress-text").innerText(), /40 rows · 8.0% of 500/);
+  const names = await page.locator(".pcard .pc-name").allInnerTexts();
+  for (const p of ["take_profit_bps", "stop_loss_bps", "fee_bps", "num_leaves"]) assert.ok(names.includes(p), p);
+  assert.ok(!names.includes("_round_index") && !names.includes("auc"));
+  for (const key of ["2", "3", "5", "6", "7", "1"]) {
+    await page.keyboard.press(key);
+    await page.waitForTimeout(150);
+    assert.equal(await page.locator("text=This view failed to draw").count(), 0, `view ${key}`);
   }
   assert.deepEqual(errors, []);
   await page.close();

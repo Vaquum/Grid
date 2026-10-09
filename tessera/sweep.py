@@ -1,12 +1,15 @@
-"""A sweep: its runs (results files), their logs and the documents.
+"""A sweep: its runs (results files) and their logs.
 
-A run holds one results file's rows. When the file starts over (a
+A run holds one results file's rows: JSON lines, or a CSV whose first
+record names the columns (a Limen result directory's results.csv, with
+the experiment's manifest beside it). When the file starts over (a
 relaunched sweep reopens it for writing), the rows read so far are kept as
 an archived run and the run continues empty with a new generation, so the
 page never loses rows it has shown.
 
-Lines that are not JSON objects are not rows: they are counted per run
-with their line number and the parser's message, and the page shows them.
+Lines that are not rows (not a JSON object, or a CSV record whose fields
+do not match the header) are counted per run with their line number and
+the parser's message, and the page shows them.
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from typing import Any
 
 from . import PACK_VERSION, __version__
 from .columns import Store
+from .limen import CsvRecords
 from .logparse import LogParser
 
 Json = dict[str, Any]
@@ -29,13 +33,19 @@ BAD_KEEP = 50
 class Run:
     def __init__(self, run_id: str, label: str, source: str,
                  segment: int | None, live: bool,
-                 log_id: str | None = None) -> None:
+                 log_id: str | None = None, fmt: str = "jsonl",
+                 experiment: Json | None = None) -> None:
+        if fmt not in ("jsonl", "csv"):
+            raise ValueError("results format %r: jsonl or csv" % fmt)
         self.id = run_id
         self.label = label
         self.source = source
         self.log_id = log_id        # the log this run's runner writes
         self.segment = segment      # its segment in that log (None: latest)
         self.live = live
+        self.fmt = fmt
+        self.experiment = experiment  # what wrote the rows (Limen manifest)
+        self.records = CsvRecords() if fmt == "csv" else None
         self.store = Store()
         self.generation = 0
         self.lines = 0              # lines read in this generation
@@ -52,14 +62,17 @@ class Run:
                 "generation": self.generation, "rows": self.store.rows,
                 "lines": self.lines, "badCount": self.bad_count,
                 "bad": self.bad, "schemaEvents": self.store.events,
-                "archivedFrom": self.archived_from, "resets": self.resets}
+                "archivedFrom": self.archived_from, "resets": self.resets,
+                "format": self.fmt, "experiment": self.experiment}
 
     def add_line(self, text: str, now: float | None) -> None:
         self.lines += 1
-        if not text.strip():
+        if self.records is None and not text.strip():
             return
         try:
-            row = json.loads(text)
+            row = self._row(text)
+            if row is None:
+                return
             self.store.append(row)
         except ValueError as exc:
             self.bad_count += 1
@@ -68,6 +81,28 @@ class Run:
                                  "text": text[:300]})
             return
         self.arrivals.append(math.nan if now is None else now)
+
+    def _row(self, text: str) -> Json | None:
+        """The row a line completes; None for the header or a line of a
+        record still open."""
+        if self.records is None:
+            return json.loads(text)
+        fields = self.records.feed(text)
+        if fields is None:
+            return None
+        if self.records.header is None:
+            self.records.header = fields
+            return None
+        return self.records.row(fields)
+
+    def restart(self) -> None:
+        """Empty, for the next generation of the same file."""
+        self.store = Store()
+        self.records = CsvRecords() if self.fmt == "csv" else None
+        self.generation += 1
+        self.lines = 0
+        self.bad, self.bad_count = [], 0
+        self.arrivals = array("d")
 
 
 class Sweep:
@@ -106,7 +141,8 @@ class Sweep:
                           "%s before %s at %s" % (
                               run.label, reason,
                               time.strftime("%H:%M:%S", time.gmtime())),
-                          run.source, run.segment, False)
+                          run.source, run.segment, False, None, run.fmt,
+                          run.experiment)
                 old.store, old.lines = run.store, run.lines
                 old.bad, old.bad_count = run.bad, run.bad_count
                 old.arrivals, old.generation = run.arrivals, run.generation
@@ -114,11 +150,7 @@ class Sweep:
                 self.runs.insert(self.runs.index(run), old)
             run.resets.append({"at": time.time(), "reason": reason,
                                "rows": run.store.rows})
-            run.store = Store()
-            run.generation += 1
-            run.lines = 0
-            run.bad, run.bad_count = [], 0
-            run.arrivals = array("d")
+            run.restart()
             self._bump()
 
     def add_log(self, log_id: str, source: str) -> None:

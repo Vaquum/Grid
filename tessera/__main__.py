@@ -9,10 +9,16 @@
 
     python3 -m tessera pack --results ... --log ... --out pocketA.pack.json.gz
 
+    python3 -m tessera serve --limen results/dev/lightgbm_binary_full_...
+
 ``--results`` is the run the sweep is writing now; its rows belong to the
-latest segment of ``--log``. ``--run`` adds another results file, either
-as ``LABEL=PATH#SEGMENT`` (an earlier run of the same log, kept under
-another name, and the log segment its rows came from) or as
+latest segment of ``--log``. ``--limen`` takes a Limen result directory
+instead: its results.csv is the run, and its metadata.json holds the
+manifest that says which columns are parameters.
+
+``--run`` adds another results file, either as ``LABEL=PATH#SEGMENT`` (an
+earlier run of the same log, kept under another name, and the log segment
+its rows came from) or as
 ``label=NAME,results=PATH[,log=PATH][,segment=N][,live=1]`` (a run with a
 log of its own, such as a second sweep from the same sampler).
 """
@@ -23,6 +29,7 @@ import argparse
 import gzip
 import json
 import os
+import posixpath
 import sys
 import threading
 import time
@@ -30,9 +37,10 @@ import webbrowser
 from typing import Any
 
 from . import __version__
-from .follow import FileFollower, LineFn, ResetFn, SSHFollower
+from .follow import FileFollower, LineFn, ResetFn, SSHFollower, read_remote
+from .limen import experiment_name, read_experiment
 from .server import serve
-from .sweep import Run, Sweep
+from .sweep import Json, Run, Sweep
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PAGE = os.path.join(os.path.dirname(HERE), "dist", "tessera.html")
@@ -74,8 +82,33 @@ class Wiring:
     def __init__(self, args: argparse.Namespace, follow: bool) -> None:
         self.args = args
         self.follow = follow
-        self.sweep = Sweep(args.name or default_name(args.results))
+        self.experiment: Json | None = None
+        name = args.name
+        if args.limen:
+            self.experiment = self.read_experiment(args.limen)
+            name = name or experiment_name(self.experiment)
+        self.sweep = Sweep(name or default_name(self.results_path()))
         self.followers: list[FileFollower | SSHFollower] = []
+
+    def results_path(self) -> str:
+        a = self.args
+        if a.limen:
+            join = posixpath.join if a.ssh else os.path.join
+            return join(a.limen, "results.csv")
+        return a.results
+
+    def read_experiment(self, directory: str) -> Json:
+        """A Limen result directory's experiment, from its metadata.json."""
+        a = self.args
+        if a.ssh:
+            path = posixpath.join(directory, "metadata.json")
+            return read_experiment(read_remote(a.ssh, path), self.shown(path))
+        path = os.path.join(directory, "metadata.json")
+        if not os.path.exists(path):
+            raise SystemExit("%s has no metadata.json: not a Limen result "
+                             "directory" % directory)
+        with open(path, encoding="utf-8") as f:
+            return read_experiment(f.read(), path)
 
     def shown(self, path: str) -> str:
         """The path as the page names it (``--as`` rewrites a prefix, for
@@ -102,8 +135,10 @@ class Wiring:
 
     def add_run(self, run_id: str, label: str, path: str,
                 segment: int | None, live: bool,
-                log_id: str | None) -> None:
-        run = Run(run_id, label, self.shown(path), segment, live, log_id)
+                log_id: str | None, fmt: str = "jsonl",
+                experiment: Json | None = None) -> None:
+        run = Run(run_id, label, self.shown(path), segment, live, log_id,
+                  fmt, experiment)
         self.sweep.add_run(run)
         sweep = self.sweep
         self.followers.append(self._follower(
@@ -133,8 +168,13 @@ class Wiring:
             live = r.get("live") == "1" or ("log" in r and "segment" not in r)
             self.add_run("r%d" % (i + 1), r["label"], r["results"], seg, live,
                          log_id)
-        self.add_run("r0", a.label or "current", a.results, None, True,
-                     main_log)
+        if a.limen:
+            label = a.label or os.path.basename(a.limen.rstrip("/"))
+            self.add_run("r0", label, self.results_path(), None, True,
+                         main_log, "csv", self.experiment)
+        else:
+            self.add_run("r0", a.label or "current", a.results, None, True,
+                         main_log)
         return self.sweep
 
     def read_once(self) -> None:
@@ -244,8 +284,12 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name in ("serve", "pack"):
         p = sub.add_parser(name)
-        p.add_argument("--results", required=True,
-                       help="results JSONL the sweep is writing now")
+        source = p.add_mutually_exclusive_group(required=True)
+        source.add_argument("--results",
+                            help="results JSONL the sweep is writing now")
+        source.add_argument("--limen", metavar="DIR",
+                            help="a Limen result directory (results.csv "
+                                 "and metadata.json)")
         p.add_argument("--label", help="name of the current run")
         p.add_argument("--log", help="the sweep's stdout log")
         p.add_argument("--run", action="append",
