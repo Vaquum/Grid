@@ -131,7 +131,7 @@ function targetCol(t) {
 function paramCol(m, d, e) {
   const text = x => { const c = d.codes[x.i]; return c >= 0 ? d.levels[c].label : "–"; };
   const t = m.target;
-  return { key: d.id, label: d.label, unit: "", num: false, text, cell: text,
+  return { key: d.id, label: d.label, unit: "", num: false, mono: true, text, cell: text,
     head: () => h("div", null, h("b", { text: d.label }),
       e && e.detectable ? h("div", { class: "k", text: `Moves ${inText(t.label)}: ω² ${strengthText(e)}, ${fmtP(e.q)}${e.best ? `; best at ${e.best.label}, ${fmtT(t, e.best.mean)}` : ""}.` })
         : e ? h("div", { class: "k", text: `No detectable effect on ${inText(t.label)} (${fmtP(e.q)}).` }) : null) };
@@ -149,10 +149,10 @@ function baseColumns(m, keys) {
       tipIf: x => x.tie > 1,
       cellTip: x => h("div", null, h("b", { text: `Tied with ${fmtInt(x.tie - 1)} other row${x.tie > 2 ? "s" : ""}` }),
         h("div", { class: "k", text: `They share rank ${x.rank} and keep the order they arrived in.` })) },
-    { key: "row", label: "row", unit: "", num: true, cls: "ri", text: x => fmtInt(x.i), cell: x => fmtInt(x.i) },
+    { key: "row", label: "Row", unit: "", num: true, cls: "ri", text: x => fmtInt(x.i), cell: x => fmtInt(x.i) },
   ];
   if (sc.gates.length) {
-    cols.push({ key: "pills", label: "gates", unit: "", num: false, notes: false, text: () => "",
+    cols.push({ key: "pills", label: "Gates", unit: "", num: false, notes: false, text: () => "",
       cell: x => {
         const pills = h("span", { class: "pills" });
         for (const g of sc.gates) pills.append(h("span", { class: "pill" + (g.pass[x.i] === 1 ? " pass" : "") }));
@@ -181,7 +181,7 @@ function columnSets(m, ranked) {
       { key: "like", label: t.label, note: `${t.label} like it`, unit: t.kind === "binary" ? "" : t.unit, num: true,
         head: () => h("div", null, h("b", { text: `${t.label} of the rows like it` }), h("div", { class: "k", text: "The other rows that share the row's values where the needle moves." })),
         text: x => fmtT(t, x.like.mean, { unit: false }), cell: x => fmtT(t, x.like.mean, { unit: false }), cellTip: x => likeTip(m, ranked, x) },
-      { key: "like-n", label: "rows", note: "rows like it", unit: "", num: true,
+      { key: "like-n", label: "Rows", note: "Rows like it", unit: "", num: true,
         head: () => h("div", null, h("b", { text: "Rows like it" }), h("div", { class: "k", text: `At least ${MIN_N}: matched on the strongest movers that leave as many.` })),
         text: x => fmtInt(x.like.n), cell: x => fmtInt(x.like.n), cellTip: x => likeTip(m, ranked, x) },
     ] : [],
@@ -248,7 +248,7 @@ const unitOf = (c) => (c.unit && !c.label.toLowerCase().split(/\s+/).includes(c.
 
 function headCell(c, cls) {
   const th = h("th", { class: [c.num ? "r" : "", c.cls || "", cls || ""].join(" ").trim() || null, scope: "col" },
-    h("span", { class: "lbl" }, c.label, unitOf(c) ? [" ", h("span", { class: "u", text: `(${unitOf(c)})` })] : null));
+    h("span", { class: "lbl" + (c.mono ? " mono" : "") }, c.label, unitOf(c) ? [" ", h("span", { class: "u", text: `(${unitOf(c)})` })] : null));
   if (c.head) tip(th, c.head);
   return th;
 }

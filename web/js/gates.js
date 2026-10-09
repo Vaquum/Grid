@@ -4,7 +4,7 @@
 // passes every gate set here and how many it passes, so the board can say
 // what moves them.
 
-import { fmtNum } from "./ui.js";
+import { fmtT } from "./ui.js";
 import { shownDigits } from "./schema.js";
 
 export const OPS = {
@@ -18,8 +18,7 @@ export const OPS = {
 // in the needle's unit.
 export function needText(t, x) {
   const decimals = Math.min(6, (String(Math.abs(x)).split(".")[1] || "").length);
-  if (t.unit === "$") return (x < 0 ? "−$" : "$") + Math.abs(x).toLocaleString("en-US", { maximumFractionDigits: decimals });
-  return fmtNum(x, decimals) + (t.unit ? ` ${t.unit}` : "");
+  return fmtT({ kind: "cont", unit: t.unit || "" }, x, { digits: decimals });
 }
 
 export function gateLabel(t, def) {

@@ -7,7 +7,7 @@
 // pocket to compare, when there is one; the blocks to add, suggested and
 // every one; and, at the foot, the manifest (drawn by the app).
 
-import { h, icon, tip, fmtT, fmtInt, fmtPct, fmtDelta, fmtP, inText, rangeText, runName } from "./ui.js";
+import { h, icon, tip, fmtT, fmtInt, fmtNum, fmtPct, fmtDelta, fmtP, inText, rangeText, runName } from "./ui.js";
 import { ALPHA, MIN_N, blockTests, pocketStats, rowsIn, suggestions, summarize } from "./engine.js";
 import { boardDims, memberDims } from "./model.js";
 import { intervalBar } from "./charts.js";
@@ -35,7 +35,6 @@ export function renderPocket(view, m, A) {
 // what a dragged value chip carries
 const VALUE = "application/x-grid-value";
 
-const name = (d) => (d.kind === "scoped" ? `${d.name} (${d.scope.label})` : d.label);
 const labels = (d, keys) => keys.map(key => (d.levels.find(l => l.key === key) || { label: key }).label);
 
 // What a block does: its rows against the rows it takes away.
@@ -59,7 +58,7 @@ const VERDICT = {
 
 function pocketStrip(m, A, pocket, ps, verdicts, sug) {
   const t = m.target, b = m.base, binary = t.kind === "binary";
-  const range = (s) => rangeText(t, s.lo, s.hi);
+  const range = (s) => `95% ${rangeText(t, s.lo, s.hi)}`;
   const inView = m.context.length ? "the rows in view" : "every row";
   const cells = [];
   if (!ps) {
@@ -71,7 +70,7 @@ function pocketStrip(m, A, pocket, ps, verdicts, sug) {
     const d = top && m.schema.dimById.get(top.dim);
     cells.push(stripCell("Best start", top ? fmtT(t, top.mean) : "–", top ? `${top.dimLabel} = ${top.label}` : "nothing ranked yet",
       () => h("div", null, h("b", { text: "The value to start from" }), h("div", { class: "k", text: `Ranked by the ${t.better < 0 ? "upper" : "lower"} end of its 95% interval: the conservative estimate, not the luckiest.` })),
-      top ? () => A.addPocket(top.dim, top.key) : null, top ? { "aria-label": `Start the pocket with ${name(d)} = ${top.label}` } : {}));
+      top ? () => A.addPocket(top.dim, top.key) : null, top ? { "aria-label": `Start the pocket with ${d.label} = ${top.label}` } : {}));
   } else {
     const earn = verdicts.filter(r => r.kind === "earns" || r.kind === "changes").length;
     const idle = pocket.filter((_, k) => verdicts[k].kind === "narrows").map(c => m.schema.dimById.get(c.dim).label);
@@ -80,7 +79,7 @@ function pocketStrip(m, A, pocket, ps, verdicts, sug) {
     const [h1, h2] = ps.halves;
     cells.push(stripCell(t.label, fmtT(t, ps.mean), range(ps), () => h("div", null, h("b", { text: `${t.label} inside the pocket` }),
       h("div", { class: "k", text: `Over its ${fmtInt(ps.n)} rows, with the 95% interval${binary ? " (Wilson)" : ""}. A sweep drawn only inside the pocket should land here, since the sweep draws every parameter independently and uniformly.` }))));
-    cells.push(stripCell("Against the base", binary ? (Number.isFinite(ps.lift) ? `${ps.lift.toFixed(2)}×` : "–") : fmtDelta(t, ps.mean - b.mean), `base ${fmtT(t, b.mean)}`,
+    cells.push(stripCell("Against the base", binary ? (Number.isFinite(ps.lift) ? `${fmtNum(ps.lift, 2)}×` : "–") : fmtDelta(t, ps.mean - b.mean), `base ${fmtT(t, b.mean)}`,
       () => h("div", null, h("b", { text: binary ? "The pocket's rate over the base rate" : "The pocket against the base" }), h("div", { class: "k", text: `The base is ${inText(t.label)} over ${inView}.` }))));
     cells.push(stripCell("Rows", fmtInt(ps.n), `${fmtPct(ps.share, 1)} of ${fmtInt(m.rows.length)}`,
       () => h("div", null, h("b", { text: "Rows that hold every block" }), h("div", { class: "k", text: m.context.length ? "Inside the context." : "Of every row so far." }))));
@@ -113,9 +112,9 @@ function pocketNotes(m, pocket, ps, verdicts) {
   const lines = [`Pocket on ${runName(m.ds.meta)}: ${t.label}`];
   pocket.forEach((c, k) => {
     const d = m.schema.dimById.get(c.dim), v = verdicts[k];
-    lines.push(`- ${name(d)} = ${labels(d, c.keys).join(" or ")}: ${VERDICT[v.kind].toLowerCase()}${Number.isFinite(v.q) ? ` (${fmtP(v.q)})` : ""}; without it ${fmtT(t, v.without.mean)} on ${fmtInt(v.without.n)} rows`);
+    lines.push(`- ${d.label} = ${labels(d, c.keys).join(" or ")}: ${VERDICT[v.kind].toLowerCase()}${Number.isFinite(v.q) ? ` (${fmtP(v.q)})` : ""}; without it ${fmtT(t, v.without.mean)} on ${fmtInt(v.without.n)} rows`);
   });
-  lines.push(`${fmtInt(ps.n)} rows (${fmtPct(ps.share, 1)} of ${fmtInt(m.rows.length)}): ${fmtT(t, ps.mean)} [${fmtT(t, ps.lo)}, ${fmtT(t, ps.hi)}], base ${fmtT(t, m.base.mean)}.`);
+  lines.push(`${fmtInt(ps.n)} rows (${fmtPct(ps.share, 1)} of ${fmtInt(m.rows.length)}): ${fmtT(t, ps.mean)} (95% ${rangeText(t, ps.lo, ps.hi)}), base ${fmtT(t, m.base.mean)}.`);
   if (Number.isFinite(ps.halvesP)) lines.push(`Halves of the arrivals: ${fmtT(t, ps.halves[0].mean)}, then ${fmtT(t, ps.halves[1].mean)} (${fmtP(ps.halvesP, "p")}).`);
   return lines.join("\n");
 }
@@ -189,7 +188,7 @@ function floor(m, domain) {
     h("span", { class: "fl-what", text: m.context.length ? "Rows in view" : "Every row" }),
     h("span", { class: "fl-fig num" }, h("span", { text: `${fmtInt(m.rows.length)} rows` }), h("b", { text: fmtT(t, b.mean) })),
     intervalBar(b.mean, b.lo, b.hi, b.mean, domain, { tone: "base" }));
-  tip(el, () => h("div", null, h("b", { text: "Where the stack starts" }), h("div", { text: `${fmtT(t, b.mean)} [${fmtT(t, b.lo)}, ${fmtT(t, b.hi)}] over ${fmtInt(m.rows.length)} rows: the base, the dashed line on every bar.` })));
+  tip(el, () => h("div", null, h("b", { text: "Where the stack starts" }), h("div", { text: `${fmtT(t, b.mean)} (95% ${rangeText(t, b.lo, b.hi)}) over ${fmtInt(m.rows.length)} rows: the base, the dashed line on every bar.` })));
   return el;
 }
 
@@ -199,8 +198,8 @@ function brick(m, A, pocket, c, k, step, v, domain, ps) {
   const vals = labels(d, c.keys);
   const el = h("div", { class: `brick v-${v.kind}`, draggable: "true", dataset: { dim: c.dim } },
     h("div", { class: "bk-top" },
-      h("span", { class: "bk-what" }, h("span", { class: "bk-name", text: name(d) }), h("span", { class: "bk-eq", text: " = " }), h("span", { class: "bk-vals", text: vals.join(" or ") })),
-      h("button", { class: "icon-btn bk-x", type: "button", "aria-label": `Remove ${name(d)}`, onclick: () => A.set({ pocket: pocket.filter((_, j) => j !== k) }) }, icon("close"))),
+      h("span", { class: "bk-what" }, h("span", { class: "bk-name", text: d.label }), h("span", { class: "bk-eq", text: " = " }), h("span", { class: "bk-vals", text: vals.join(" or ") })),
+      h("button", { class: "icon-btn bk-x", type: "button", "aria-label": `Remove ${d.label}`, onclick: () => A.set({ pocket: pocket.filter((_, j) => j !== k) }) }, icon("close"))),
     h("div", { class: "bk-path has-tip" },
       h("span", { class: "bk-fig num" }, h("span", { text: `${fmtInt(step.n)} rows` }), h("b", { text: fmtT(t, step.mean) })),
       intervalBar(step.mean, step.lo, step.hi, m.base.mean, domain)),
@@ -208,7 +207,7 @@ function brick(m, A, pocket, c, k, step, v, domain, ps) {
       h("span", { class: "vtag", text: VERDICT[v.kind] }),
       h("span", { class: "bk-without num", text: `without it ${fmtT(t, v.without.mean)} on ${fmtInt(v.without.n)} rows` })));
   tip(el.querySelector(".bk-path"), () => h("div", null, h("b", { text: k === pocket.length - 1 ? "The whole pocket" : `After block ${k + 1}` }),
-    h("div", { text: `${fmtInt(step.n)} rows, ${fmtT(t, step.mean)} [${fmtT(t, step.lo)}, ${fmtT(t, step.hi)}]` }),
+    h("div", { text: `${fmtInt(step.n)} rows, ${fmtT(t, step.mean)} (95% ${rangeText(t, step.lo, step.hi)})` }),
     h("div", { class: "k", text: "The blocks below and this one. Drag a block to reorder the path; the pocket itself does not change." })));
   tip(el.querySelector(".bk-verdict"), () => h("div", null, h("b", { text: VERDICT[v.kind] }),
     h("div", { text: v.kind === "few" ? `Its rows or the ${fmtInt(v.removed.n)} it takes away are under ${MIN_N}, so no test is made.`
@@ -234,14 +233,14 @@ function brick(m, A, pocket, c, k, step, v, domain, ps) {
 function compareIsland(m, A, pinned, ps) {
   const t = m.target;
   const pb = pocketStats(m.schema, pinned, t, m.rows, m.edge);
-  const tbl = h("table", { class: "vals" }, h("thead", null, h("tr", null, h("th", { text: "" }), h("th", { class: "r", text: "pinned" }), h("th", { class: "r", text: "this pocket" }))));
+  const tbl = h("table", { class: "vals" }, h("thead", null, h("tr", null, h("th", { text: "" }), h("th", { class: "r", text: "Pinned" }), h("th", { class: "r", text: "This pocket" }))));
   const tb = h("tbody");
   const row = (k, a, b) => tb.append(h("tr", null, h("td", { text: k }), h("td", { class: "r num", text: a }), h("td", { class: "r num", text: b })));
-  row("blocks", fmtInt(pinned.length), fmtInt((m.state.pocket || []).length));
-  row("rows", fmtInt(pb.n), fmtInt(ps.n));
+  row("Blocks", fmtInt(pinned.length), fmtInt((m.state.pocket || []).length));
+  row("Rows", fmtInt(pb.n), fmtInt(ps.n));
   row(t.label, fmtT(t, pb.mean), fmtT(t, ps.mean));
   row("95% interval", rangeText(t, pb.lo, pb.hi), rangeText(t, ps.lo, ps.hi));
-  if (t.kind === "binary") row("hits", fmtInt(pb.hits), fmtInt(ps.hits));
+  if (t.kind === "binary") row("Hits", fmtInt(pb.hits), fmtInt(ps.hits));
   tbl.append(tb);
   const overlap = !(pb.hi < ps.lo || ps.hi < pb.lo);
   return h("section", { class: "island", "aria-labelledby": "pin-title" },
@@ -294,17 +293,17 @@ function suggestedPart(m, A, pocket, sug, raw) {
   tip(title, `Values ranked by the ${t.better < 0 ? "upper" : "lower"} end of their 95% interval inside ${pocket.length ? "the pocket" : "the rows in view"}: the conservative estimate, not the luckiest. Values with fewer than ${MIN_N} rows are left out.`);
   const part = h("div", { class: "isl-part" }, title);
   if (!shown.length) { part.append(h("p", { class: "isl-note", text: q ? "No suggestion matches." : `No value has ${MIN_N} rows ${pocket.length ? "inside the pocket" : "yet"}.` })); return part; }
-  const tbl = h("table", { class: "vals suggest" }, h("thead", null, h("tr", null, h("th", { text: "value" }), h("th", { class: "r", text: "rows" }),
+  const tbl = h("table", { class: "vals suggest" }, h("thead", null, h("tr", null, h("th", { text: "Value" }), h("th", { class: "r", text: "Rows" }),
     h("th", { class: "r", text: t.label }), h("th", { class: "iv", text: "95% interval" }))));
   const tb = h("tbody");
   for (const s of shown) {
     const d = m.schema.dimById.get(s.dim);
-    const what = d.kind === "member" ? `${s.dimLabel} included` : `${name(d)} = ${s.label}`;
+    const what = d.kind === "member" ? `${s.dimLabel} included` : `${d.label} = ${s.label}`;
     const tr = h("tr", { class: "clickable", tabindex: "0", "aria-label": `Add ${what}`, onclick: () => A.addPocket(s.dim, s.key),
       onkeydown: (e) => { if (e.key === "Enter") A.addPocket(s.dim, s.key); } },
       h("td", { class: "v", text: what }), h("td", { class: "r num", text: fmtInt(s.n) }), h("td", { class: "r num", text: fmtT(t, s.mean) }),
       h("td", { class: "iv has-tip" }, intervalBar(s.mean, s.lo, s.hi, m.base.mean, domain)));
-    tip(tr.lastChild, `${fmtT(t, s.lo)} to ${fmtT(t, s.hi)}; the dashed line is the base, ${fmtT(t, m.base.mean)}.`);
+    tip(tr.lastChild, `95% ${rangeText(t, s.lo, s.hi)}; the dashed line is the base, ${fmtT(t, m.base.mean)}.`);
     tb.append(tr);
   }
   tbl.append(tb);
@@ -319,7 +318,7 @@ function everyPart(m, A, pocket, raw) {
   const list = h("div", { class: "palette", dataset: { scroll: "pocket-palette" } });
   let shown = 0;
   for (const d of boardDims(m.schema).concat(memberDims(m.schema))) {
-    const nm = name(d);
+    const nm = d.label;
     const levels = (d.kind === "member" ? d.levels.filter(x => x.key === "in") : d.levels).filter(l => matches(q, nm, l.label));
     if (!levels.length) continue;
     shown++;

@@ -50,7 +50,11 @@ export function clear(el) {
 }
 
 // ---------------------------------------------------------------------------
-// Numbers
+// Numbers. Every number on the page is written one way: a true minus
+// (−0.021), thousands grouped (8,000), a range with an en dash between ends
+// that are not negative (21.6–24.5%) and "to" when one is (−0.03 to
+// −0.01 bps), the unit once at its end, "%" attached and other units spaced,
+// and "–" for a figure that is missing.
 
 // A label inside a sentence: its first word lowercased when that word is
 // an ordinary capitalised one, so "Net PnL per bar" reads "net PnL per bar"
@@ -59,36 +63,81 @@ export function inText(label) {
   return /^[A-Z][a-z]/.test(label) ? label[0].toLowerCase() + label.slice(1) : label;
 }
 
-// A 95% interval as text: an en dash between positive ends, "to" when an
-// end is negative (−0.025 to −0.013 reads; −0.025–−0.013 does not).
-export function rangeText(target, lo, hi) {
-  if (target.kind === "binary") return `${(lo * 100).toFixed(1)}–${(hi * 100).toFixed(1)}%`;
-  return lo < 0 || hi < 0 ? `${fmtT(target, lo, { unit: false })} to ${fmtT(target, hi)}` : `${fmtT(target, lo, { unit: false })}–${fmtT(target, hi)}`;
+// A number in `digits` decimals: a true minus, thousands grouped, and no
+// sign on a value that rounds to zero.
+export function fmtFixed(x, digits = 2) {
+  if (!Number.isFinite(x)) return "–";
+  const [whole, frac] = Math.abs(x).toFixed(Math.max(0, digits)).split(".");
+  const t = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (frac ? `.${frac}` : "");
+  return x < 0 && /[1-9]/.test(t) ? `−${t}` : t;
+}
+
+// Two ends of a range, each already written (the unit on the second): an
+// en dash between them, or "to" when either carries a sign (−0.025 to
+// −0.013 reads; −0.025–−0.013 does not). A parameter's values are written
+// as the sweep wrote them (-0.5), so a hyphen counts as a sign too.
+export function spanText(a, b) {
+  return /^[−+±-]/.test(a) || /^[−+±-]/.test(b) ? `${a} to ${b}` : `${a}–${b}`;
+}
+
+// A 95% interval in the target's unit.
+export function rangeText(target, lo, hi, opts = {}) {
+  if (target.kind === "binary") return pctRange(lo, hi, opts.digits ?? 1);
+  return spanText(fmtT(target, lo, { ...opts, unit: false }), fmtT(target, hi, opts));
+}
+
+// Two shares as percentages, the sign once at the end: 21.6–24.5%.
+export function pctRange(lo, hi, digits = 1) {
+  return spanText(fmtFixed(lo * 100, digits), fmtPct(hi, digits));
+}
+
+// An interval of a difference: both ends signed, the unit once.
+export function deltaRange(target, lo, hi, opts = {}) {
+  return spanText(fmtDelta(target, lo, { ...opts, unit: false }), fmtDelta(target, hi, opts));
 }
 
 export function fmtInt(n) {
-  return Number.isFinite(n) ? Math.round(n).toLocaleString("en-US") : "–";
+  return Number.isFinite(n) ? fmtFixed(Math.round(n), 0) : "–";
 }
 
 export function fmtNum(x, digits = 2) {
   if (!Number.isFinite(x)) return "–";
   const a = Math.abs(x);
-  if (a >= 1e6) return (x / 1e6).toFixed(a >= 1e7 ? 1 : 2) + "M";
-  if (a >= 1e4) return Math.round(x).toLocaleString("en-US");
-  // a value that rounds to zero is printed without a sign
-  const t = x.toFixed(digits);
-  return /^-0\.?0*$/.test(t) ? t.slice(1) : t;
+  if (a >= 1e6) return `${fmtFixed(x / 1e6, a >= 1e7 ? 1 : 2)}M`;
+  return fmtFixed(x, a >= 1e4 ? 0 : digits);
 }
 
 export function fmtPct(x, digits = 1) {
   if (!Number.isFinite(x)) return "–";
-  const t = (x * 100).toFixed(digits);
-  return (/^-0\.?0*$/.test(t) ? t.slice(1) : t) + "%";
+  return `${fmtFixed(x * 100, digits)}%`;
 }
 
-export function fmtSigned(x, digits = 2) {
-  if (!Number.isFinite(x)) return "–";
-  return (x > 0 ? "+" : x < 0 ? "−" : "±") + Math.abs(x).toFixed(digits);
+// The decimals a step has (0.025 needs three; 5e-7, which String() writes
+// with an exponent, seven).
+export function stepDecimals(step) {
+  const m = /^-?\d+(?:\.(\d+))?(?:e([+-]\d+))?$/.exec(String(+step.toPrecision(12)));
+  return m ? Math.max(0, (m[1] ? m[1].length : 0) - (m[2] ? Number(m[2]) : 0)) : 0;
+}
+
+// An axis tick: as many decimals as its step has, and no unit, which the
+// chart states once ("%" and "$" are how a rate and money are written, so
+// they stay).
+export function tickText(target, t, step) {
+  if (target.kind === "binary") return fmtPct(t, stepDecimals(step * 100));
+  const text = fmtFixed(t, stepDecimals(step));
+  if (target.unit === "$") return text.startsWith("−") ? `−$${text.slice(1)}` : `$${text}`;
+  return text;
+}
+
+// ω², a share of the needle's variance: never below zero, in a tenth of a
+// percent, or a hundredth under 0.1%.
+export function fmtOmega2(w) {
+  return Number.isFinite(w) ? fmtPct(Math.max(0, w), w < 0.001 ? 2 : 1) : "–";
+}
+
+// Rows per second, as the top bar, the strip and Pace all write it.
+export function fmtPace(r) {
+  return Number.isFinite(r) ? `${fmtFixed(r, r >= 10 ? 1 : 2)} rows/s` : "–";
 }
 
 // p- and q-values as a reader needs them.
@@ -99,13 +148,16 @@ export function fmtP(p, name = "q") {
   return `${name} = ${p < 0.01 ? p.toFixed(3) : p.toFixed(2)}`;
 }
 
-// A target value in its own unit.
+// A target value in its own unit; dollars are written $1,500 and −$1,500.
 export function fmtT(target, x, opts = {}) {
   if (!Number.isFinite(x)) return "–";
   if (target.kind === "binary") return fmtPct(x, opts.digits ?? 1);
   const d = opts.digits ?? target.digits ?? 2;
-  if (target.unit === "$") return (x < 0 ? "−$" : "$") + Math.abs(x).toLocaleString("en-US", { maximumFractionDigits: Math.max(0, d) });
-  return fmtNum(x, d) + (opts.unit === false || !target.unit || target.unit === "" ? "" : unitSuffix(target.unit));
+  if (target.unit === "$") {
+    const t = fmtFixed(x, Math.max(0, d));
+    return t.startsWith("−") ? `−$${t.slice(1)}` : `$${t}`;
+  }
+  return fmtNum(x, d) + (opts.unit === false ? "" : unitSuffix(target.unit));
 }
 
 // One row's value: no finer than the target's shown digits, nor than the
@@ -124,15 +176,17 @@ export function fmtDelta(target, d, opts = {}) {
   const digits = target.kind === "binary" ? (opts.digits ?? 1) + 2 : (opts.digits ?? target.digits ?? 2);
   const r = Number(d.toFixed(Math.min(12, Math.max(0, digits))));
   const sign = r > 0 ? "+" : r < 0 ? "−" : "±";
-  if (target.kind === "binary") return `${sign}${(Math.abs(d) * 100).toFixed(opts.digits ?? 1)} pts`;
-  if (target.unit === "$") return `${sign}$${Math.abs(d).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
-  return `${sign}${fmtNum(Math.abs(d), opts.digits ?? target.digits ?? 2)}${unitSuffix(target.unit)}`;
+  const unit = opts.unit !== false;
+  if (target.kind === "binary") return `${sign}${fmtFixed(Math.abs(d) * 100, opts.digits ?? 1)}${unit ? " pts" : ""}`;
+  if (target.unit === "$") return `${sign}$${fmtFixed(Math.abs(d), 0)}`;
+  return `${sign}${fmtNum(Math.abs(d), opts.digits ?? target.digits ?? 2)}${unit ? unitSuffix(target.unit) : ""}`;
 }
 
-function unitSuffix(u) {
+// A unit after its number: "%" attached (12.5%), any other unit spaced
+// (12.5 %/mo, 0.4 bps, 3 green months).
+export function unitSuffix(u) {
   if (!u) return "";
-  if (u.startsWith("%")) return u === "%" ? "%" : " " + u;
-  return " " + u;
+  return u === "%" ? "%" : ` ${u}`;
 }
 
 export function fmtDuration(sec) {

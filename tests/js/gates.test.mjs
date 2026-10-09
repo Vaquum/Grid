@@ -66,11 +66,13 @@ test("a gate that cannot be read is kept with its reason, never dropped", () => 
   assert.equal(sc.targetById.has("gates:all"), false, "no gate, no gates together");
 });
 
-test("a need is written as it was given, in its needle's unit", () => {
+test("a need is written as it was given, in its needle's unit, as every number is", () => {
   const t = { label: "Drawdown p5", unit: "bps" };
-  assert.equal(needText(t, -1000), "-1000 bps");
+  assert.equal(needText(t, -1000), "−1,000 bps");
   assert.equal(needText(t, 0.55), "0.55 bps");
+  assert.equal(needText({ unit: "%" }, -0.5), "−0.5%");
   assert.equal(needText({ unit: "$" }, 3000), "$3,000");
+  assert.equal(needText({ unit: "$" }, -2500.5), "−$2,500.5");
   assert.equal(gateLabel({ label: "AUC", unit: "" }, { op: "<=", value: 0.5 }), "AUC ≤ 0.5");
 });
 

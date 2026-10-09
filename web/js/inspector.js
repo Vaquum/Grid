@@ -1,12 +1,12 @@
 // The inspector: a parameter (what it is, its attributes, where it acts,
 // its values and how their estimates settled), a value, or one row in full.
 
-import { h, icon, tip, clear, fmtT, fmtP, fmtInt, fmtPct, fmtDelta, fmtRowValue, fmtStamp, copyText, inText } from "./ui.js";
+import { h, icon, tip, clear, fmtT, fmtP, fmtInt, fmtNum, fmtPct, fmtDelta, fmtRowValue, fmtStamp, copyText, inText, rangeText } from "./ui.js";
 import { miniBar, lineChart, needleDomain } from "./charts.js";
 import { dimEffect, uniformity } from "./engine.js";
 import { rowObject } from "./pack.js";
-import { ensureModerators, independence, bestRows, objectiveKeys, effectOf } from "./model.js";
-import { actsPhrase, strengthText, scopeShare } from "./view-board.js";
+import { ensureModerators, independence, bestRows, objectiveKeys, effectOf, setName, TOGETHER, together, togetherWhy } from "./model.js";
+import { actsPhrase, strengthText, scopeText } from "./view-board.js";
 
 const KIND_TEXT = { cat: "Category", num: "Number", bool: "Switch", member: "Set member", scoped: "Nested number", size: "Subset size" };
 
@@ -41,12 +41,11 @@ function dimDetail(box, m, A, d, levelKey) {
   const found = effectOf(m, d.id);
   const e = found ? found.effect : dimEffect(d, target, rows, base);
   const family = found ? `${found.tests} ${found.family}` : "no family: not corrected";
-  const share = scopeShare(m, d);
   box.append(closeRow(A, h("div", null,
     h("div", { class: "eyebrow" }, `${KIND_TEXT[d.kind] || d.kind} · ${d.levels.length} values`,
-      d.scope ? ` · only inside ${d.scope.label} (${fmtPct(share, 1)} of rows)` : "",
+      d.scope ? ` · ${scopeText(m, d)}` : "",
       d.role !== "param" ? ` · ${d.role}` : ""),
-    h("h2", { text: d.kind === "scoped" ? d.name : d.label }))));
+    h("h2", { class: "mono", text: d.label }))));
   // verdict
   box.append(verdict(m, d, e));
 
@@ -55,23 +54,25 @@ function dimDetail(box, m, A, d, levelKey) {
   const md = mods && mods.byDim.get(d.id);
   const facts = h("dl", { class: "facts" });
   const fact = (k, v, t) => { const dt = h("dt", { text: k }); const dd = h("dd", null, v); if (t) tip(dd, t); facts.append(dt, dd); };
-  fact("Strength", `ω² ${strengthText(e)}`, "Bias-corrected share of the target's variance this parameter explains on its own.");
-  fact("Test", e.test === "G" ? `G = ${Number.isFinite(e.G) ? e.G.toFixed(1) : "–"}, ${e.k - 1} df, ${fmtP(e.p, "p")}` : `F(${e.df1}, ${e.df2}) = ${Number.isFinite(e.F) ? e.F.toFixed(2) : "–"}, ${fmtP(e.p, "p")}`,
+  fact("Strength", `ω² ${strengthText(e)}`, "Bias-corrected share of the needle's variance this parameter explains on its own.");
+  fact("Test", e.test === "G" ? `G = ${fmtNum(e.G, 1)}, ${e.k - 1} df, ${fmtP(e.p, "p")}` : `F(${e.df1}, ${e.df2}) = ${fmtNum(e.F, 2)}, ${fmtP(e.p, "p")}`,
     e.test === "G" ? "Likelihood-ratio test that every value has the same rate." : "One-way analysis of variance.");
   fact("After correction", `${fmtP(e.q)} (Benjamini–Hochberg over ${family})`);
   fact("Rows", `${fmtInt(e.N)} with a value${e.na ? ` · ${fmtInt(e.na)} where it does not apply` : ""}`);
   const uni = uniformity(d, m.allRows);
   if (Number.isFinite(uni.p)) {
     const tilt = uni.p < 1e-6;
-    fact("Sampler", tilt ? `uneven draw (χ² p ${uni.p < 1e-12 ? "< 1e-12" : uni.p.toExponential(1)})` : `even draw (χ² p = ${uni.p.toFixed(2)})`,
+    fact("Sampler", `${tilt ? "uneven" : "even"} draw (χ² ${fmtP(uni.p, "p")})`,
       tilt ? "The values were not drawn equally often. That can be by design (pf_frac is drawn for 2% of rows) or a sampler problem; the shares are in the table below." : "Each value was drawn about equally often, as a uniform sampler does.");
   }
   const indep = independence(m).filter(p => p.a === d.id || p.b === d.id).sort((a, b) => b.V - a.V)[0];
   if (indep) {
-    const other = indep.a === d.id ? indep.b : indep.a;
-    const bad = indep.p < 1e-6 && indep.V > 0.03;
-    fact("Independence", `${bad ? "depends on" : "largest link:"} ${other} (V ${indep.V.toFixed(3)})`,
-      bad ? "These two were not drawn independently; this parameter's marginal effect carries some of the other's. Read it inside the other's levels (use the context)." : "Cramér's V against every other sampled parameter; the largest is shown. Near zero means drawn independently, which is what lets a marginal difference read as an effect.");
+    const o = m.schema.dimById.get(indep.a === d.id ? indep.b : indep.a);
+    const bad = together(indep.p, indep.V);
+    fact("Independence", bad
+      ? h("span", { class: "sev warn" }, icon("alert"), `${TOGETHER} with `, h("span", { class: "mono", text: o.label }), ` (V ${fmtNum(indep.V, 3)})`)
+      : h("span", null, "drawn independently; the closest is ", h("span", { class: "mono", text: o.label }), ` (V ${fmtNum(indep.V, 3)})`),
+      bad ? `${togetherWhy(indep.V)} Use the context to look inside one of its values.` : "Cramér's V against every other sampled parameter; the largest is shown. Near zero means drawn independently, which is what lets a marginal difference read as an effect.");
   }
   box.append(part("Attributes", facts));
   // moderators
@@ -84,7 +85,7 @@ function dimDetail(box, m, A, d, levelKey) {
           h("span", { class: "sev " + (mo.detectable ? "on" : "off"), text: mo.detectable ? "changes it" : "no change" }),
           h("span", null, h("span", { class: "mono", text: mo.label }), h("span", { class: "muted", text: `  ${fmtP(mo.q)}` }))));
       }
-      if (md.acts) list.prepend(h("p", { class: "note" }, h("b", { text: (s => s.charAt(0).toUpperCase() + s.slice(1))(actsPhrase(m, md.acts)) }), `. The ${md.acts.label} × ${d.label} interaction is detectable (${fmtP(md.acts.q)}, corrected across the board's ${fmtInt(mods.tests)} tests).`));
+      if (md.acts) list.prepend(h("p", { class: "note" }, h("b", { text: (s => s.charAt(0).toUpperCase() + s.slice(1))(actsPhrase(m, md.acts)) }), `. The ${setName(m, [md.acts.parent, d.id])} interaction is detectable (${fmtP(md.acts.q)}, corrected across the board's ${fmtInt(mods.tests)} tests).`));
       else list.prepend(h("p", { class: "note", text: "No other parameter changes its effect detectably." }));
     } else list.append(h("p", { class: "muted", text: "No moderator tests for this parameter." }));
     box.append(part("Where it acts", list));
@@ -95,7 +96,7 @@ function dimDetail(box, m, A, d, levelKey) {
   // its values
   const domain = needleDomain([e], base.mean);
   const tbl = h("table", { class: "vals" },
-    h("thead", null, h("tr", null, h("th", { text: "value" }), h("th", { class: "r", text: "rows" }), h("th", { class: "r", text: target.label }), h("th", { class: "r", text: "vs base" }), h("th", { style: { width: "34%" }, text: "95% interval" }))));
+    h("thead", null, h("tr", null, h("th", { text: "Value" }), h("th", { class: "r", text: "Rows" }), h("th", { class: "r", text: target.label }), h("th", { class: "r", text: "Against the base" }), h("th", { style: { width: "34%" }, text: "95% interval" }))));
   const tb = h("tbody");
   const shareOf = new Map(d.levels.map((l, j) => [l.key, uni.shares ? uni.shares[j] : NaN]));
   for (const l of e.levels) {
@@ -111,7 +112,7 @@ function dimDetail(box, m, A, d, levelKey) {
       h("td", { class: "r num", text: l.withheld ? "–" : fmtDelta(target, l.lift) }),
       h("td", null, miniBar(l, domain, base.mean)));
     tip(tr.children[1], `${fmtPct(shareOf.get(l.key), 1)} of the rows where ${d.label} applies drew this value`);
-    tip(tr.children[4], l.withheld ? "Fewer than 30 rows: no interval." : `[${fmtT(target, l.lo)}, ${fmtT(target, l.hi)}]`);
+    tip(tr.children[4], l.withheld ? "Fewer than 30 rows: no interval." : `95% ${rangeText(target, l.lo, l.hi)}`);
     tb.append(tr);
   }
   tbl.append(tb);
@@ -166,7 +167,7 @@ function settling(m, d, e) {
     }
   }
   if (!series.some(sr => sr.points.length > 1)) return h("p", { class: "muted", text: "Not enough rows per value yet." });
-  const fig = lineChart(series, { height: 150, width: 360, xLabel: "rows", fmtY: v => fmtT(m.target, v), label: `${d.label}: estimates as rows arrived` });
+  const fig = lineChart(series, { height: 150, width: 360, xLabel: "rows", target: m.target, label: `${d.label}: estimates as rows arrived` });
   return h("div", null, h("p", { class: "muted", style: { margin: "0 0 4px" }, text: pick.length < shown.length ? "The two highest and two lowest values; each line starts once a value has 30 rows." : "Each line starts once a value has 30 rows." }), fig);
 }
 
@@ -199,7 +200,7 @@ function rowDetail(box, m, A, i) {
   if (Number.isFinite(ds.arrivals[i])) box.append(h("p", { class: "muted", text: `Arrived ${fmtStamp(ds.arrivals[i])}` }));
   // gates
   if (sc.gates.length) {
-    const tbl = h("table", { class: "vals" }, h("thead", null, h("tr", null, h("th", { text: "gate" }), h("th", { text: "value" }), h("th", { text: "need" }), h("th", { text: "" }))));
+    const tbl = h("table", { class: "vals" }, h("thead", null, h("tr", null, h("th", { text: "Gate" }), h("th", { text: "Value" }), h("th", { text: "Need" }), h("th", { text: "" }))));
     const tb = h("tbody");
     for (const g of sc.gates) {
       const pass = g.pass[i];
@@ -227,7 +228,7 @@ function rowDetail(box, m, A, i) {
   for (const d of sc.dims.filter(x => (x.role === "param" || x.role === "effective") && x.kind !== "member")) {
     const c = d.codes[i];
     if (c < 0) continue;
-    const dt = h("dt", { text: d.kind === "scoped" ? d.name : d.label });
+    const dt = h("dt", { class: "mono", text: d.label });
     const dd = h("dd", { class: "mono" }, h("button", { class: "btn small", onclick: () => A.select({ kind: "level", dim: d.id, key: d.levels[c].key }), text: d.levels[c].label }));
     params.append(dt, dd);
   }

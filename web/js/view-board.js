@@ -2,14 +2,13 @@
 // card per parameter, strongest first: how sure and how strong its effect
 // is, and the needle at each of its values on the board's shared scale.
 
-import { h, tip, fmtT, fmtP, fmtInt, fmtPct, rafThrottle, inText, rangeText, runName } from "./ui.js";
+import { h, tip, fmtT, fmtP, fmtInt, fmtNum, fmtPct, fmtOmega2, rafThrottle, inText, rangeText, runName } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { effectPlot, plotDomain, fitPlots } from "./main-effects.js";
-import { ensureModerators, independence, memberBoard, memberDims } from "./model.js";
+import { ensureModerators, independence, memberBoard, memberDims, setName, TOGETHER, together, togetherWhy } from "./model.js";
 
 export function strengthText(e) {
-  if (!Number.isFinite(e.omega2)) return "–";
-  return `${(Math.max(0, e.omega2) * 100).toFixed(e.omega2 < 0.001 ? 2 : 1)}%`;
+  return fmtOmega2(e.omega2);
 }
 
 export function scopeShare(m, d) {
@@ -17,6 +16,12 @@ export function scopeShare(m, d) {
   let n = 0;
   for (let j = 0; j < m.rows.length; j++) if (d.codes[m.rows[j]] >= 0) n++;
   return n / Math.max(1, m.rows.length);
+}
+
+// Where a nested parameter applies, said one way on its card and in the
+// inspector: only when its scope holds, on that share of the rows.
+export function scopeText(m, d) {
+  return `only when ${d.scope.label} · ${fmtPct(scopeShare(m, d), 0)} of rows`;
 }
 
 // The words for where a dim acts (engine actsSummary).
@@ -33,7 +38,6 @@ export function actsPhrase(m, acts) {
 }
 
 const sentence = t => t.charAt(0).toUpperCase() + t.slice(1);
-const nameOf = d => (d.kind === "scoped" ? d.name : d.label);
 const observed = new WeakSet();
 
 // While rows arrive the cards keep their places: the order and the
@@ -76,7 +80,7 @@ export function renderBoard(view, m, A) {
   for (const e of m.order) {
     const d = schema.dimById.get(e.dim), id = `dim:${e.dim}`;
     cards.set(id, () => card(m, A, d, e, ctx));
-    names.set(id, { name: nameOf(d), open: () => A.select({ kind: "dim", id: d.id }), why: `${e.detectable ? "Moves the needle now" : "No detectable effect"} (${fmtP(e.q)}). Open it in the inspector.` });
+    names.set(id, { name: d.label, open: () => A.select({ kind: "dim", id: d.id }), why: `${e.detectable ? "Moves the needle now" : "No detectable effect"} (${fmtP(e.q)}). Open it in the inspector.` });
     live[e.detectable ? "on" : "off"].push(id);
   }
   for (const g of sets) {
@@ -138,27 +142,28 @@ function summaryStrip(m, A, mods, sets) {
   // its card. Members are counted on the Features view.
   const conditional = mods ? m.board.effects.filter(e => { const md = mods.byDim.get(e.dim); return md && md.acts && md.acts.kind === "only"; }).length : null;
   const range = rangeText(t, b.lo, b.hi);
+  const name = id => dims.get(id).label;
 
   const cell = stripCell;
   const cells = [
-    cell(t.label, fmtT(t, b.mean), range, () => h("div", null, h("b", { text: `${t.label} over the rows in view` }),
+    cell(t.label, fmtT(t, b.mean), `95% ${range}`, () => h("div", null, h("b", { text: `${t.label} over the rows in view` }),
       t.definition ? h("div", { text: t.definition }) : null,
       h("div", { class: "k", text: `${fmtT(t, b.mean)} with its 95% interval ${range}${t.kind === "binary" ? " (Wilson)" : ""}. This is the dashed line on every card.` }),
       b.missing ? h("div", { class: "k", text: `${fmtInt(b.missing)} rows have no value for it and are left out.` }) : null)),
     cell("Rows", fmtInt(m.rows.length), m.rows.length < m.ds.n ? `of ${fmtInt(m.ds.n)}` : null,
       () => h("div", null, h("b", { text: "Rows in view" }), h("div", { class: "k", text: m.context.length ? "Rows that hold every condition of the context." : m.edge < m.ds.n ? "Rows up to the replay edge." : "Every row of the run so far." }))),
-    cell("Move the needle", String(det.length + sets.filter(g => g.detectable).length), `of ${fmtInt(m.board.tests + sets.length)}`,
+    cell("Moves the needle", fmtInt(det.length + sets.filter(g => g.detectable).length), `of ${fmtInt(m.board.tests + sets.length)}`,
       () => h("div", null, h("b", { text: "Parameters with a detectable effect" }), h("div", { class: "k", text: `After correcting for ${fmtInt(m.board.tests)} tests (Benjamini–Hochberg, q < 0.05). A set counts once, when any of its members moves the needle.` }))),
-    cell("Strongest", top ? nameOf(dims.get(top.dim)) : "–", top ? `ω² ${strengthText(top)}` : "nothing detectable",
+    cell("Strongest", top ? name(top.dim) : "–", top ? `ω² ${strengthText(top)}` : "nothing detectable",
       () => h("div", null, h("b", { text: "The parameter that explains the most on its own" }), h("div", { class: "k", text: "ω²: the share of the needle's variance it explains, bias-corrected." })),
-      top ? () => A.select({ kind: "dim", id: top.dim }) : null),
-    cell("Best value", best ? fmtT(t, best.l.mean) : "–", best ? `${nameOf(dims.get(best.e.dim))} = ${best.l.label}` : "nothing detectable",
+      top ? () => A.select({ kind: "dim", id: top.dim }) : null, top ? { valueClass: "mono" } : {}),
+    cell("Best value", best ? fmtT(t, best.l.mean) : "–", best ? `${name(best.e.dim)} = ${best.l.label}` : "nothing detectable",
       () => h("div", null, h("b", { text: "The single value with the best needle" }), h("div", { class: "k", text: "Among the parameters that move it; its interval is in the inspector." })),
       best ? () => A.select({ kind: "level", dim: best.e.dim, key: best.l.key }) : null),
-    cell("Dead values", String(dead.length), dead.length ? `${nameOf(dims.get(dead[0].e.dim))} = ${dead[0].l.label}${dead.length > 1 ? ` and ${dead.length - 1} more` : ""}` : "none",
+    cell("Dead values", fmtInt(dead.length), dead.length ? `${name(dead[0].e.dim)} = ${dead[0].l.label}${dead.length > 1 ? ` and ${dead.length - 1} more` : ""}` : "none",
       () => h("div", null, h("b", { text: "Values the sweep can stop drawing" }), h("div", { class: "k", text: "At least 30 rows and even the top of the 95% interval is under a fifth of the base." })),
       dead.length ? () => A.select({ kind: "level", dim: dead[0].e.dim, key: dead[0].l.key }) : null),
-    cell("Conditional", conditional === null ? "…" : String(conditional), conditional === null ? "checking" : `of ${fmtInt(m.board.tests)}`,
+    cell("Conditional", conditional === null ? "…" : fmtInt(conditional), conditional === null ? "checking" : `of ${fmtInt(m.board.tests)}`,
       () => h("div", null, h("b", { text: "Parameters that act only under a condition" }), h("div", { text: "Their effect is detectable inside some values of another parameter and nowhere else; the card names them." }), h("div", { class: "k", text: mods ? `${fmtInt(mods.tests)} interaction tests, corrected together.` : "Testing every pair in the background." })),
       null, { dataset: { ready: mods ? "true" : "false" } })];
   return strip("The board in figures", cells,
@@ -196,15 +201,15 @@ function card(m, A, d, e, ctx) {
   const sel = m.state.sel;
   const selected = !!sel && ((sel.kind === "dim" && sel.id === d.id) || (sel.kind === "level" && sel.dim === d.id));
   const el = h("div", { class: "pcard" + (on ? "" : " off"), role: "listitem", tabindex: "0", "aria-pressed": selected ? "true" : "false",
-    "aria-label": `${nameOf(d)}: ${on ? `moves ${t.label}, ω² ${strengthText(e)}, ${fmtP(e.q)}` : "no detectable effect"}`,
+    "aria-label": `${d.label}: ${on ? `moves ${t.label}, ω² ${strengthText(e)}, ${fmtP(e.q)}` : "no detectable effect"}`,
     dataset: { focus: "dim:" + d.id, dim: d.id } });
   // a second click on the open card closes the inspector
   const open = () => A.select(selected ? null : { kind: "dim", id: d.id });
   el.addEventListener("click", open);
   el.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); open(); } });
 
-  const sub = d.scope ? `only when ${d.scope.label} · ${fmtPct(scopeShare(m, d), 0)}` : `${d.levels.length} values`;
-  el.append(head(nameOf(d), sub, evidence(m, d, e, ctx.strongest)));
+  const sub = d.scope ? scopeText(m, d) : `${d.levels.length} values`;
+  el.append(head(d.label, sub, evidence(m, d, e, ctx.strongest)));
   // a nested parameter is read against its scope's own level
   const ref = d.scope ? scopeMean(e) : m.base.mean;
   el.append(effectPlot(e.levels, {
@@ -233,7 +238,7 @@ function evidence(m, d, e, strongest) {
   const bottom = h("span", { class: "pc-q num has-tip", text: fmtP(e.q) });
   const explain = () => h("div", null, h("b", { text: on ? `Moves ${inText(m.target.label)}: ω² ${strengthText(e)}` : "No detectable effect" }),
     h("div", { text: `ω² is the share of the needle's variance this parameter explains on its own${d.scope ? ", inside its scope" : ""}; the bar compares it with the strongest on the board.` }),
-    h("div", { class: "k", text: `${e.test === "G" ? `G-test, ${e.k - 1} df` : `F(${e.df1}, ${e.df2}) = ${Number.isFinite(e.F) ? e.F.toFixed(2) : "–"}`} · ${fmtP(e.p, "p")} · ${fmtP(e.q)} after correcting across the board` }));
+    h("div", { class: "k", text: `${e.test === "G" ? `G-test, ${e.k - 1} df` : `F(${e.df1}, ${e.df2}) = ${fmtNum(e.F, 2)}`} · ${fmtP(e.p, "p")} · ${fmtP(e.q)} after correcting across the board` }));
   tip(top, explain);
   tip(bottom, explain);
   return { top, bottom };
@@ -245,7 +250,7 @@ function tags(m, d, e, ctx) {
   if (md && md.acts) {
     const phrase = actsPhrase(m, md.acts);
     box.append(tag(sentence(phrase), "acts", () => h("div", null, h("b", { text: sentence(phrase) }),
-      h("div", { text: `The ${md.acts.label} × ${nameOf(d)} interaction ${fmtP(md.acts.q)} after correcting across the board.` }))));
+      h("div", { text: `The ${setName(m, [md.acts.parent, d.id])} interaction ${fmtP(md.acts.q)} after correcting across the board.` }))));
   }
   if (e.dead.length) {
     const levels = e.dead.map(k => e.levels.find(l => l.key === k));
@@ -255,8 +260,7 @@ function tags(m, d, e, ctx) {
   const dep = ctx.dependent.get(d.id);
   if (dep) {
     const other = m.schema.dimById.get(dep.other);
-    box.append(tag(`Not independent of ${other ? nameOf(other) : dep.other}`, "warn",
-      `Cramér's V ${dep.V.toFixed(3)}: the sampler does not draw these two independently, so this parameter's difference carries some of the other's.`));
+    box.append(tag(`${sentence(TOGETHER)} with ${other ? other.label : dep.other}`, "warn", togetherWhy(dep.V)));
   }
   const withheld = e.levels.filter(l => l.withheld && l.n > 0).length;
   if (withheld) box.append(tag(`${withheld} withheld`, null, `${withheld} value${withheld > 1 ? "s have" : " has"} fewer than 30 rows: drawn hollow, with no number.`));
@@ -342,7 +346,7 @@ function scopeMean(e) {
 function dependentOn(m) {
   const out = new Map();
   for (const p of independence(m)) {
-    if (!(p.p < 1e-6 && p.V > 0.03)) continue;
+    if (!together(p.p, p.V)) continue;
     for (const [x, y] of [[p.a, p.b], [p.b, p.a]]) {
       const cur = out.get(x);
       if (!cur || p.V > cur.V) out.set(x, { other: y, V: p.V });
@@ -402,21 +406,17 @@ export function boardSummary(m, mods) {
     return `${d.label} = ${c.keys.map(k => (d.levels.find(l => l.key === k) || { label: k }).label).join("/")}`;
   });
   lines.push(`${m.sweep.meta.name} · ${runName(m.ds.meta)} · ${fmtInt(b.n)} rows${ctx.length ? ` inside ${ctx.join(", ")}` : ""}${m.state.edge !== null && m.state.edge < m.ds.n ? ` (up to row ${fmtInt(m.edge)})` : ""}`);
-  lines.push(`${t.label}${t.definition ? ` (${t.definition})` : ""}: ${fmtT(t, b.mean)} [${fmtT(t, b.lo)}, ${fmtT(t, b.hi)}]`);
+  lines.push(`${t.label}${t.definition ? ` (${t.definition})` : ""}: ${fmtT(t, b.mean)} (95% ${rangeText(t, b.lo, b.hi)})`);
   const det = m.order.filter(e => e.detectable);
   lines.push(`Moves it (${det.length} of ${m.board.tests} parameters, q < 0.05):`);
   for (const e of det) {
     const d = m.schema.dimById.get(e.dim);
-    const name = d.kind === "scoped" ? `${d.name} (${d.scope.label})` : d.label;
     const md = mods && mods.byDim.get(d.id);
     const acts = md && md.acts ? `; ${actsPhrase(m, md.acts)}` : "";
     const dead = e.dead.length ? `; dead: ${e.dead.map(k => (e.levels.find(l => l.key === k) || {}).label).join(", ")}` : "";
-    lines.push(`- ${name}: ${e.best.label} ${fmtT(t, e.best.mean)} vs ${e.worst.label} ${fmtT(t, e.worst.mean)}, ω² ${strengthText(e)}, ${fmtP(e.q)}${acts}${dead}`);
+    lines.push(`- ${d.label}: ${e.best.label} ${fmtT(t, e.best.mean)} vs ${e.worst.label} ${fmtT(t, e.worst.mean)}, ω² ${strengthText(e)}, ${fmtP(e.q)}${acts}${dead}`);
   }
-  const flat = m.order.filter(e => !e.detectable).map(e => {
-    const d = m.schema.dimById.get(e.dim);
-    return d.kind === "scoped" ? `${d.name}@${d.scope.label.split(" = ")[1]}` : d.label;
-  });
+  const flat = m.order.filter(e => !e.detectable).map(e => m.schema.dimById.get(e.dim).label);
   if (flat.length) lines.push(`No detectable effect: ${flat.join(", ")}.`);
   return lines.join("\n");
 }

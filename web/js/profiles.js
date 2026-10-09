@@ -23,7 +23,7 @@ const PLATE_GATES = [
     margin: v => 0.30 - v, marginLabel: "below the need" },
   { id: "dynsize", label: "Position sizes vary", need: "sizes vary",
     parse: v => { const m = /vary=(True|False)/.exec(v); return m ? { value: m[1] === "True" ? 1 : 0 } : null; },
-    unit: "varies (1) or not (0)" },
+    yesNo: true },
   { id: "dynexit", label: "Holds vary, with mid exits", need: "several holds and a mid exit",
     parse: v => { const m = /holds=\[([^\]]*)\]\s+midexits=(\d+)/.exec(v); return m ? { value: +m[2], holds: m[1] ? m[1].split(",").length : 0 } : null; },
     unit: "mid exits" },
@@ -153,7 +153,7 @@ export const LIMEN_METRICS = {
   backtest_trades_per_bar: { label: "Entries per bar", unit: "", better: 0, digits: 4 },
   backtest_inventory_per_bar: { label: "Mean deployed notional", unit: "", better: 0, digits: 3, group: "activity" },
   backtest_cost_per_bar_bps: { label: "Mean cost per bar", unit: BPS, better: -1, digits: 2 },
-  execution_time: { label: "Seconds per round", unit: "s", better: -1, digits: 2, cost: true },
+  execution_time: { label: "Seconds per row", unit: "s", better: -1, digits: 2, cost: true },
   optimal_threshold: { label: "Chosen threshold", unit: "", better: 0, digits: 3 },
 };
 

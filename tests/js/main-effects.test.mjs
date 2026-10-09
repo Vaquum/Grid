@@ -3,7 +3,8 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { plotDomain, tickText } from "../../web/js/main-effects.js";
+import { plotDomain } from "../../web/js/main-effects.js";
+import { tickText } from "../../web/js/ui.js";
 
 const net = { kind: "cont", unit: "bps", digits: 3 };
 

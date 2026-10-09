@@ -68,7 +68,7 @@ test("the board sums itself up in a strip and plots every parameter", async () =
   assert.equal(await page.locator(".view h1").innerText(), "What moves Tradeable");
   const strip = await page.locator(".strip").innerText();
   assert.match(strip, /Rows\s+6,000/);
-  assert.match(strip, /Move the needle/);
+  assert.match(strip, /Moves the needle/);
   const on = await page.locator(".pcard:not(.off)").count();
   assert.ok(on >= 3, `cards that move the needle: ${on}`);
   // the planted strong effects move the needle, the inert one does not
@@ -123,26 +123,30 @@ test("every view draws without an error", async () => {
   await page.close();
 });
 
-test("pairs: the strip, the ranked and linked pairs, and a chosen pair with its margins", async () => {
+test("pairs: the strip, the ranked pairs and those drawn together, and a chosen pair with its margins", async () => {
   const { page, errors } = await open();
   await page.keyboard.press("3");
   await page.waitForSelector(".pr-map", { timeout: 20000 });
   const strip = await page.locator(".strip").innerText();
   assert.match(strip, /Interacting pairs\s+\d+\s+of 190/);
   assert.match(strip, /Drawn together\s+1\b/);
-  // with no interaction, the pair the sampler linked opens by itself
-  assert.match(await page.locator(".pr-pair .isl-count").innerText(), /the most linked/);
-  assert.equal(await page.locator(".pr-pair .tag.crit").count(), 1);
-  assert.equal(await page.locator(".pr-row.linked").count(), 1);
+  // with no interaction, the pair the sampler drew together opens by
+  // itself, named in the same order as in the list, and tagged as the
+  // board tags it, in the warning colour
+  assert.match(await page.locator(".pr-pair .isl-count").innerText(), /drawn together the most/);
+  assert.equal(await page.locator(".pr-pair .tag.warn").count(), 1);
+  assert.equal(await page.locator(".pr-row.together").count(), 1);
+  assert.equal(await page.locator("#pr-pair-title").innerText(), await page.locator(".pr-row.together .pr-name").innerText());
   // each value's margin and the base close the grid
   assert.equal(await page.locator(".pr-heat th.margin-h").count(), 2);
   assert.equal(await page.locator(".pr-heat td.base-cell").count(), 1);
   // a cell of the map opens its pair, and the address keeps it
   const names = (s) => s.split(" × ").map(x => x.trim()).sort().join(" ");
   const cell = page.locator(".pr-map td.cell:not(.sel)").first();
-  const want = names(await cell.getAttribute("aria-label"));
+  const label = await cell.getAttribute("aria-label");
+  const want = names(label);
   await cell.click();
-  assert.equal(names(await page.locator("#pr-pair-title").innerText()), want);
+  assert.equal(await page.locator("#pr-pair-title").innerText(), label, "a pair is named in one order");
   assert.equal(await page.locator(".pr-map td.cell.sel").count() >= 1, true);
   await page.reload();
   await page.waitForSelector(".pr-map", { timeout: 20000 });
@@ -282,7 +286,7 @@ test("trials on a Limen run: tied rounds share a rank, values as written, the ta
   assert.ok(await page.locator("table.trials td.rk .eq:not(.no)").count() > 0, "no tie is marked");
   // net PnL per bar as Limen wrote it, to 0.1 bps
   const pnl = await page.locator("table.trials tbody tr td:nth-child(3)").allInnerTexts();
-  for (const v of pnl) assert.match(v, /^-?\d+\.\d$/, `a round's value ${v}`);
+  for (const v of pnl) assert.match(v, /^−?\d+\.\d$/, `a row's value ${v}`);
   // Limen records activity, risk, model skill and time: entries are whole
   await page.locator('[data-cols="activity"]').click();
   const head = await page.locator("table.trials thead tr:last-child th").allInnerTexts();
@@ -294,7 +298,7 @@ test("trials on a Limen run: tied rounds share a rank, values as written, the ta
   await page.waitForSelector("text=Best rows copied.");
   const notes = await page.evaluate(() => navigator.clipboard.readText());
   assert.match(notes, /^lightgbm_binary_full · .* by net PnL per bar/);
-  assert.match(notes, /\n\| # \| row \| Net PnL per bar \(bps\) \|.* Entries \|/);
+  assert.match(notes, /\n\| # \| Row \| Net PnL per bar \(bps\) \|.* Entries \|/);
   assert.match(notes, /\n\| 1 \| \d+ \| \d\.\d \|/);
   assert.match(notes, /\nLuck line: .*, the best of 40 rows by noise alone; \d+ rows? clears? it\.$/);
   assert.deepEqual(errors, []);
@@ -383,7 +387,7 @@ test("run: a sweep with no groups gets its strip, every row's distributions and 
   // the rows of the synthetic sweep do not fall into groups: none is drawn, and the page says why
   await page.waitForFunction(() => (document.querySelector(".rn-pick .isl-count") || {}).textContent === "none", null, { timeout: 20000 });
   assert.match(await page.locator(".rn-pick .isl-note").innerText(), /do not fall into groups: the best grouping \(\d clusters\) has a silhouette of 0\.\d\d, under 0\.26/);
-  assert.match(await page.locator(".strip").innerText(), /Clusters\s+none\s+the rows do not group/);
+  assert.match(await page.locator(".strip").innerText(), /Clusters\s+0\s+the rows do not group/);
   assert.equal(await page.locator(".rn-chip").count(), 0);
   // a card per outcome, the needle first, every row in one colour
   const names = await page.locator(".rn-card .rn-name").allInnerTexts();
@@ -411,7 +415,7 @@ test("run: a Limen run's clusters, one against every row, two compared, and anot
   await page.waitForSelector(".rn-chip", { timeout: 20000 });
   const strip = await page.locator(".strip").innerText();
   assert.match(strip, /Rows\s+200/);
-  assert.match(strip, /Net PnL per bar\s+-?\d\.\d+ bps\s+median 0\.0 bps/);
+  assert.match(strip, /Net PnL per bar\s+−?\d\.\d+ bps\s+median 0\.0 bps/);
   assert.match(strip, /Clusters\s+2\s+silhouette 0\.\d\d, (weak|reasonable)/);
   // two clusters: the rounds that never entered, and the ones that did
   const chips = await page.locator(".rn-chip").allInnerTexts();
@@ -584,16 +588,16 @@ test("features on a Limen run: its groups from the manifest, its dropped columns
   await page.keyboard.press("4");
   await page.waitForSelector("#ft-groups");
   const strip = await page.locator(".strip").innerText();
-  assert.match(strip, /Best groups[\s\S]*Adding a group[\s\S]*Columns dropped\s+\d+\s+in 33 of 40 rounds/);
+  assert.match(strip, /Best groups[\s\S]*Adding a group[\s\S]*Columns dropped\s+\d+\s+in 33 of 40 rows/);
   // the drawn combinations, each with what it switches on
   const drawn = await page.locator("#ft-groups").locator("xpath=ancestor::section").locator("table").first().innerText();
   assert.match(drawn, /lines\|momentum[\s\S]*lines: price_lines, quantile_price_lines · momentum: roc/);
-  assert.match(await page.locator("#ft-groups").locator("xpath=ancestor::section").innerText(), /every round also has cyclical_time_features/);
+  assert.match(await page.locator("#ft-groups").locator("xpath=ancestor::section").innerText(), /every row also has cyclical_time_features/);
   // the dropped columns, the roc column named by its parameter where it varies
   const cols = await page.locator("#ft-cols").locator("xpath=ancestor::section").innerText();
-  assert.match(cols, /rounds dropped/);
+  assert.match(cols, /Rows dropping it/);
   assert.match(cols, /fewer than 10 drops/);
-  assert.match(cols, /One model over \d+ rounds/);
+  assert.match(cols, /One model over \d+ rows/);
   assert.match(await page.locator("#ft-next").locator("xpath=ancestor::section").innerText(), /keep_columns: \[.*\]\s+drop_columns: \[.*\]/);
   assert.deepEqual(errors, []);
   await page.close();
@@ -711,7 +715,7 @@ test("live: a Limen run's rounds arrive after its rows, and Features reads them"
     await page.waitForSelector(".pcard");
     await page.keyboard.press("4");
     await page.waitForSelector("#ft-cols");
-    assert.match(await page.locator(".strip").innerText(), /in \d+ of 30 rounds/);
+    assert.match(await page.locator(".strip").innerText(), /in \d+ of 30 rows/);
     for (let k = 30; k < 40; k++) {
       appendFileSync(join(dir, "results.csv"), csv[k + 1] + "\n");
       appendFileSync(join(dir, "round_data.jsonl"), rounds[k] + "\n");
