@@ -17,4 +17,6 @@ test("the cards keep their places while the rows change their order", () => {
   // a card gone since leaves its place
   assert.deepEqual(holdPlaces({ on: ["b"], off: [] }, { on: ["a", "b"], off: [] }), { on: ["b"], off: [], moved: 0 });
   assert.equal(holdPlaces(hold, hold).moved, 0);
+  // the cards with no detectable effect swapping places is the order of noise
+  assert.equal(holdPlaces({ on: ["a"], off: ["e", "d"] }, { on: ["a"], off: ["d", "e"] }).moved, 0);
 });
