@@ -59,7 +59,7 @@ function decodeState(hash) {
     return { ...DEFAULT_STATE, view: o.v, run: o.r, target: o.t, context: o.c || [], pocket: o.p || [], sel: o.s || null,
       edge: o.e ?? null, pair: o.pr || null, show: o.sh || DEFAULT_STATE.show, featSort: o.fs || "effect" };
   } catch (err) {
-    console.warn("ignoring an address that is not a Tessera view", err);
+    console.warn("ignoring an address that is not a Grid view", err);
     return null;
   }
 }
@@ -88,7 +88,7 @@ async function gunzipBase64(b64) {
 }
 
 async function loadEmbedded() {
-  const el = document.getElementById("tessera-pack");
+  const el = document.getElementById("grid-pack");
   const b64 = el ? el.textContent.trim() : "";
   if (!b64) return null;
   const text = await gunzipBase64(b64);
@@ -545,7 +545,7 @@ function toggleTheme() {
   const root = document.documentElement;
   const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
   root.dataset.theme = dark ? "light" : "dark";
-  try { localStorage.setItem("tessera-theme", root.dataset.theme); } catch (err) { /* storage refused */ }
+  try { localStorage.setItem("grid-theme", root.dataset.theme); } catch (err) { /* storage refused */ }
 }
 
 function openReference(topic) {
@@ -651,14 +651,14 @@ function fail(err) {
 // Load timings, for the performance checks (tests read them).
 const TIMINGS = {};
 function mark(name) { TIMINGS[name] = Math.round(performance.now()); }
-window.__tesseraTimings = TIMINGS;
+window.__gridTimings = TIMINGS;
 
 async function start() {
   mark("start");
   try {
-    const theme = (() => { try { return localStorage.getItem("tessera-theme"); } catch (err) { return null; } })();
+    const theme = (() => { try { return localStorage.getItem("grid-theme"); } catch (err) { return null; } })();
     if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
-    app.config = JSON.parse(document.getElementById("tessera-config").textContent || "{}");
+    app.config = JSON.parse(document.getElementById("grid-config").textContent || "{}");
     let pack = null, cursor = null;
     if (app.config.mode === "live") {
       const body = await loadLive(app.config);
@@ -666,7 +666,7 @@ async function start() {
     } else {
       pack = await loadEmbedded();
     }
-    if (!pack) throw new Error("this page holds no sweep; serve it with python3 -m tessera serve");
+    if (!pack) throw new Error("this page holds no sweep; serve it with python3 -m grid serve");
     mark("loaded");
     buildFrame();
     installSweep(pack, false);

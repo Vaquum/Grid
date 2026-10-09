@@ -1,6 +1,6 @@
 # Statistics
 
-Every number Tessera shows, defined. Code: `web/js/stats.js` (numerics)
+Every number Grid shows, defined. Code: `web/js/stats.js` (numerics)
 and `web/js/engine.js` (analyses). Tests: `tests/js/stats.test.mjs`
 (against scipy) and `tests/js/engine.test.mjs` (against scipy, an OLS fit,
 `chi2_contingency` and pandas on a synthetic sweep with planted effects).

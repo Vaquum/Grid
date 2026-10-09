@@ -1,6 +1,6 @@
-# Tessera design
+# Grid design
 
-Tessera monitors a running parameter sweep and explains how each parameter
+Grid monitors a running parameter sweep and explains how each parameter
 moves the outcome. It reads what the sweep already writes (a results JSONL
 with one row per evaluated configuration, and the runner's stdout log) and
 needs nothing from the runner itself.
@@ -22,7 +22,7 @@ scale target: one million rows must stay interactive.
   every control has a key and a label; a reference pane explains each
   surface with Purpose, Read and Use; replay hides everything after an edge.
   Its look too: restrained neutrals, colour kept for data and states, one
-  type scale, hairlines, small radii. Tessera's neutrals are warm stone and
+  type scale, hairlines, small radii. Grid's neutrals are warm stone and
   its data colour lapis, so the two read as different instruments.
 - **Designed experiments**: a random search is one, so the board reads like
   a main-effects plot: the response at each level of each factor, every
@@ -162,4 +162,4 @@ row after it in every view.
 ## Non-goals
 
 No model of why a config scores what it scores; no recommendation presented
-as fact. Tessera describes what the sweep measured, with its uncertainty.
+as fact. Grid describes what the sweep measured, with its uncertainty.

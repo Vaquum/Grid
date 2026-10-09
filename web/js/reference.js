@@ -4,7 +4,7 @@
 import { h, clear, icon } from "./ui.js";
 
 const TOPICS = [
-  { id: "overview", title: "Tessera",
+  { id: "overview", title: "Grid",
     purpose: "Watch a parameter sweep while it runs and see how each parameter moves its outcome, with the uncertainty of every number.",
     read: "The top bar names the sweep, the run on screen and its state (live, recorded or replay), and its pace. The needle is the outcome every view measures; the context chips narrow every view to the rows that hold them. The rail switches views; the inspector on the right opens whatever you choose.",
     use: "Start on the Board. Choose a parameter to open it in the inspector. Choose a value to look inside it (C) or stack it into a pocket (P). Switch the needle (T) to see what moves another outcome." },
@@ -49,12 +49,12 @@ const TOPICS = [
     read: "Intervals are 95%: Wilson for rates, Student t for means. A value with fewer than 30 rows is withheld. One-way effects: ω² = (SSB − (k−1)·MSW) / (SST + MSW), with the F test, or for a 0/1 needle the likelihood-ratio G-test of equal rates. q-values are Benjamini–Hochberg over the family of tests shown together (the board's parameters, a set's members, all pairs, all interaction tests of the board). Interactions: the share of variance the pair's cells explain beyond an additive fit, with the F test, or for a 0/1 needle the likelihood-ratio test of an additive logistic model against the cells. A parameter acts only when a moderator has a value if its effect is detectable inside that value and a pooled test over the other values finds nothing; otherwise its effect is modulated. A dead value has n ≥ 30 and an interval whose top is under a fifth of the base rate. The luck line is mean + sd · ((1−γ)Φ⁻¹(1−1/n) + γΦ⁻¹(1−1/(n·e))), the expected best of n equally good configurations (the false strategy theorem). Independence is Cramér's V with its χ² test.",
     use: "Rest the pointer on any number for its test and its rows. Nothing is called inert: a parameter with no detectable effect is bounded by its interval, not declared zero." },
   { id: "data", title: "Data",
-    purpose: "Know what Tessera read and how it classified it.",
+    purpose: "Know what Grid read and how it classified it.",
     read: "Each results line is one row. Nested dicts become dotted names (hpcfg.learning_rate), short lists of numbers one column per position, lists of strings a set. A null value (tp: null, no take-profit) is a value of its own; an absent key (no max_depth on a logreg row) means the parameter does not apply. A profile names the roles of a known sweep's fields; fields it does not name are inferred and marked. A nested parameter becomes one knob for each value of the parameter it varies under (learning_rate under lgbm_hp, under xgb_hp), and only there. A knob that is the same as another (hpcfg.C under logreg is C_dir) is an alias and is left off the board.",
     use: "The Not on the board chips list fixed fields, aliases and parameters the runner derived, each with its reason." },
   { id: "live", title: "Live and replay",
     purpose: "Follow a sweep while it writes, or replay how it arrived.",
-    read: "Live: python3 -m tessera serve follows the results file and the log, locally or with --ssh on the sweep's host (it runs tail -F there; nothing is installed). A results file that starts over (a relaunch) keeps the rows already read as a run of its own. Replay hides every row after an edge in every view, so you see what the sweep knew then.",
+    read: "Live: python3 -m grid serve follows the results file and the log, locally or with --ssh on the sweep's host (it runs tail -F there; nothing is installed). A results file that starts over (a relaunch) keeps the rows already read as a run of its own. Replay hides every row after an edge in every view, so you see what the sweep knew then.",
     use: "Space plays the arrivals, [ and ] step, Home goes to the first row, End back to the latest (live)." },
 ];
 

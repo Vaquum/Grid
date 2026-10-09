@@ -1,6 +1,6 @@
 import unittest
 
-from tessera.logparse import LogParser, parse_text
+from grid.logparse import LogParser, parse_text
 
 LOG = '''sampling 500 A-perms...
 100/500 16s top: gates=6 mean=+3.85 logreg

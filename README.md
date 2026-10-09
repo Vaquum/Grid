@@ -1,4 +1,4 @@
-# Tessera
+# Grid
 
 A monitor for parameter sweeps. It follows a running sweep's results file
 and log, and shows how each parameter moves the outcome, with the
@@ -24,7 +24,7 @@ server runs `tail -F` there over SSH):
 
 ```sh
 R=/srv/<deployment>/research
-python3 -m tessera serve --ssh user@sweep-host --name PocketA \
+python3 -m grid serve --ssh user@sweep-host --name PocketA \
   --results $R/data/pocketA/results.jsonl --log $R/pocketA_sweep.log \
   --run "pre-P0=$R/data/pocketA/results_preP0_20261008_182937.jsonl#0" \
   --run "label=logregone,results=$R/data/logregone/results.jsonl,log=$R/logregone_sweep.log" \
@@ -44,13 +44,13 @@ round metrics (named and given a direction once, in
 `web/js/profiles.js`) or the round's bookkeeping. Nothing is inferred.
 
 ```sh
-python3 -m tessera serve --limen ~/dev/Limen/results/dev/lightgbm_binary_full_20261009_091248 --open
+python3 -m grid serve --limen ~/dev/Limen/results/dev/lightgbm_binary_full_20261009_091248 --open
 ```
 
 A static snapshot, for reading offline or sharing:
 
 ```sh
-python3 -m tessera pack --results … --log … --out sweep.pack.json.gz
+python3 -m grid pack --results … --log … --out sweep.pack.json.gz
 python3 tools/build.py --pack sweep.pack.json.gz --out sweep.html
 ```
 
@@ -61,7 +61,7 @@ A live demo without any real sweep: a simulated sweep writes its files at
 a sweep's pace, crashes and relaunches.
 
 ```sh
-python3 tools/live_demo.py --out /tmp/tessera-live --port 8765
+python3 tools/live_demo.py --out /tmp/grid-live --port 8765
 ```
 
 ## Views
@@ -118,18 +118,18 @@ See [docs/statistics.md](docs/statistics.md).
 ## Develop
 
 ```sh
-python3 tools/build.py                       # dist/tessera.html
+python3 tools/build.py                       # dist/grid.html
 ./tools/check.sh                             # every check, stops at the first failure
-TESSERA_PLAYWRIGHT=/path/to/playwright/index.mjs ./tools/check.sh   # with browser tests
+GRID_PLAYWRIGHT=/path/to/playwright/index.mjs ./tools/check.sh   # with browser tests
 ```
 
 `tools/check.sh` runs the Python tests, the JavaScript tests, pyright
-(strict for `tessera/` and `tools/`), ruff, `node --check`, the build, and
-the browser tests when `TESSERA_PLAYWRIGHT` is set. The reference values
+(strict for `grid/` and `tools/`), ruff, `node --check`, the build, and
+the browser tests when `GRID_PLAYWRIGHT` is set. The reference values
 need numpy, pandas and scipy: `python tools/golden_engine.py --out
 tests/golden/engine.json`.
 
-- `tessera/`: columnar store, log parser, followers (file, SSH), server, CLI
+- `grid/`: columnar store, log parser, followers (file, SSH), server, CLI
 - `web/js/`: stats, pack decoding, schema and profiles, the engine, the views
 - `tools/`: build, synthetic sweeps, simulator, live demo, reference values
 - `tests/`: Python, JavaScript (against scipy references) and browser tests

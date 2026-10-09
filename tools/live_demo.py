@@ -1,7 +1,7 @@
 """A live demo in one process: a simulated sweep writing its files, and
 the monitor serving them.
 
-    python3 tools/live_demo.py --port 0 --out /tmp/tessera-live
+    python3 tools/live_demo.py --port 0 --out /tmp/grid-live
 
 The simulated sweep starts with 3,000 rows already written (a sweep that
 has been running a while), then appends about six rows a second, and
@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 import simulate  # noqa: E402
 import synth  # noqa: E402
 
-from tessera.__main__ import main as tessera_main  # noqa: E402
+from grid.__main__ import main as grid_main  # noqa: E402
 
 
 def main() -> None:
@@ -43,7 +43,7 @@ def main() -> None:
         play_append(a.out, a.rate, stop)
 
     threading.Thread(target=later, daemon=True).start()
-    sys.exit(tessera_main(["serve", "--results",
+    sys.exit(grid_main(["serve", "--results",
                            os.path.join(a.out, "results.jsonl"),
                            "--log", os.path.join(a.out, "sweep.log"),
                            "--name", "Synthetic sweep",

@@ -1,5 +1,5 @@
 // Decode the server's column exports into growable typed arrays, and apply
-// live deltas to them. The encoding is defined in tessera/columns.py:
+// live deltas to them. The encoding is defined in grid/columns.py:
 // numbers exact, -1 / null for a null value, -2 / "~" for an absent key.
 
 export const NULL = -1;
@@ -217,7 +217,7 @@ export class Dataset {
 
 // A whole pack as served by /api/pack or embedded in the page.
 export function decodePack(pack) {
-  if (pack.tessera !== 1) throw new Error(`unknown pack version ${pack.tessera}`);
+  if (pack.grid !== 1) throw new Error(`unknown pack version ${pack.grid}`);
   const runs = pack.runs.map(r => {
     const ds = new Dataset(r);
     ds.append(0, r.rows, r.columns, r.arrivals);
@@ -229,7 +229,7 @@ export function decodePack(pack) {
 }
 
 // Row i rebuilt as a JSON object (absent keys left out), the way
-// tessera/columns.py Store.row_object does it.
+// grid/columns.py Store.row_object does it.
 export function rowObject(ds, i) {
   if (!(i >= 0 && i < ds.n)) throw new Error(`row ${i} is outside 0..${ds.n - 1}`);
   const root = {};

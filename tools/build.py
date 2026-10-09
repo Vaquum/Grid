@@ -1,6 +1,6 @@
 """Assemble the page: one self-contained HTML file, no runtime dependency.
 
-    python3 tools/build.py                       # dist/tessera.html
+    python3 tools/build.py                       # dist/grid.html
     python3 tools/build.py --pack PACK.json.gz --out dist/demo.html
     python3 tools/build.py --pack ... --fragment --out dist/artifact.html
 
@@ -84,7 +84,7 @@ def join_modules(entry: str) -> str:
 def build(pack: str | None, fragment: bool, config: str | None) -> str:
     with open(os.path.join(WEB, "index.html"), encoding="utf-8") as f:
         html = f.read()
-    with open(os.path.join(WEB, "css", "tessera.css"), encoding="utf-8") as f:
+    with open(os.path.join(WEB, "css", "grid.css"), encoding="utf-8") as f:
         css = f.read()
     script = join_modules("app.js")
     if "</script" in script.lower():
@@ -126,7 +126,7 @@ def main() -> None:
     ap.add_argument("--fragment", action="store_true",
                     help="no document skeleton (for hosts that add one)")
     ap.add_argument("--out", default=os.path.join(ROOT, "dist",
-                                                  "tessera.html"))
+                                                  "grid.html"))
     a = ap.parse_args()
     html = build(a.pack, a.fragment, a.config)
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)

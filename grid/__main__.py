@@ -1,15 +1,15 @@
 """Command line: serve a live sweep, or write a static pack.
 
-    python3 -m tessera serve --results data/pocketA/results.jsonl \\
+    python3 -m grid serve --results data/pocketA/results.jsonl \\
         --log pocketA_sweep.log \\
         --run "pre-P0=data/pocketA/results_preP0.jsonl#0"
 
-    python3 -m tessera serve --ssh root@s0 --results /srv/.../results.jsonl \\
+    python3 -m grid serve --ssh root@s0 --results /srv/.../results.jsonl \\
         --log /srv/.../pocketA_sweep.log
 
-    python3 -m tessera pack --results ... --log ... --out pocketA.pack.json.gz
+    python3 -m grid pack --results ... --log ... --out pocketA.pack.json.gz
 
-    python3 -m tessera serve --limen results/dev/lightgbm_binary_full_...
+    python3 -m grid serve --limen results/dev/lightgbm_binary_full_...
 
 ``--results`` is the run the sweep is writing now; its rows belong to the
 latest segment of ``--log``. ``--limen`` takes a Limen result directory
@@ -43,8 +43,8 @@ from .server import serve
 from .sweep import Json, Run, Sweep
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PAGE = os.path.join(os.path.dirname(HERE), "dist", "tessera.html")
-CONFIG_MARK = '<script id="tessera-config" type="application/json">'
+PAGE = os.path.join(os.path.dirname(HERE), "dist", "grid.html")
+CONFIG_MARK = '<script id="grid-config" type="application/json">'
 
 
 RUN_KEYS = ("label", "results", "log", "segment", "live")
@@ -245,7 +245,7 @@ def cmd_serve(a: argparse.Namespace) -> int:
     httpd = serve(sweep, page, a.bind, a.port)
     host, port = httpd.server_address[:2]
     url = "http://%s:%d/" % (host, port)
-    print("tessera %s serving %s at %s" % (__version__, sweep.name, url),
+    print("grid %s serving %s at %s" % (__version__, sweep.name, url),
           flush=True)
     if a.open:
         webbrowser.open(url)
@@ -279,7 +279,7 @@ def cmd_pack(a: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="tessera",
+    ap = argparse.ArgumentParser(prog="grid",
                                  description="Monitor a parameter sweep.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name in ("serve", "pack"):

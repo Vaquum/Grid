@@ -2,7 +2,7 @@ import json
 import math
 import unittest
 
-from tessera.columns import ABSENT_CODE, ABSENT_TEXT, NULL_CODE, Store, flatten
+from grid.columns import ABSENT_CODE, ABSENT_TEXT, NULL_CODE, Store, flatten
 
 
 def decode_num(col):

@@ -1,6 +1,6 @@
 {
   "include": [
-    "tessera",
+    "grid",
     "tools",
     "tests/py"
   ],
@@ -10,7 +10,7 @@
   ],
   "typeCheckingMode": "standard",
   "strict": [
-    "tessera",
+    "grid",
     "tools"
   ],
   "pythonVersion": "3.11",

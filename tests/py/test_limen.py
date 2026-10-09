@@ -10,9 +10,9 @@ import os
 import tempfile
 import unittest
 
-from tessera.__main__ import main
-from tessera.limen import CsvRecords, csv_value, read_experiment
-from tessera.sweep import Run
+from grid.__main__ import main
+from grid.limen import CsvRecords, csv_value, read_experiment
+from grid.sweep import Run
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "..", "fixtures",
                        "limen_run")

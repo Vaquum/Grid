@@ -8,9 +8,9 @@ import unittest
 import urllib.error
 import urllib.request
 
-from tessera.follow import FileFollower
-from tessera.server import serve
-from tessera.sweep import Cursor, Run, Sweep
+from grid.follow import FileFollower
+from grid.server import serve
+from grid.sweep import Cursor, Run, Sweep
 
 
 class Collect:

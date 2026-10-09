@@ -187,7 +187,7 @@ class Sweep:
 
     # -- reads (called by the server) ----------------------------------------
     def meta(self) -> Json:
-        return {"tessera": PACK_VERSION, "version": __version__,
+        return {"grid": PACK_VERSION, "version": __version__,
                 "name": self.name, "started": self.started,
                 "now": time.time(), "logSources": self.log_sources,
                 "errors": self.errors[-50:]}

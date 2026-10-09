@@ -16,10 +16,10 @@ let ds, schema, all;
 // The same synthetic sweep the reference values were computed on: written
 // by tools/synth.py and packed by the real command line.
 before(() => {
-  const dir = mkdtempSync(join(tmpdir(), "tessera-"));
+  const dir = mkdtempSync(join(tmpdir(), "grid-"));
   execFileSync("python3", ["tools/synth.py", "--rows", String(G.rows), "--seed", String(G.seed), "--out", dir], { cwd: ROOT });
   const out = join(dir, "pack.json.gz");
-  execFileSync("python3", ["-m", "tessera", "pack", "--results", join(dir, "results.jsonl"),
+  execFileSync("python3", ["-m", "grid", "pack", "--results", join(dir, "results.jsonl"),
     "--log", join(dir, "sweep.log"), "--out", out], { cwd: ROOT });
   const pack = JSON.parse(gunzipSync(readFileSync(out)).toString("utf8"));
   ds = decodePack(pack).runs[0];

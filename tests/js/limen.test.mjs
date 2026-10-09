@@ -17,8 +17,8 @@ const ROOT = new URL("../../", import.meta.url).pathname;
 let ds, schema, manifest;
 
 before(() => {
-  const out = join(mkdtempSync(join(tmpdir(), "tessera-limen-")), "pack.json.gz");
-  execFileSync("python3", ["-m", "tessera", "pack", "--limen", "tests/fixtures/limen_run", "--out", out], { cwd: ROOT });
+  const out = join(mkdtempSync(join(tmpdir(), "grid-limen-")), "pack.json.gz");
+  execFileSync("python3", ["-m", "grid", "pack", "--limen", "tests/fixtures/limen_run", "--out", out], { cwd: ROOT });
   ds = decodePack(JSON.parse(gunzipSync(readFileSync(out)).toString("utf8"))).runs[0];
   manifest = ds.meta.experiment.manifest;
   schema = buildSchema(ds, { profile: limenProfile(ds.meta.experiment) });

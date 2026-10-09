@@ -1,5 +1,5 @@
 [project]
-name = "tessera"
+name = "grid"
 version = "0.1.0"
 description = "Monitor a parameter sweep and see how each parameter moves the outcome."
 requires-python = ">=3.11"

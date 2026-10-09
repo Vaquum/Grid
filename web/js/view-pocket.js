@@ -90,10 +90,10 @@ function brick(m, A, pocket, c, k, step) {
   tip(el.querySelector(".what"), () => h("div", null, h("b", { text: `After block ${k + 1}` }),
     h("div", { text: `${fmtInt(step.s.n)} rows, ${fmtT(m.target, step.s.mean)} [${fmtT(m.target, step.s.lo)}, ${fmtT(m.target, step.s.hi)}]` }),
     h("div", { class: "k", text: "Drag a block to reorder the path; the pocket itself does not change." })));
-  el.addEventListener("dragstart", (e) => { e.dataTransfer.setData("application/x-tessera-brick", String(k)); e.dataTransfer.effectAllowed = "move"; });
-  el.addEventListener("dragover", (e) => { if (e.dataTransfer.types.includes("application/x-tessera-brick")) { e.preventDefault(); e.stopPropagation(); } });
+  el.addEventListener("dragstart", (e) => { e.dataTransfer.setData("application/x-grid-brick", String(k)); e.dataTransfer.effectAllowed = "move"; });
+  el.addEventListener("dragover", (e) => { if (e.dataTransfer.types.includes("application/x-grid-brick")) { e.preventDefault(); e.stopPropagation(); } });
   el.addEventListener("drop", (e) => {
-    const from = e.dataTransfer.getData("application/x-tessera-brick");
+    const from = e.dataTransfer.getData("application/x-grid-brick");
     if (from === "") return;
     e.preventDefault(); e.stopPropagation();
     const p = pocket.slice();

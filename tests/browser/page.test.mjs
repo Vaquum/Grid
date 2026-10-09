@@ -1,6 +1,6 @@
 // Browser tests: the built page on a synthetic sweep, recorded and live.
 //
-//   TESSERA_PLAYWRIGHT=/path/to/node_modules/playwright/index.mjs \
+//   GRID_PLAYWRIGHT=/path/to/node_modules/playwright/index.mjs \
 //     node --test --test-reporter=spec tests/browser/
 //
 // The page is built with a synthetic pack (tools/synth.py) so no sweep's
@@ -16,20 +16,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
-const PW = process.env.TESSERA_PLAYWRIGHT;
-if (!PW) throw new Error("set TESSERA_PLAYWRIGHT to a playwright index.mjs (see the header of this file)");
+const PW = process.env.GRID_PLAYWRIGHT;
+if (!PW) throw new Error("set GRID_PLAYWRIGHT to a playwright index.mjs (see the header of this file)");
 const { chromium } = await import(PW);
 
 let dir, server, base, browser;
 
 before(async () => {
-  dir = mkdtempSync(join(tmpdir(), "tessera-browser-"));
+  dir = mkdtempSync(join(tmpdir(), "grid-browser-"));
   execFileSync("python3", ["tools/synth.py", "--rows", "6000", "--seed", "5", "--out", dir], { cwd: ROOT });
-  execFileSync("python3", ["-m", "tessera", "pack", "--results", join(dir, "results.jsonl"), "--log", join(dir, "sweep.log"),
+  execFileSync("python3", ["-m", "grid", "pack", "--results", join(dir, "results.jsonl"), "--log", join(dir, "sweep.log"),
     "--name", "Synthetic sweep", "--out", join(dir, "pack.json.gz")], { cwd: ROOT });
   execFileSync("python3", ["tools/build.py", "--pack", join(dir, "pack.json.gz"), "--out", join(dir, "demo.html")], { cwd: ROOT, stdio: "ignore" });
   // a real Limen run's first rounds, read from its result directory
-  execFileSync("python3", ["-m", "tessera", "pack", "--limen", "tests/fixtures/limen_run", "--out", join(dir, "limen.pack.json.gz")], { cwd: ROOT });
+  execFileSync("python3", ["-m", "grid", "pack", "--limen", "tests/fixtures/limen_run", "--out", join(dir, "limen.pack.json.gz")], { cwd: ROOT });
   execFileSync("python3", ["tools/build.py", "--pack", join(dir, "limen.pack.json.gz"), "--out", join(dir, "limen.html")], { cwd: ROOT, stdio: "ignore" });
   server = createServer(async (req, res) => {
     try {
@@ -202,7 +202,7 @@ test("a Limen run reads with its manifest's parameters and Limen's metrics", asy
 
 // A live sweep for the duration of one test: its page URL and a stop.
 async function liveSweep() {
-  const live = mkdtempSync(join(tmpdir(), "tessera-live-"));
+  const live = mkdtempSync(join(tmpdir(), "grid-live-"));
   const proc = spawn("python3", ["tools/live_demo.py", "--out", live, "--port", "0", "--rate", "20"], { cwd: ROOT });
   const url = await new Promise((resolve, reject) => {
     let out = "";
