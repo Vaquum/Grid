@@ -6,8 +6,8 @@ import { decodePack, Dataset } from "./pack.js";
 import { buildSchema } from "./schema.js";
 import { limenProfile } from "./profiles.js";
 import { rowsIn, summarize, board, boardOrder } from "./engine.js";
-import { boardDims, objectiveTop } from "./model.js";
-import { h, clear, icon, installTips, hideTip, syncInfo, fmtInt, fmtAgo, fmtT, tip } from "./ui.js";
+import { boardDims, objectiveTop, objectiveKeys } from "./model.js";
+import { h, clear, icon, installTips, hideTip, syncInfo, fmtInt, fmtAgo, fmtRowValue, tip } from "./ui.js";
 import { manifestSection, figureLine } from "./manifest.js";
 import { renderBoard } from "./view-board.js";
 import { renderInspector } from "./inspector.js";
@@ -32,6 +32,7 @@ const VIEWS = [
 const DEFAULT_STATE = {
   run: null, view: "board", target: null, context: [], pocket: [], pocketB: null,
   sel: null, edge: null, show: { hp: true, flat: true }, pair: null, order: 2, featSort: "effect",
+  trialCols: ["movers"],
 };
 
 const app = {
@@ -44,7 +45,7 @@ const app = {
 // only a bare #anchor.
 
 function encodeState(st) {
-  const o = { v: st.view, r: st.run, t: st.target, c: st.context, p: st.pocket, s: st.sel, e: st.edge, pr: st.pair, po: st.order, sh: st.show, fs: st.featSort };
+  const o = { v: st.view, r: st.run, t: st.target, c: st.context, p: st.pocket, s: st.sel, e: st.edge, pr: st.pair, po: st.order, sh: st.show, fs: st.featSort, tc: st.trialCols };
   const json = JSON.stringify(o);
   const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(json)));
   return "s1." + b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -58,7 +59,8 @@ function decodeState(hash) {
     const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
     const o = JSON.parse(new TextDecoder().decode(bytes));
     return { ...DEFAULT_STATE, view: o.v, run: o.r, target: o.t, context: o.c || [], pocket: o.p || [], sel: o.s || null,
-      edge: o.e ?? null, pair: o.pr || null, order: o.po || 2, show: o.sh || DEFAULT_STATE.show, featSort: o.fs || "effect" };
+      edge: o.e ?? null, pair: o.pr || null, order: o.po || 2, show: o.sh || DEFAULT_STATE.show, featSort: o.fs || "effect",
+      trialCols: Array.isArray(o.tc) ? o.tc : DEFAULT_STATE.trialCols };
   } catch (err) {
     console.warn("ignoring an address that is not a Grid view", err);
     return null;
@@ -299,18 +301,18 @@ function update() {
 }
 
 // Redraw a container, keeping what the reader is doing in it while it shows
-// the same thing: its scroll and its inner lists' ([data-scroll]), and the
-// focused control ([data-focus]) with its caret.
+// the same thing: its scroll and its inner lists' and tables' ([data-scroll],
+// both ways), and the focused control ([data-focus]) with its caret.
 function redraw(el, same, draw) {
   const scroll = same ? el.scrollTop : 0;
-  const inner = same ? new Map([...el.querySelectorAll("[data-scroll]")].map(x => [x.dataset.scroll, x.scrollTop])) : new Map();
+  const inner = same ? new Map([...el.querySelectorAll("[data-scroll]")].map(x => [x.dataset.scroll, [x.scrollTop, x.scrollLeft]])) : new Map();
   const active = document.activeElement;
   const focusId = same && active && el.contains(active) && active.dataset ? active.dataset.focus : null;
   const caret = focusId && typeof active.selectionStart === "number" ? [active.selectionStart, active.selectionEnd] : null;
   clear(el);
   draw();
   el.scrollTop = scroll;
-  for (const x of el.querySelectorAll("[data-scroll]")) if (inner.has(x.dataset.scroll)) x.scrollTop = inner.get(x.dataset.scroll);
+  for (const x of el.querySelectorAll("[data-scroll]")) if (inner.has(x.dataset.scroll)) [x.scrollTop, x.scrollLeft] = inner.get(x.dataset.scroll);
   if (!focusId) return;
   const x = el.querySelector(`[data-focus="${CSS.escape(focusId)}"]`);
   if (!x) return;
@@ -533,10 +535,8 @@ function notifyRecords() {
   app.lastBest.set(m.ds.id, top);
   if (prev === undefined || top === undefined || top === prev) return;
   if (top < prev && app.state.edge === null && app.config.mode !== "live") return;
-  const g = m.schema.targetById.get("gates"), mm = m.schema.targetById.get("mean_mo");
-  const model_ = m.ds.col("model");
-  toast(h("span", { class: "has-tip" }, h("b", { text: "New best row. " }),
-    `${g ? `gates ${g.values[top]}` : ""}${mm ? ` · ${fmtT(mm, mm.values[top])}` : ""}${model_ ? ` · ${model_.value(top)}` : ""} (row ${fmtInt(top)})`),
+  toast(h("span", null, h("b", { text: "New best row. " }),
+    `${objectiveKeys(m).map(({ t }) => `${t.label} ${fmtRowValue(t, t.values[top])}`).join(" · ")} (row ${fmtInt(top)})`),
   "good", () => setState({ view: "trials", sel: { kind: "row", i: top } }));
 }
 

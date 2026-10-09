@@ -248,6 +248,27 @@ export function shownDigits(values, digits, kind) {
   return Math.min(6, Math.max(digits, 1 - Math.floor(Math.log10(scale))));
 }
 
+// The decimals a target's values were written with: the fewest that print
+// every value exactly, or null when six do not (a measured float). One
+// row's value is shown no finer than this: Limen writes net PnL per bar to
+// 0.1 bps, so a round's 0.7 is 0.7, not 0.700.
+const POW10 = [1, 10, 100, 1e3, 1e4, 1e5, 1e6];
+export function recordedDecimals(values) {
+  let most = 0;
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i];
+    if (!Number.isFinite(v)) continue;
+    let d = most;
+    for (; d < POW10.length; d++) {
+      const x = v * POW10[d];
+      if (Math.abs(x - Math.round(x)) <= 1e-9 * Math.max(1, Math.abs(x))) break;
+    }
+    if (d === POW10.length) return null;
+    most = d;
+  }
+  return most;
+}
+
 export function buildSchema(ds, opts = {}) {
   const profile = opts.profile !== undefined ? opts.profile : matchProfile(ds.cols);
   const n = opts.n !== undefined ? opts.n : ds.n;
@@ -344,7 +365,8 @@ export function buildSchema(ds, opts = {}) {
       values[i] = args.some(Number.isNaN) ? NaN : d.fn(...args);
     }
     targets.push({ id: d.id, label: d.label, unit: d.unit, kind: d.kind, better: d.better,
-      definition: d.definition, note: d.note, values, digits: shownDigits(values, 1, d.kind), source: "profile" });
+      definition: d.definition, note: d.note, values, digits: shownDigits(values, d.digits ?? 1, d.kind),
+      decimals: recordedDecimals(values), group: d.group || null, source: "profile" });
   }
   for (const f of fields) {
     if (!(f.role === "metric" || f.role === "diagnostic")) continue;
@@ -354,7 +376,8 @@ export function buildSchema(ds, opts = {}) {
     const values = new Float64Array(n);
     for (let i = 0; i < n; i++) values[i] = get(i);
     targets.push({ id: f.name, label: m.label, unit: m.unit, kind: m.kind || "cont", better: m.better,
-      digits: shownDigits(values, m.digits, m.kind || "cont"), cost: !!m.cost, values,
+      digits: shownDigits(values, m.digits, m.kind || "cont"), decimals: recordedDecimals(values),
+      cost: !!m.cost, group: m.group || null, values,
       source: P.metrics[f.name] ? "profile" : "inferred",
       diagnostic: f.role === "diagnostic" });
   }
@@ -406,7 +429,8 @@ export function buildSchema(ds, opts = {}) {
   return {
     profile, n, fields, dims, dimById, targets, targetById: new Map(targets.map(t => [t.id, t])),
     gates, families, invariants,
-    objective: P.objective && P.objective.every(([c]) => ds.cols.has(c)) ? P.objective : null,
+    // the runner's ranking, when every key of it is a measured target
+    objective: P.objective && P.objective.every(([c]) => targets.some(t => t.id === c)) ? P.objective : null,
     objectiveLabel: P.objectiveLabel || null,
     defaultTarget: P.defaultTarget && targets.some(t => t.id === P.defaultTarget) ? P.defaultTarget
       : (targets[0] ? targets[0].id : null),

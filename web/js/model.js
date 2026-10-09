@@ -1,6 +1,6 @@
 // What views compute from the model, cached on the model's key.
 
-import { moderatorTests, moderatorSummaries, summarize, cramersV, recordCurve, topRows, board } from "./engine.js";
+import { moderatorTests, moderatorSummaries, summarize, cramersV, recordCurve, topRows, board, rankRows, rowsLikeIt } from "./engine.js";
 
 export function boardDims(schema) {
   return schema.dims.filter(d => d.role === "param" && d.kind !== "member");
@@ -89,6 +89,33 @@ export function objectiveTop(m, rows, k) {
     return [i => (v ? v[i] : NaN), -dir];
   });
   return topRows(rows, keys, k);
+}
+
+// The runner's objective as ranking keys: each key's target and whether
+// higher is better.
+export function objectiveKeys(m) {
+  const sc = m.schema;
+  if (!sc.objective) return null;
+  return sc.objective.map(([col, dir]) => ({ t: sc.targetById.get(col), better: -dir }));
+}
+
+// The best rows in view by the objective, ranked with their ties (engine
+// rankRows), and for each, the rows like it on the needle: the other rows
+// sharing its values of the parameters that move the needle.
+export const BEST_LIMIT = 100;
+export function bestRows(m) {
+  const c = m.cache;
+  if (c.best && c.bestKey === c.key) return c.best;
+  const keys = objectiveKeys(m);
+  if (!keys) return null;
+  const ranked = rankRows(m.rows, keys.map(({ t, better }) => [i => t.values[i], better]), BEST_LIMIT);
+  const movers = m.order.filter(e => e.detectable).map(e => m.schema.dimById.get(e.dim));
+  const like = rowsLikeIt(movers, m.target, m.rows, ranked.list.map(x => x.i));
+  ranked.list.forEach((x, k) => { x.like = like[k]; });
+  ranked.movers = movers;
+  c.best = ranked;
+  c.bestKey = c.key;
+  return ranked;
 }
 
 export function records(m) {

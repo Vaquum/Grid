@@ -55,3 +55,33 @@ test("a disabled exit is a value of its own", () => {
   const sl = schema.dimById.get("stop_loss_bps");
   assert.deepEqual(sl.levels.map(l => l.label), ["none", "25", "50", "100", "200"]);
 });
+
+test("entries are Limen's entries per bar times the test window's bars, a whole count", () => {
+  const e = schema.targetById.get("entries");
+  assert.equal(e.group, "activity");
+  const rate = ds.col("backtest_trades_per_bar");
+  const bars = ["confusion_tp", "confusion_fp", "confusion_tn", "confusion_fn"].map(c => ds.col(c));
+  let seen = 0;
+  for (let i = 0; i < ds.n; i++) {
+    if (rate.state[i] !== 0 || bars.some(c => c.state[i] !== 0)) continue;
+    const raw = rate.vals[i] * bars.reduce((s, c) => s + c.vals[i], 0);
+    // the premise: the two count the same bars, so the product is whole
+    assert.ok(Math.abs(raw - Math.round(raw)) < 0.03, `row ${i}: ${raw} is not a whole count`);
+    assert.equal(e.values[i], Math.round(raw));
+    seen++;
+  }
+  assert.equal(seen, ds.n);
+  assert.equal(e.decimals, 0);
+});
+
+test("net PnL per bar is written to 0.1 bps, so a round shows 0.7, not 0.700", () => {
+  assert.equal(schema.targetById.get("backtest_pnl_per_bar_bps").decimals, 1);
+});
+
+test("what a score rests on: activity, risk, model skill and the time it took", () => {
+  const ids = g => schema.targets.filter(t => t.group === g).map(t => t.id).sort();
+  assert.deepEqual(ids("activity"), ["backtest_inventory_per_bar", "entries"]);
+  assert.deepEqual(ids("risk"), ["backtest_avg_loss_bps", "backtest_cvar_95_pnl_bps", "backtest_drawdown_bps_p5"]);
+  assert.deepEqual(ids("skill"), ["auc", "precision", "recall"]);
+  assert.deepEqual(schema.targets.filter(t => t.cost).map(t => t.id), ["execution_time"]);
+});

@@ -191,6 +191,87 @@ test("a card opens in the inspector and a value goes into the pocket", async () 
   await page.close();
 });
 
+test("trials: a strip, and column sets that toggle, join the table under their names and stay", async () => {
+  const { page, errors } = await open();
+  await page.keyboard.press("5");
+  await page.waitForSelector(".tr-island table.trials");
+  const strip = await page.locator(".strip").innerText();
+  for (const k of ["Best row", "Like the best", "Luck line", "Clear of luck", "Since the best", "Rows"]) assert.match(strip, new RegExp(k));
+  // the plate sweep records every set: seven toggles, the movers on
+  assert.deepEqual(await page.locator(".tr-tools [data-cols]").evaluateAll(bs => bs.map(b => b.dataset.cols)),
+    ["movers", "rest", "like", "activity", "risk", "skill", "time"]);
+  assert.deepEqual(await page.locator(".tr-tools [aria-pressed=true]").evaluateAll(bs => bs.map(b => b.dataset.cols)), ["movers"]);
+  const groups = () => page.locator("table.trials th.grp:not(.blank)").allInnerTexts();
+  assert.deepEqual(await groups(), ["Movers"]);
+  // more than one at once, in the toggles' order whatever the clicks' order
+  await page.locator('[data-cols="time"]').click();
+  await page.locator('[data-cols="like"]').click();
+  assert.deepEqual(await groups(), ["Movers", "Rows like it", "Run time"]);
+  assert.match(await page.locator("table.trials thead tr:last-child").innerText(), /Seconds per row/);
+  await page.locator('[data-cols="movers"]').click();
+  assert.deepEqual(await groups(), ["Rows like it", "Run time"]);
+  // the address keeps them
+  await page.reload();
+  await page.waitForSelector(".tr-island table.trials");
+  assert.deepEqual(await page.locator(".tr-tools [aria-pressed=true]").evaluateAll(bs => bs.map(b => b.dataset.cols)), ["like", "time"]);
+  // a row opens in the inspector and closes on a second click
+  const first = page.locator("table.trials tbody tr").first();
+  await first.click();
+  assert.equal(await page.evaluate(() => document.getElementById("app").dataset.insp), "open");
+  assert.match(await page.locator("#inspector .eyebrow").first().innerText(), /^#1=? by gates, then mean %\/mo$/);
+  await first.click();
+  assert.equal(await page.evaluate(() => document.getElementById("app").dataset.insp), "closed");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("trials: a toggle names itself after half a second of rest", async () => {
+  const { page, errors } = await open();
+  await page.keyboard.press("5");
+  await page.waitForSelector(".tr-tools");
+  await page.clock.install();
+  await page.locator('[data-cols="like"]').hover();
+  await page.clock.runFor(400);
+  assert.equal(await page.locator("#tip").isVisible(), false);
+  await page.clock.runFor(200);
+  assert.equal(await page.locator("#tip").isVisible(), true);
+  assert.match(await page.locator("#tip").innerText(), /^Rows like it\n.+/);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("trials on a Limen run: tied rounds share a rank, values as written, the table as notes", async () => {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const errors = [];
+  page.on("pageerror", e => errors.push(String(e)));
+  page.on("console", m => { if (m.type() === "error") errors.push(m.text()); });
+  await page.goto(base + "limen");
+  await page.waitForSelector(".pcard");
+  await page.keyboard.press("5");
+  await page.waitForSelector(".tr-island table.trials");
+  assert.match(await page.locator(".tr-island .isl-count").innerText(), /by net PnL per bar$/);
+  assert.ok(await page.locator("table.trials td.rk .eq:not(.no)").count() > 0, "no tie is marked");
+  // net PnL per bar as Limen wrote it, to 0.1 bps
+  const pnl = await page.locator("table.trials tbody tr td:nth-child(3)").allInnerTexts();
+  for (const v of pnl) assert.match(v, /^-?\d+\.\d$/, `a round's value ${v}`);
+  // Limen records activity, risk, model skill and time: entries are whole
+  await page.locator('[data-cols="activity"]').click();
+  const head = await page.locator("table.trials thead tr:last-child th").allInnerTexts();
+  const at = head.findIndex(x => /^Entries/.test(x));
+  assert.ok(at > 0, `no entries column in ${head}`);
+  for (const v of await page.locator(`table.trials tbody tr td:nth-child(${at + 1})`).allInnerTexts()) assert.match(v, /^\d+$/);
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: base });
+  await page.locator(".strip-copy").click();
+  await page.waitForSelector("text=Best rows copied.");
+  const notes = await page.evaluate(() => navigator.clipboard.readText());
+  assert.match(notes, /^lightgbm_binary_full · .* by net PnL per bar/);
+  assert.match(notes, /\n\| # \| row \| Net PnL per bar \(bps\) \|.* Entries \|/);
+  assert.match(notes, /\n\| 1 \| \d+ \| \d\.\d \|/);
+  assert.match(notes, /\nLuck line: .*, the best of 40 rows by noise alone; \d+ rows? clears? it\.$/);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("the needle changes target and the replay edge hides later rows", async () => {
   const { page, errors } = await open();
   await page.selectOption("#target-pick", "mean_mo");

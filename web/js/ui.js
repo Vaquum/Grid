@@ -108,6 +108,15 @@ export function fmtT(target, x, opts = {}) {
   return fmtNum(x, d) + (opts.unit === false || !target.unit || target.unit === "" ? "" : unitSuffix(target.unit));
 }
 
+// One row's value: no finer than the target's shown digits, nor than the
+// decimals its values were written with; a 0/1 value reads yes or no.
+export function fmtRowValue(target, x, opts = {}) {
+  if (!Number.isFinite(x)) return "–";
+  if (target.kind === "binary") return x === 1 ? "yes" : x === 0 ? "no" : fmtT(target, x, opts);
+  const digits = target.digits ?? 2;
+  return fmtT(target, x, { ...opts, digits: target.decimals === null || target.decimals === undefined ? digits : Math.min(digits, target.decimals) });
+}
+
 // The difference of two target values in the target's unit.
 export function fmtDelta(target, d, opts = {}) {
   if (!Number.isFinite(d)) return "–";
@@ -142,8 +151,9 @@ export function fmtAgo(sec) {
 
 // ---------------------------------------------------------------------------
 // Tooltips: data-tip holds plain text, or a function in tipFns. The first
-// shows after 600 ms; once one has shown, the next shows at once.
+// shows after half a second; once one has shown, the next shows at once.
 
+const TIP_DELAY = 500;
 const tipFns = new WeakMap();
 let tipTimer = null, tipWarm = false, tipCool = null, tipEl = null;
 
@@ -185,7 +195,7 @@ export function installTips(root, tipBox) {
       if (!t) { hideTip(); return; }
       clearTimeout(tipCool);
       if (tipWarm) show(t, e.clientX, e.clientY);
-      else tipTimer = setTimeout(() => current === t && show(t, e.clientX, e.clientY), 600);
+      else tipTimer = setTimeout(() => current === t && show(t, e.clientX, e.clientY), TIP_DELAY);
     } else if (t && !tipEl.hidden) place(e.clientX, e.clientY);
   });
   root.addEventListener("pointerleave", () => { current = null; hideTip(); });
@@ -373,6 +383,14 @@ const ICONS = {
   copy: "M9 9h10v10H9zM5 15V5h10",
   alert: "M12 3 2 20h20zM12 10v4M12 17h.01",
   check: "M5 12l5 5 9-10",
+  // the Trials view's column sets
+  needle: "M4 17a8 8 0 0 1 16 0M12 17l4-5M3 20h18",
+  sliders: "M4 7h16M4 12h16M4 17h16M9 5v4M15 10v4M7 15v4",
+  like: "M5 10c2.3-2 4.7-2 7 0s4.7 2 7 0M5 15c2.3-2 4.7-2 7 0s4.7 2 7 0",
+  activity: "M5 20v-6M10 20V9M15 20v-9M20 20V5",
+  risk: "M3 7l6 6 4-4 8 8M21 11v6h-6",
+  skill: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 12h.01",
+  clock: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2",
 };
 
 export function icon(name, cls) {

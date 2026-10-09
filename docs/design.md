@@ -73,7 +73,13 @@ A target is what "the needle" is. The plate profile defines:
   (cost, lower is better), and the pass of each of the nine gates.
 
 The leaderboard order is the runner's own objective: gates descending, then
-mean %/mo descending.
+mean %/mo descending (Limen: net PnL per bar descending).
+
+A profile also says what each metric tells about a row's score: the
+activity it rests on (signal days; Limen's entries, the entries per bar
+times the test window's bars, and its deployed notional), the risk that
+came with it (drawdowns, losses), its model's skill (AUC, log-loss,
+precision, recall), or the compute it took (seconds per row).
 
 ## Statistics
 
@@ -123,6 +129,17 @@ pocket, see below) and up to the replay edge.
   strongest parameters (by main effect or strongest pair: effect
   heredity), at most 2,000 sets or 4·10⁸ rows read a size, corrected with
   Benjamini–Hochberg across the sets tested at that size.
+- **Rows like a row**: the other rows that share its values of the
+  parameters that move the needle, strongest first, as many of them as
+  leave at least 30 rows (the row itself is left out): their mean, with
+  its interval, is what those values earn without the row's own luck.
+- **Ranks**: rows that tie on the objective share a rank (competition
+  ranking, 4=) and keep their arrival order; a tie that runs past the
+  list is not listed but told as one group, since inside it the order
+  means nothing.
+- **Recorded precision**: one row's value is printed no finer than the
+  decimals its target was written with (Limen writes net PnL per bar to
+  0.1 bps: a round's 0.7, not 0.700); means keep the shown digits.
 - **Shown digits**: a target is printed with its profile's digits, or more
   when its means are smaller than those can print: two significant digits
   at the larger of the mean's size and its 95% half-width over every row
@@ -131,9 +148,10 @@ pocket, see below) and up to the replay edge.
 
 ## Views
 
-The Board and the Pocket open with a strip of their figures and their
-blurb behind an (i) (a click opens it, and so do five seconds resting on
-the (i)); the other views follow in their own passes. Every view ends with
+The Board, the Pocket, Pairs and Trials open with a strip of their
+figures and their blurb behind an (i) (a click opens it, and so do five
+seconds resting on the (i)); the other views follow in their own passes.
+A tooltip shows after half a second, and the next one at once. Every view ends with
 the experiment's manifest, folded: the copy `limen run` kept, shown as
 written, narrowed to what the view looks at (the pocket, or the context)
 by rewriting only the narrowed parameters' lists, in their own spelling,
@@ -152,7 +170,12 @@ text. A sweep without a manifest has no such section.
    value-by-value grid with each value's margin, three as that grid for
    each value of the third, more as their best and worst combinations.
 4. **Features**: inclusion effects of every set member.
-5. **Trials**: the leaderboard and any row in full, with its replay command.
+5. **Trials**: a strip that sets the best row against the luck line and
+   the rows like it; the best rows ranked with their ties, and icons that
+   add column sets (the parameters that move the needle, the other
+   parameters, the rows like each row, and the activity, risk, model
+   skill and run time behind each score); any row in full in the
+   inspector, with its replay command.
 6. **Gates**: pass rates, never-passed gates and what bounds them, and what
    moves each gate.
 7. **Run**: throughput, ETA, segments, crashes, warnings, invariants, the

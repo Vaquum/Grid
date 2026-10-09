@@ -1,11 +1,11 @@
 // The inspector: a parameter (what it is, its attributes, where it acts,
 // its values and how their estimates settled), a value, or one row in full.
 
-import { h, icon, tip, clear, fmtT, fmtP, fmtInt, fmtPct, fmtDelta, copyText, inText } from "./ui.js";
+import { h, icon, tip, clear, fmtT, fmtP, fmtInt, fmtPct, fmtDelta, fmtRowValue, copyText, inText } from "./ui.js";
 import { miniBar, lineChart, needleDomain } from "./charts.js";
 import { dimEffect, uniformity } from "./engine.js";
 import { rowObject } from "./pack.js";
-import { ensureModerators, independence, objectiveTop, effectOf } from "./model.js";
+import { ensureModerators, independence, bestRows, objectiveKeys, effectOf } from "./model.js";
 import { actsPhrase, strengthText, scopeShare } from "./view-board.js";
 
 const KIND_TEXT = { cat: "Category", num: "Number", bool: "Switch", member: "Set member", scoped: "Nested number", size: "Subset size" };
@@ -180,16 +180,22 @@ function toastCopy(ok) {
 
 // ---------------------------------------------------------------------------
 
+// Where a row ranks among the rows in view, as the Trials view ranks them.
+function rankLine(m, i) {
+  const best = bestRows(m);
+  if (!best) return "row";
+  const at = best.list.find(x => x.i === i);
+  if (at) return `#${at.rank}${at.tie > 1 ? "=" : ""} by ${m.schema.objectiveLabel}`;
+  const c = best.cut;
+  if (c && objectiveKeys(m).every(({ t }) => t.values[i] === t.values[c.row]) && m.rows.includes(i)) return `one of ${fmtInt(c.n)} rows tied at #${c.rank} by ${m.schema.objectiveLabel}`;
+  return "row";
+}
+
 function rowDetail(box, m, A, i) {
   const ds = m.ds, sc = m.schema;
   if (!(i >= 0 && i < ds.n)) { box.append(closeRow(A), h("p", { class: "muted", text: `Row ${i} is not in this run.` })); return; }
   const obj = rowObject(ds, i);
-  const rank = (() => {
-    const top = objectiveTop(m, m.allRows, 200);
-    const r = top.indexOf(i);
-    return r >= 0 ? r + 1 : null;
-  })();
-  box.append(closeRow(A, h("div", null, h("div", { class: "eyebrow", text: rank ? `#${rank} by ${sc.objectiveLabel || "the objective"}` : "row" }), h("h2", { text: `Row ${fmtInt(i)}` }))));
+  box.append(closeRow(A, h("div", null, h("div", { class: "eyebrow", text: rankLine(m, i) }), h("h2", { text: `Row ${fmtInt(i)}` }))));
   if (Number.isFinite(ds.arrivals[i])) box.append(h("p", { class: "muted", text: `Arrived ${new Date(ds.arrivals[i] * 1000).toISOString().replace("T", " ").slice(0, 19)} UTC` }));
   // gates
   if (sc.gates.length) {
@@ -209,7 +215,7 @@ function rowDetail(box, m, A, i) {
   for (const t of sc.targets.filter(x => !x.gate)) {
     const v = t.values[i];
     if (!Number.isFinite(v)) continue;
-    outs.append(h("dt", { text: t.label }), h("dd", { class: "num", text: fmtT(t, v) }));
+    outs.append(h("dt", { text: t.label }), h("dd", { class: "num", text: fmtRowValue(t, v) }));
   }
   box.append(part("Outcomes", outs));
   // its parameters

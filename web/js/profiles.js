@@ -1,5 +1,8 @@
 // Profiles say what a known sweep's fields mean. Fields a profile does not
 // name are classified by inference (schema.js), and the page says so.
+// A metric's `group` says what it tells about a row's score: the activity
+// it rests on, the risk that came with it, or its model's skill; `cost`
+// marks the compute a row took. The Trials view adds them as columns.
 
 // The nine monthly plate gates, from vaquum-run/bundles/mplate/monthly.py
 // (verdict()). Rows carry each gate's value and pass flag, not its need.
@@ -65,15 +68,15 @@ export const PLATE = {
     gates: { label: "Gates passed", unit: "of 9", better: 1, kind: "ordinal", digits: 2 },
     mean_mo: { label: "Mean month", unit: "%/mo", better: 1, digits: 2 },
     total: { label: "Total PnL", unit: "$", better: 1, digits: 0 },
-    maxDD: { label: "Max drawdown", unit: "$", better: -1, digits: 0 },
-    auc: { label: "Direction AUC", unit: "", better: 1, digits: 3 },
-    ll_dir: { label: "Log-loss, direction", unit: "", better: -1, digits: 3 },
-    ll_meta: { label: "Log-loss, meta", unit: "", better: -1, digits: 3 },
+    maxDD: { label: "Max drawdown", unit: "$", better: -1, digits: 0, group: "risk" },
+    auc: { label: "Direction AUC", unit: "", better: 1, digits: 3, group: "skill" },
+    ll_dir: { label: "Log-loss, direction", unit: "", better: -1, digits: 3, group: "skill" },
+    ll_meta: { label: "Log-loss, meta", unit: "", better: -1, digits: 3, group: "skill" },
     winday: { label: "Win days", unit: "% of days", better: 1, digits: 1 },
     avgwin: { label: "Average win", unit: "$", better: 1, digits: 0 },
-    avgloss: { label: "Average loss", unit: "$", better: -1, digits: 0 },
-    nsig: { label: "Signal days", unit: "days", better: 0, digits: 0 },
-    meansz: { label: "Mean position", unit: "$", better: 0, digits: 0 },
+    avgloss: { label: "Average loss", unit: "$", better: -1, digits: 0, group: "risk" },
+    nsig: { label: "Signal days", unit: "days", better: 0, digits: 0, group: "activity" },
+    meansz: { label: "Mean position", unit: "$", better: 0, digits: 0, group: "activity" },
     sec: { label: "Seconds per row", unit: "s", better: -1, digits: 2, cost: true },
     lr_nit_dir: { label: "Logreg iterations, direction", unit: "", better: 0, digits: 0 },
     lr_nit_meta: { label: "Logreg iterations, meta", unit: "", better: 0, digits: 0 },
@@ -118,13 +121,13 @@ export function matchProfile(cols) {
 // ledger; docs/Reference-Architecture.md). The same for every Limen
 // experiment, so nothing here is about one experiment.
 const BPS = "bps";
-const quantiles = (key, label, better) => Object.fromEntries(["p5", "p50", "p95"].map(q =>
-  [`${key}_${q}`, { label: `${label} ${q}`, unit: BPS, better, digits: 2 }]));
+const quantiles = (key, label, better, groups = {}) => Object.fromEntries(["p5", "p50", "p95"].map(q =>
+  [`${key}_${q}`, { label: `${label} ${q}`, unit: BPS, better, digits: 2, group: groups[q] }]));
 export const LIMEN_METRICS = {
-  auc: { label: "AUC", unit: "", better: 1, digits: 3 },
+  auc: { label: "AUC", unit: "", better: 1, digits: 3, group: "skill" },
   accuracy: { label: "Accuracy", unit: "", better: 1, digits: 3 },
-  precision: { label: "Precision", unit: "", better: 1, digits: 3 },
-  recall: { label: "Recall", unit: "", better: 1, digits: 3 },
+  precision: { label: "Precision", unit: "", better: 1, digits: 3, group: "skill" },
+  recall: { label: "Recall", unit: "", better: 1, digits: 3, group: "skill" },
   fpr: { label: "False positive rate", unit: "", better: -1, digits: 3 },
   val_score: { label: "Validation score at the threshold", unit: "", better: 1, digits: 3 },
   confusion_precision: { label: "Precision (test window)", unit: "", better: 1, digits: 3 },
@@ -141,18 +144,29 @@ export const LIMEN_METRICS = {
   ...quantiles("backtest_pnl_bps", "Net return per bar", 1),
   ...quantiles("backtest_cost_bps", "Cost per bar", -1),
   // drawdowns are at most 0: the higher, the shallower
-  ...quantiles("backtest_drawdown_bps", "Drawdown", 1),
+  ...quantiles("backtest_drawdown_bps", "Drawdown", 1, { p5: "risk" }),
   backtest_pnl_per_bar_bps: { label: "Net PnL per bar", unit: BPS, better: 1, digits: 2 },
   backtest_wins_per_bar: { label: "Winning bars", unit: "share of bars", better: 1, digits: 4 },
   backtest_avg_win_bps: { label: "Mean winning bar", unit: BPS, better: 1, digits: 2 },
-  backtest_avg_loss_bps: { label: "Mean losing bar", unit: BPS, better: 1, digits: 2 },
-  backtest_cvar_95_pnl_bps: { label: "Mean of the worst 5% of bars", unit: BPS, better: 1, digits: 2 },
+  backtest_avg_loss_bps: { label: "Mean losing bar", unit: BPS, better: 1, digits: 2, group: "risk" },
+  backtest_cvar_95_pnl_bps: { label: "Mean of the worst 5% of bars", unit: BPS, better: 1, digits: 2, group: "risk" },
   backtest_trades_per_bar: { label: "Entries per bar", unit: "", better: 0, digits: 4 },
-  backtest_inventory_per_bar: { label: "Mean deployed notional", unit: "", better: 0, digits: 3 },
+  backtest_inventory_per_bar: { label: "Mean deployed notional", unit: "", better: 0, digits: 3, group: "activity" },
   backtest_cost_per_bar_bps: { label: "Mean cost per bar", unit: BPS, better: -1, digits: 2 },
   execution_time: { label: "Seconds per round", unit: "s", better: -1, digits: 2, cost: true },
   optimal_threshold: { label: "Chosen threshold", unit: "", better: 0, digits: 3 },
 };
+
+// What Limen's metrics give once combined. Entries: Limen writes entries
+// per bar (to five decimals), and its confusion counts cover the same test
+// bars, so their product is the count; on two real runs (1,560 rounds) it
+// lands within 0.03 of a whole number every time.
+export const LIMEN_DERIVED = [
+  { id: "entries", label: "Entries", unit: "", kind: "cont", better: 0, digits: 0, group: "activity",
+    needs: ["backtest_trades_per_bar", "confusion_tp", "confusion_fp", "confusion_tn", "confusion_fn"],
+    fn: (rate, tp, fp, tn, fn) => Math.round(rate * (tp + fp + tn + fn)),
+    definition: "entries per bar times the bars of the test window (its confusion counts)" },
+];
 
 // A Limen experiment's profile, read from its own manifest: the manifest's
 // sfd.params are the sampled parameters; the rest are Limen's metrics and
@@ -173,7 +187,7 @@ export function limenProfile(experiment) {
     diagnostic: ["execution_time", "optimal_threshold", "_generation_index", "_injected"],
     text: ["id", "_id", "_warnings", "_search_strategy", "strict_mode_error"],
     metrics: LIMEN_METRICS,
-    derived: [], gates: [], gatesPrefix: null, invariants: [],
+    derived: LIMEN_DERIVED, gates: [], gatesPrefix: null, invariants: [],
     defaultTarget: "backtest_pnl_per_bar_bps",
     objective: [["backtest_pnl_per_bar_bps", -1]],
     objectiveLabel: "net PnL per bar",

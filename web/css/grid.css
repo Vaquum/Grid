@@ -639,6 +639,30 @@ table.suggest th.iv, table.suggest td.iv { width: 34%; min-width: 96px; }
 table.pr-combos td.v { font-family: var(--mono); font-size: var(--fs-s); white-space: normal; overflow-wrap: anywhere; }
 table.pr-combos th.iv, table.pr-combos td.iv { width: 30%; min-width: 96px; }
 
+/* trials: the column toggles, and a table whose rank and row stay in
+   place while wide column sets scroll past them */
+.tr-tools { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+.tr-sep { width: 1px; height: 16px; margin: 0 6px; background: var(--line-2); }
+.tr-tools .icon-btn[aria-pressed="true"] { border-color: transparent; }
+.icon-btn[aria-disabled="true"] { color: var(--muted); opacity: 0.45; cursor: default; }
+.icon-btn[aria-disabled="true"]:hover { background: transparent; }
+table.trials th { vertical-align: bottom; }
+/* a head wraps only past a set width, so no column is squeezed below it */
+table.trials th .lbl { display: inline-block; width: max-content; max-width: 112px; white-space: normal; }
+table.trials th .u { font-weight: 400; white-space: nowrap; }
+table.trials .fill { width: 100%; padding: 0; }
+table.trials th.grp { padding: 0 6px 5px; color: var(--ink-2); font-weight: 600; white-space: nowrap; border-bottom: 1px solid var(--line-2); }
+table.trials th.grp.blank { border-bottom: 0; }
+table.trials .g-start { border-left: 1px solid var(--line); }
+table.trials th.g-start, table.trials td.g-start { padding-left: 10px; }
+table.trials .rk, table.trials .ri, table.trials .stk { position: sticky; z-index: 1; background: var(--surface); }
+table.trials .rk, table.trials .stk { left: 0; }
+table.trials .rk { width: 44px; min-width: 44px; }
+table.trials .ri { left: 44px; width: 64px; min-width: 64px; color: var(--muted); box-shadow: inset -1px 0 var(--line); }
+table.trials td.rk .eq { color: var(--muted); }
+table.trials td.rk .eq.no { visibility: hidden; }
+table.trials td.v { font-size: var(--fs-s); }
+
 /* the manifest at the foot of every view */
 .manifest-sec { margin-top: 32px; }
 .manifest { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-l); }

@@ -812,6 +812,90 @@ export function topRows(rows, keys, k) {
   return heap.map(e => e.i);
 }
 
+// The best rows by `keys` (as topRows), at most `limit`, with competition
+// ranks: rows that tie share the rank of the first of them, in the order
+// they arrived. A tie that runs past the limit is not listed: inside it
+// the order means nothing, so it is told as one group (`cut`: its rank,
+// its rows, a row of it). Rows without a value for every key are not
+// ranked (`missing`).
+export function rankRows(rows, keys, limit) {
+  const valued = rows.filter(i => keys.every(([get]) => Number.isFinite(get(i))));
+  const top = topRows(valued, keys, limit);
+  const same = (a, b) => keys.every(([get]) => get(a) === get(b));
+  const groups = [];
+  for (let p = 0; p < top.length; p++) {
+    const g = groups[groups.length - 1];
+    if (g && same(g.rows[0], top[p])) g.rows.push(top[p]);
+    else groups.push({ rank: p + 1, rows: [top[p]] });
+  }
+  let cut = null;
+  const last = groups[groups.length - 1];
+  if (last && top.length === limit) {
+    let n = 0;
+    for (let j = 0; j < valued.length; j++) if (same(valued[j], last.rows[0])) n++;
+    if (n > last.rows.length) { groups.pop(); cut = { rank: last.rank, n, row: last.rows[0] }; }
+  }
+  return {
+    list: groups.flatMap(g => g.rows.map(i => ({ i, rank: g.rank, tie: g.rows.length }))),
+    cut, n: valued.length, missing: rows.length - valued.length,
+  };
+}
+
+// For each of `listed`, the other rows that share its values of the first
+// j of `dims` (strongest first), for the largest j that leaves at least
+// `minN` of them with a value; with no dim, every other row. Their mean is
+// what the row's values earn without the row's own luck. A dim's
+// "does not apply" (-1) is a value like any other here.
+export function rowsLikeIt(dims, target, rows, listed, minN = MIN_N) {
+  const y = target.values, binary = target.kind === "binary";
+  // a cell is one number per prefix of the dims, exact while their value
+  // counts multiply to under 2^52
+  const use = [];
+  let span = 1;
+  for (const d of dims) {
+    const w = d.levels.length + 1;
+    if (span * w > 2 ** 52) break;
+    span *= w;
+    use.push(d);
+  }
+  const k = use.length;
+  const prefixes = (i) => {
+    const out = new Float64Array(k + 1);
+    let key = 0;
+    for (let j = 0; j < k; j++) { key = key * (use[j].levels.length + 1) + use[j].codes[i] + 1; out[j + 1] = key; }
+    return out;
+  };
+  let shift = 0;
+  for (let r = 0; r < rows.length; r++) { const v = y[rows[r]]; if (v === v) { shift = v; break; } }
+  // sums only for the cells a listed row sits in; a row outside a cell
+  // is outside every narrower cell too
+  const cells = Array.from({ length: k + 1 }, () => new Map());
+  const keysOf = listed.map(prefixes);
+  for (const ks of keysOf) for (let j = 0; j <= k; j++) if (!cells[j].has(ks[j])) cells[j].set(ks[j], [0, 0, 0]);
+  for (let r = 0; r < rows.length; r++) {
+    const i = rows[r], v = y[i];
+    if (v !== v) continue;
+    const dv = v - shift;
+    let key = 0;
+    for (let j = 0; j <= k; j++) {
+      if (j > 0) key = key * (use[j - 1].levels.length + 1) + use[j - 1].codes[i] + 1;
+      const acc = cells[j].get(key);
+      if (!acc) break;
+      acc[0]++; acc[1] += dv; acc[2] += dv * dv;
+    }
+  }
+  return listed.map((i, t) => {
+    const v = y[i], own = v === v ? v - shift : 0, self = v === v ? 1 : 0;
+    for (let j = k; j >= 0; j--) {
+      const [n0, s0, ss0] = cells[j].get(keysOf[t][j]);
+      const n = n0 - self;
+      if (n < minN && j > 0) continue;
+      return { j, dims: use.slice(0, j).map(d => d.id), n, ...meanInterval(n, s0 - own, ss0 - own * own, shift, binary) };
+    }
+    throw new Error("rowsLikeIt: no cell for a listed row");
+  });
+}
+
 // Best value so far in arrival order, sampled at most `points` times, with
 // the luck line: the best of n draws expected if every config were equally
 // good and the spread were all noise, mean + sd * E[max of n normals].
