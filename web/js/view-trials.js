@@ -1,6 +1,6 @@
 // Trials: the best rows, ranked as the runner ranks them, each a click from
 // its full record and its replay. The strip sets the best row against what
-// noise alone and the rows like it give; icons over the table add columns:
+// noise alone and the rows like it give; toggles over the table add columns:
 // the parameters that move the needle and the rest, the rows like each
 // row, and the activity, risk, model skill and run time behind each score
 // where the sweep records them.
@@ -98,7 +98,7 @@ function trialsAbout(m) {
   return about("The best rows",
     `Ranked by ${m.schema.objectiveLabel}, as the runner ranks them, over the rows in view. Rows that tie share a rank (4=) and keep the order they arrived in; a tie too large for the list of ${BEST_LIMIT} is told in one line instead, since inside it the order means nothing.`,
     "The best of many noisy rows is also the luckiest. The strip sets the best row against the luck line, what noise alone would reach in as many rows, and against the rows like it: the other rows that share its values where the needle moves, which is what those values earn without its luck.",
-    "The icons above the table add columns: the parameters that move the needle and the other parameters; the rows like each row; and, where the sweep records them, the activity, risk and model skill behind each score and the time it took. Choose a row to open its full record and its replay.");
+    "The toggles above the table add columns: the parameters that move the needle and the other parameters; the rows like each row; and, where the sweep records them, the activity, risk and model skill behind each score and the time it took. Choose a row to open its full record and its replay.");
 }
 
 // No objective: nothing to rank by.

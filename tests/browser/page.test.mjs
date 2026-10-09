@@ -266,6 +266,9 @@ test("trials: a strip, and column sets that toggle, join the table under their n
   // the plate sweep records every set: seven toggles, the movers on
   assert.deepEqual(await page.locator(".tr-tools [data-cols]").evaluateAll(bs => bs.map(b => b.dataset.cols)),
     ["movers", "rest", "like", "activity", "risk", "skill", "time"]);
+  // each toggle says what it is, not only an icon
+  assert.deepEqual(await page.locator(".tr-tools [data-cols]").allInnerTexts(),
+    ["Movers", "Other parameters", "Rows like it", "Activity", "Risk", "Model skill", "Run time"]);
   assert.deepEqual(await page.locator(".tr-tools [aria-pressed=true]").evaluateAll(bs => bs.map(b => b.dataset.cols)), ["movers"]);
   const groups = () => page.locator("table.trials th.grp:not(.blank)").allInnerTexts();
   assert.deepEqual(await groups(), ["Movers"]);
@@ -445,6 +448,37 @@ test("run: a sweep with no groups gets its strip, every row's distributions and 
   for (const label of ["Best so far against luck", "Pace", "Problems", "The sampler"]) {
     assert.equal(await page.locator(`section[aria-label="${label}"]`).count(), 1, label);
   }
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("charts are drawn at their box's width, so their text is the small size at any width, and a row of cards keeps its charts level", async () => {
+  const { page, errors } = await limenPage();
+  await page.goto(base + "limen200");
+  await page.waitForSelector(".pcard");
+  await page.keyboard.press("7");
+  await page.waitForSelector(".rn-card .chart", { timeout: 20000 });
+  // every chart: drawn at the width it shows at, its labels at 11 px
+  const drawn = () => page.$$eval("svg.chart", svgs => svgs.map(s => ({ w: s.getBoundingClientRect().width, vb: s.viewBox.baseVal.width,
+    fs: s.querySelector(".label") ? getComputedStyle(s.querySelector(".label")).fontSize : "11px" })));
+  for (const width of [1440, 900]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.waitForFunction(() => [...document.querySelectorAll("svg.chart")].every(s => Math.abs(s.getBoundingClientRect().width - s.viewBox.baseVal.width) <= 1));
+    const charts = await drawn();
+    assert.ok(charts.length >= 8, `charts: ${charts.length}`);
+    for (const c of charts) assert.equal(c.fs, "11px");
+  }
+  // the cards of a row start their charts at one height, however their tags wrap
+  const tops = await page.$$eval(".rn-grid", grids => grids.flatMap(g => {
+    const rows = new Map();
+    for (const c of g.querySelectorAll(".rn-card")) {
+      const at = Math.round(c.getBoundingClientRect().top);
+      if (!rows.has(at)) rows.set(at, new Set());
+      rows.get(at).add(Math.round(c.querySelector(".chart").getBoundingClientRect().top));
+    }
+    return [...rows.values()].map(s => s.size);
+  }));
+  assert.ok(tops.length > 1 && tops.every(n => n === 1), `chart tops per row: ${tops.join(",")}`);
   assert.deepEqual(errors, []);
   await page.close();
 });

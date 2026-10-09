@@ -507,6 +507,7 @@ pre.code.capped { max-height: 320px; overflow: auto; }
 .code-head { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; margin-top: var(--sp-3); font-size: var(--fs-m); color: var(--ink-2); }
 .code-head > span { min-width: 0; overflow-wrap: anywhere; }
 .code-head .btn { flex: none; margin-left: auto; }
+.isl-head + .code-head { margin-top: 0; }
 
 /* ---- charts ------------------------------------------------------------- */
 /* a chart is drawn at its box's width (charts.js sized), so its text is
