@@ -84,7 +84,7 @@ function dimDetail(box, m, A, d, levelKey) {
           h("span", { class: "sev " + (mo.detectable ? "on" : "off"), text: mo.detectable ? "changes it" : "no change" }),
           h("span", null, h("span", { class: "mono", text: mo.label }), h("span", { class: "muted", text: `  ${fmtP(mo.q)}` }))));
       }
-      if (md.acts) list.prepend(h("p", { class: "note" }, h("b", { text: actsPhrase(m, md.acts) }), `. The ${md.acts.label} × ${d.label} interaction is detectable (${fmtP(md.acts.q)}, corrected across the board's ${fmtInt(mods.tests)} tests).`));
+      if (md.acts) list.prepend(h("p", { class: "note" }, h("b", { text: (s => s.charAt(0).toUpperCase() + s.slice(1))(actsPhrase(m, md.acts)) }), `. The ${md.acts.label} × ${d.label} interaction is detectable (${fmtP(md.acts.q)}, corrected across the board's ${fmtInt(mods.tests)} tests).`));
       else list.prepend(h("p", { class: "note", text: "No other parameter changes its effect detectably." }));
     } else list.append(h("p", { class: "muted", text: "No moderator tests for this parameter." }));
     box.append(part("Where it acts", list));
