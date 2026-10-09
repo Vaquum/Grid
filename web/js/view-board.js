@@ -43,16 +43,18 @@ const observed = new WeakSet();
 let held = null;   // { key, on: [card ids], off: [card ids] }
 
 // Where each card stands: in its held place, a card new since at the end
-// of the section the rows put it in; and how many would move if sorted.
+// of the section the rows put it in; and how many would move if sorted:
+// those that would change section, or place among the cards that move
+// the needle (the order of the rest is the order of noise).
 export function holdPlaces(live, hold) {
   const ids = new Set([...live.on, ...live.off]);
   const kept = new Set([...hold.on, ...hold.off]);
   const on = [...hold.on.filter(id => ids.has(id)), ...live.on.filter(id => !kept.has(id))];
   const off = [...hold.off.filter(id => ids.has(id)), ...live.off.filter(id => !kept.has(id))];
-  const at = (list, other) => new Map([...list.map((id, j) => [id, `on${j}`]), ...other.map((id, j) => [id, `off${j}`])]);
-  const now = at(on, off), sorted = at(live.on, live.off);
+  const sortedOn = new Map(live.on.map((id, j) => [id, j]));
   let moved = 0;
-  for (const id of ids) if (now.get(id) !== sorted.get(id)) moved++;
+  on.forEach((id, j) => { if (sortedOn.get(id) !== j) moved++; });
+  for (const id of off) if (sortedOn.has(id)) moved++;
   return { on, off, moved };
 }
 
