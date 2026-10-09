@@ -336,13 +336,14 @@ export function clusterRows(schema, rows, opts) {
   return r.value;
 }
 
+// The median as a value the rows have (the lower middle of an even count),
+// so it prints as the runner wrote it.
 function medianOf(values, rows) {
   const v = [];
   for (let j = 0; j < rows.length; j++) { const x = values[rows[j]]; if (x === x) v.push(x); }
   if (!v.length) return NaN;
   v.sort((a, b) => a - b);
-  const m = v.length >> 1;
-  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+  return v[(v.length - 1) >> 1];
 }
 
 // The outcomes a cluster stands out on: its centre's rank furthest from
