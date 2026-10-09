@@ -31,12 +31,12 @@ before(async () => {
   // a real Limen run's first rounds, read from its result directory
   execFileSync("python3", ["-m", "grid", "pack", "--limen", "tests/fixtures/limen_run", "--out", join(dir, "limen.pack.json.gz")], { cwd: ROOT });
   execFileSync("python3", ["tools/build.py", "--pack", join(dir, "limen.pack.json.gz"), "--out", join(dir, "limen.html")], { cwd: ROOT, stdio: "ignore" });
-  // the first 150 rounds of a longer run: enough rounds to fall into groups
-  execFileSync("python3", ["-m", "grid", "pack", "--limen", "tests/fixtures/limen_run_150", "--out", join(dir, "limen150.pack.json.gz")], { cwd: ROOT });
-  execFileSync("python3", ["tools/build.py", "--pack", join(dir, "limen150.pack.json.gz"), "--out", join(dir, "limen150.html")], { cwd: ROOT, stdio: "ignore" });
+  // the first 200 rounds of a longer run: enough rounds to fall into groups
+  execFileSync("python3", ["-m", "grid", "pack", "--limen", "tests/fixtures/limen_run_200", "--out", join(dir, "limen200.pack.json.gz")], { cwd: ROOT });
+  execFileSync("python3", ["tools/build.py", "--pack", join(dir, "limen200.pack.json.gz"), "--out", join(dir, "limen200.html")], { cwd: ROOT, stdio: "ignore" });
   server = createServer(async (req, res) => {
     try {
-      const page = req.url.startsWith("/limen150") ? "limen150.html" : req.url.startsWith("/limen") ? "limen.html" : "demo.html";
+      const page = req.url.startsWith("/limen200") ? "limen200.html" : req.url.startsWith("/limen") ? "limen.html" : "demo.html";
       const body = await readFile(join(dir, page));
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       res.end(body);
@@ -375,12 +375,12 @@ test("run: a sweep with no groups gets its strip, every row's distributions and 
 
 test("run: a Limen run's clusters, one against every row, two compared, and another number of them", async () => {
   const { page, errors } = await limenPage();
-  await page.goto(base + "limen150");
+  await page.goto(base + "limen200");
   await page.waitForSelector(".pcard");
   await page.keyboard.press("7");
   await page.waitForSelector(".rn-chip", { timeout: 20000 });
   const strip = await page.locator(".strip").innerText();
-  assert.match(strip, /Rows\s+150/);
+  assert.match(strip, /Rows\s+200/);
   assert.match(strip, /Net PnL per bar\s+-?\d\.\d+ bps\s+median 0\.0 bps/);
   assert.match(strip, /Clusters\s+2\s+silhouette 0\.\d\d, (weak|reasonable)/);
   // two clusters: the rounds that never entered, and the ones that did
@@ -388,15 +388,15 @@ test("run: a Limen run's clusters, one against every row, two compared, and anot
   assert.equal(chips.length, 2);
   assert.match(chips[0], /^A\s+\d+\s+\d+%\s+Entries 0/);
   const sizes = chips.map(c => +/^[AB]\s+(\d+)/.exec(c)[1]);
-  assert.equal(sizes[0] + sizes[1], 150);
+  assert.equal(sizes[0] + sizes[1], 200);
   const cards = page.locator(".rn-card");
   assert.equal(await cards.first().locator(".rn-name").innerText(), "Net PnL per bar");
-  assert.equal(await page.locator(".rn-legend").innerText(), "All rows · 150 rows");
+  assert.equal(await page.locator(".rn-legend").innerText(), "All rows · 200 rows");
   // A against every row: two groups on each card; the outcomes the clusters
   // are drawn on are said once and never tested, the others are
   await page.locator('.rn-chip[data-cluster="A"]').click();
   await page.waitForSelector(".rn-drawn");
-  assert.equal(await page.locator(".rn-legend").innerText(), `A · ${sizes[0]} rows\nAll rows · 150 rows`);
+  assert.equal(await page.locator(".rn-legend").innerText(), `A · ${sizes[0]} rows\nAll rows · 200 rows`);
   assert.equal(await cards.first().locator(".dist-box").count(), 2);
   assert.equal(await page.locator('.rn-card[data-outcome="backtest_pnl_per_bar_bps"] .rn-diff').count(), 0);
   assert.match(await page.locator('.rn-card[data-outcome="execution_time"] .rn-diff').innerText(), /q/);
@@ -406,6 +406,8 @@ test("run: a Limen run's clusters, one against every row, two compared, and anot
   await page.locator('.rn-chip[data-cluster="B"]').click();
   await page.waitForFunction(() => (document.querySelector(".rn-apart .isl-title") || {}).textContent === "What sets A and B apart");
   assert.equal(await page.locator(".rn-legend").innerText(), `A · ${sizes[0]} rows\nB · ${sizes[1]} rows`);
+  // a number whose clusters would hold under 30 rows cannot be chosen; three can
+  assert.equal(await page.locator('.rn-k button[data-k="5"]').getAttribute("aria-disabled"), "true");
   // three clusters; with Compare on a third choice replaces the first
   await page.locator('.rn-k button[data-k="3"]').click();
   await page.waitForFunction(() => document.querySelectorAll(".rn-chip").length === 3, null, { timeout: 20000 });
