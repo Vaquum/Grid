@@ -28,7 +28,6 @@ const SAMPLE_FIT = 20000;  // rows the final centres are fitted on
 const RESTARTS = 4;
 const MAX_ITER = 60;
 const SEED = 0x5eed;
-const KINDS = ["score", "activity", "risk", "skill", "outcome"];
 export const CLUSTER_IDS = "ABCDEFG";
 
 // The outcomes clusters are drawn from, each with its kind and weight.
@@ -419,4 +418,3 @@ export function composition(dims, rows, inGroup, refRows) {
   return out;
 }
 
-export { KINDS };
