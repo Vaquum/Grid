@@ -235,6 +235,12 @@ const TIP_DELAY = 500;
 const tipFns = new WeakMap();
 let tipTimer = null, tipWarm = false, tipCool = null, tipEl = null;
 
+// A control's tip: its name, its key, and what it does.
+export function keyTip(title, key, text) {
+  return () => h("div", null, h("b", { text: title }), key ? h("span", { class: "k" }, "  ", h("kbd", { text: key })) : null,
+    text ? h("div", { class: "k", text }) : null);
+}
+
 export function tip(el, content) {
   if (typeof content === "function") { tipFns.set(el, content); el.classList.add("has-tip"); }
   else el.dataset.tip = content;

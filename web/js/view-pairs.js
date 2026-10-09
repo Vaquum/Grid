@@ -8,7 +8,7 @@
 // as that grid for each value of the third, more as their strongest and
 // weakest combinations.
 
-import { h, tip, fmtT, fmtInt, fmtNum, fmtP, fmtDelta, fmtOmega2, inText, rangeText, runName } from "./ui.js";
+import { h, tip, keyTip, fmtT, fmtInt, fmtNum, fmtP, fmtDelta, fmtOmega2, inText, rangeText, runName } from "./ui.js";
 import { pairEffect, cramersV, dimEffect, summarize, comboEffect, ALPHA } from "./engine.js";
 import { bhQ } from "./stats.js";
 import { moderatorParents, background, setName, TOGETHER, together, togetherWhy } from "./model.js";
@@ -238,8 +238,11 @@ function pairsNotes(m, pairs) {
 // The interactions, strongest first
 
 function sizePicker(A, size) {
-  const seg = h("div", { class: "seg pr-size", role: "group", "aria-label": "Parameters in a set" });
-  for (const k of SIZES) seg.append(h("button", { type: "button", "aria-pressed": k === size ? "true" : "false", "aria-label": `${k} parameters at once`, onclick: () => A.set({ order: k }) }, String(k)));
+  const seg = h("div", { class: "seg pr-size", role: "group", "aria-label": "Parameters in a set", dataset: { key: "s" } });
+  for (const k of SIZES) {
+    seg.append(tip(h("button", { type: "button", "aria-pressed": k === size ? "true" : "false", "aria-label": `${k} parameters at once`, onclick: () => A.set({ order: k }) }, String(k)),
+      keyTip(`${k} parameters at once`, "S", "S moves to the next number, Shift S to the one before.")));
+  }
   return seg;
 }
 

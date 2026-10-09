@@ -690,6 +690,8 @@ function onKey(e) {
     if (e.key === "Escape") e.target.blur();
     return;
   }
+  // Space on a control presses it, as a browser does; elsewhere it plays
+  if (e.key === " " && e.target.closest && e.target.closest("button, a, summary, [role=button]")) return;
   const v = VIEWS.find(x => x.key === e.key);
   if (v) { setState({ view: v.id }); e.preventDefault(); return; }
   switch (e.key) {
@@ -712,8 +714,38 @@ function onKey(e) {
     case "c": ACTIONS.contextFromSelection(); return;
     case "C": setState({ context: [] }); return;
     case "p": case "P": ACTIONS.pocketFromSelection(); return;
-    default:
+    default: viewKey(e);
   }
+}
+
+// A view's own controls carry their key (data-key): on a button it presses
+// it, on a select or a field it takes the focus there, on a segmented
+// control it chooses the next segment (Shift: the one before), on a
+// toolbar it takes the focus to its first control, where the arrow keys
+// move between them.
+function viewKey(e) {
+  const tools = e.target && e.target.closest ? e.target.closest("[role=toolbar]") : null;
+  if (tools && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+    const bs = [...tools.querySelectorAll("button")];
+    const j = bs.indexOf(e.target) + (e.key === "ArrowRight" ? 1 : -1);
+    if (bs[j]) bs[j].focus();
+    e.preventDefault();
+    return;
+  }
+  if (e.key.length !== 1) return;
+  const el = app.els.view.querySelector(`[data-key="${CSS.escape(e.key.toLowerCase())}"]`);
+  if (!el) return;
+  e.preventDefault();
+  if (el.matches(".seg")) {
+    const bs = [...el.querySelectorAll("button")].filter(b => b.getAttribute("aria-disabled") !== "true");
+    const at = bs.findIndex(b => b.getAttribute("aria-pressed") === "true");
+    const next = bs[(at + (e.shiftKey ? -1 : 1) + bs.length) % bs.length];
+    if (next) next.click();
+  } else if (el.matches("[role=toolbar]")) {
+    const b = el.querySelector("button:not([aria-disabled=true])");
+    if (b) b.focus();
+  } else if (el.matches("button")) el.click();
+  else el.focus();
 }
 
 // What views may ask the app to do.

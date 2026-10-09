@@ -247,10 +247,12 @@ same in every view:
 
 ## Views
 
-The Board, the Pocket, Pairs, Trials, Gates and the Run open with a strip
-of their figures and their blurb behind an (i) (a click opens it, and so
-do five seconds resting on the (i)); Features follows in its own pass.
-A tooltip shows after half a second, and the next one at once. Every view ends with
+Every view opens with a strip of its figures and its blurb behind an (i)
+(a click opens it, and so do five seconds resting on the (i)). A tooltip
+shows after half a second, and the next one at once. Every control has a
+key and a label: the views' own have keys of their own (R and F on the
+Board, S on Pairs, O on Features, X on Trials, N on Gates, K and M on the
+Run), and a control's tip names its key. Every view ends with
 the experiment's manifest, folded: the copy `limen run` kept, shown as
 written, narrowed to what the view looks at (the pocket, or the context)
 by rewriting only the narrowed parameters' lists, in their own spelling,

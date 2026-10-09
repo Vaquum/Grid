@@ -253,6 +253,12 @@ test("a card opens in the inspector and a value goes into the pocket", async () 
   await page.reload();
   await page.waitForSelector("#pin-title");
   assert.match(await page.locator("#pin-title").innerText(), /pinned pocket/);
+  // and it says which blocks it holds
+  assert.equal(await page.locator(".pin-blocks").innerText(), "Pinned: model = xgb_def");
+  // a set's members stand together under the set, as on the board
+  const feats = page.locator(".pal-item", { has: page.locator(".pal-name", { hasText: /^feats$/ }) });
+  assert.equal(await feats.count(), 1);
+  assert.ok(await feats.locator(".vchip").count() >= 10);
   assert.deepEqual(errors, []);
   await page.close();
 });
@@ -720,6 +726,74 @@ test("on a Limen run, a pocket's blocks are judged and the manifest narrows to t
   assert.match(await page.locator("details.manifest > summary").innerText(), /as run/);
   assert.equal(await details.evaluate(d => d.open), true, "the manifest closed on a redraw");
   assert.equal(await page.locator(".mf-line.changed").count(), 0);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("a Limen round replays with Limen's Trainer, its board has no dead values, and the views' own controls have keys", async () => {
+  const { page, errors } = await limenPage();
+  await page.goto(base + "limen");
+  await page.waitForSelector(".pcard");
+  // a value is dead by its rate: a continuous needle's strip has no such figure
+  assert.doesNotMatch(await page.locator(".strip").innerText(), /Dead values/);
+  await page.keyboard.press("5");
+  await page.locator("table.trials tbody tr").first().click();
+  await page.waitForSelector("#inspector .code-head");
+  const replay = await page.locator("#inspector pre.code").first().innerText();
+  assert.match(replay, /^from limen\.inference import Trainer\n\ntrainer = Trainer\(".*limen_run"\)\nsensor, = trainer\.train\(\["[0-9a-f]{64}"\]\)$/);
+  await page.keyboard.press("Escape");
+  // N takes the focus to a new gate's needle
+  await page.keyboard.press("6");
+  await page.waitForSelector(".gt-needle");
+  await page.keyboard.press("n");
+  assert.equal(await page.evaluate(() => document.activeElement.className), "gt-needle");
+  await page.keyboard.press("Escape");
+  // M turns Compare two on, on the Run view
+  await page.goto(base + "limen200");
+  await page.waitForSelector(".pcard");
+  await page.keyboard.press("7");
+  await page.waitForSelector(".rn-compare", { timeout: 20000 });
+  await page.keyboard.press("m");
+  await page.waitForFunction(() => document.querySelector(".rn-compare").getAttribute("aria-pressed") === "true");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("S chooses the next number of parameters at once on Pairs, and X reaches Trials' column toggles", async () => {
+  const { page, errors } = await open();
+  // X reaches the toggles; the arrows move between them, Space turns one on
+  await page.keyboard.press("5");
+  await page.waitForSelector(".tr-tools");
+  await page.keyboard.press("x");
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.cols), "movers");
+  await page.keyboard.press("ArrowRight");
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.cols), "rest");
+  await page.keyboard.press(" ");
+  await page.waitForFunction(() => document.querySelector('[data-cols="rest"]').getAttribute("aria-pressed") === "true");
+  await page.keyboard.press("3");
+  await page.waitForSelector(".pr-map", { timeout: 20000 });
+  await page.keyboard.press("s");
+  await page.waitForFunction(() => document.querySelector('.pr-size [aria-pressed="true"]').textContent === "3");
+  await page.keyboard.press("S");
+  await page.waitForFunction(() => document.querySelector('.pr-size [aria-pressed="true"]').textContent === "2");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("nothing covers what it should not: the reference opens beside the rail, the inspector beside the view", async () => {
+  const { page, errors } = await open(1100, 800);
+  await page.locator(".pcard .pc-name").first().click();
+  await page.waitForSelector("#inspector .part");
+  // the strip's tools are in reach with the inspector open
+  for (const sel of [".strip [data-info]", ".strip-copy"]) {
+    const hit = await page.$eval(sel, el => { const r = el.getBoundingClientRect(); const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!at && el.contains(at); });
+    assert.ok(hit, `${sel} is covered`);
+  }
+  // and the rail with the reference open
+  await page.keyboard.press("i");
+  await page.waitForSelector("#reference:not([hidden])");
+  const railHit = await page.$eval('.rail button[aria-label="Pairs"]', el => { const r = el.getBoundingClientRect(); const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!at && el.contains(at); });
+  assert.ok(railHit, "the rail is covered by the reference");
   assert.deepEqual(errors, []);
   await page.close();
 });

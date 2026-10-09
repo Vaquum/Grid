@@ -5,7 +5,7 @@
 // that never passed, what moves it). The strip reads the gates together,
 // and the foot says what stops the rows that pass the most.
 
-import { h, tip, icon, clear, fmtInt, fmtPct, fmtNum, fmtRowValue, inText, pctRange, unitSuffix, runName } from "./ui.js";
+import { h, tip, keyTip, icon, clear, fmtInt, fmtPct, fmtNum, fmtRowValue, inText, pctRange, unitSuffix, runName } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { gateStats, coFailure, strongestCorrelate } from "./engine.js";
 import { passHistogram } from "./charts.js";
@@ -181,9 +181,10 @@ function maker(m, A, gate) {
     return card;
   }
   const t = sc.targetById.get(d.target);
-  const sel = h("select", { class: "gt-needle", "aria-label": "Needle", dataset: { focus: "gate-needle" } },
+  const sel = h("select", { class: "gt-needle", "aria-label": "Needle", dataset: { focus: "gate-needle", key: "n" } },
     needleGroups(sc).map(([name, list]) => h("optgroup", { label: name }, list.map(x => h("option", { value: x.id, text: x.label })))));
   sel.value = d.target;
+  tip(sel, keyTip(gate ? "The gate's needle" : "A new gate's needle", "N", "Then a comparison and a need; Enter in the need sets the gate."));
   sel.addEventListener("change", () => {
     const nt = sc.targetById.get(sel.value);
     draft = { ...draft, target: nt.id, op: defaultOp(nt), text: median(m, nt) };

@@ -2,7 +2,7 @@
 // card per parameter, strongest first: how sure and how strong its effect
 // is, and the needle at each of its values on the board's shared scale.
 
-import { h, tip, fmtT, fmtP, fmtInt, fmtNum, fmtPct, fmtOmega2, rafThrottle, inText, rangeText, runName } from "./ui.js";
+import { h, tip, keyTip, fmtT, fmtP, fmtInt, fmtNum, fmtPct, fmtOmega2, rafThrottle, inText, rangeText, runName } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { effectPlot, plotDomain, fitPlots } from "./main-effects.js";
 import { ensureModerators, independence, memberBoard, memberDims, setName, TOGETHER, together, togetherWhy } from "./model.js";
@@ -93,17 +93,18 @@ export function renderBoard(view, m, A) {
   const key = m.cache.akey;
   if (!held || held.key !== key) held = { key, on: live.on, off: live.off };
   const places = holdPlaces(live, held);
-  const resort = places.moved ? h("button", { class: "btn small sec-tool", type: "button",
+  const resort = places.moved ? h("button", { class: "btn small sec-tool", type: "button", dataset: { key: "r" },
     onclick: () => { held = { key, on: live.on, off: live.off }; A.rerender(); } }, `Re-sort · ${fmtInt(places.moved)} would move`) : null;
-  if (resort) tip(resort, "The cards keep their places while rows arrive, so nothing moves under you. Re-sort to put them in order again.");
+  if (resort) tip(resort, keyTip("Re-sort", "R", "The cards keep their places while rows arrive, so nothing moves under you. Re-sort to put them in order again."));
   if (places.on.length) {
     view.append(section("Moves the needle", places.on.length, "strongest first", places.on.map(id => cards.get(id)()), resort));
   }
   if (places.off.length) {
     // the cards with no detectable effect fold to their names
     const shown = m.state.show.flat !== false;
-    const fold = h("button", { class: "btn small sec-tool", type: "button", "aria-expanded": shown ? "true" : "false",
-      onclick: () => A.set({ show: { ...m.state.show, flat: !shown } }, { replace: true }) }, shown ? "Fold to names" : "Show the cards");
+    const fold = tip(h("button", { class: "btn small sec-tool", type: "button", "aria-expanded": shown ? "true" : "false", dataset: { key: "f" },
+      onclick: () => A.set({ show: { ...m.state.show, flat: !shown } }, { replace: true }) }, shown ? "Fold to names" : "Show the cards"),
+      keyTip(shown ? "Fold to names" : "Show the cards", "F", "The parameters with no detectable effect, as cards or as their names."));
     view.append(shown
       ? section("No detectable effect", places.off.length, "their spread is within noise", places.off.map(id => cards.get(id)()), places.on.length ? null : resort, fold)
       : section("No detectable effect", places.off.length, "their spread is within noise", null, places.on.length ? null : resort, fold,
@@ -160,12 +161,13 @@ function summaryStrip(m, A, mods, sets) {
     cell("Best value", best ? fmtT(t, best.l.mean) : "–", best ? `${name(best.e.dim)} = ${best.l.label}` : "nothing detectable",
       () => h("div", null, h("b", { text: "The single value with the best needle" }), h("div", { class: "k", text: "Among the parameters that move it; its interval is in the inspector." })),
       best ? () => A.select({ kind: "level", dim: best.e.dim, key: best.l.key }) : null),
-    cell("Dead values", fmtInt(dead.length), dead.length ? `${name(dead[0].e.dim)} = ${dead[0].l.label}${dead.length > 1 ? ` and ${dead.length - 1} more` : ""}` : "none",
-      () => h("div", null, h("b", { text: "Values the sweep can stop drawing" }), h("div", { class: "k", text: "At least 30 rows and even the top of the 95% interval is under a fifth of the base." })),
-      dead.length ? () => A.select({ kind: "level", dim: dead[0].e.dim, key: dead[0].l.key }) : null),
+    // a value is dead by its rate, so only a rate's board has them
+    t.kind === "binary" ? cell("Dead values", fmtInt(dead.length), dead.length ? `${name(dead[0].e.dim)} = ${dead[0].l.label}${dead.length > 1 ? ` and ${dead.length - 1} more` : ""}` : "none",
+      () => h("div", null, h("b", { text: "Values the sweep can stop drawing" }), h("div", { class: "k", text: "At least 30 rows and even the top of the 95% interval is under a fifth of the base rate." })),
+      dead.length ? () => A.select({ kind: "level", dim: dead[0].e.dim, key: dead[0].l.key }) : null) : null,
     cell("Conditional", conditional === null ? "…" : fmtInt(conditional), conditional === null ? "checking" : `of ${fmtInt(m.board.tests)}`,
       () => h("div", null, h("b", { text: "Parameters that act only under a condition" }), h("div", { text: "Their effect is detectable inside some values of another parameter and nowhere else; the card names them." }), h("div", { class: "k", text: mods ? `${fmtInt(mods.tests)} interaction tests, corrected together.` : "Testing every pair in the background." })),
-      null, { dataset: { ready: mods ? "true" : "false" } })];
+      null, { dataset: { ready: mods ? "true" : "false" } })].filter(Boolean);
   return strip("The board in figures", cells,
     { key: "board", label: "About the board", content: () => boardAbout(m) },
     { label: "Copy the board as notes", what: "Every parameter that moves the needle, with its values, strength and q.",

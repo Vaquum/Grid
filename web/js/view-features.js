@@ -6,7 +6,7 @@
 // draws a random subset of a pool for every row (plate sweeps' feats)
 // shows each member's inclusion effect, compared inside each subset size.
 
-import { h, tip, fmtT, fmtInt, fmtPct, fmtP, fmtDelta, inText, rangeText, deltaRange, codeBlock, runName } from "./ui.js";
+import { h, tip, keyTip, fmtT, fmtInt, fmtPct, fmtP, fmtDelta, inText, rangeText, deltaRange, codeBlock, runName } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { memberEffects, dimEffect } from "./engine.js";
 import { memberDims } from "./model.js";
@@ -246,10 +246,10 @@ function columnsIsland(m, A, lf) {
 }
 
 function sortPicker(m, A) {
-  const seg = h("div", { class: "seg ft-sort", role: "group", "aria-label": "Order" });
+  const seg = h("div", { class: "seg ft-sort", role: "group", "aria-label": "Order", dataset: { key: "o" } });
   for (const [k, label] of [["effect", "by effect"], ["name", "by name"]]) {
-    seg.append(h("button", { type: "button", "aria-pressed": (m.state.featSort === "name") === (k === "name") ? "true" : "false",
-      onclick: () => A.set({ featSort: k }, { replace: true }) }, label));
+    seg.append(tip(h("button", { type: "button", "aria-pressed": (m.state.featSort === "name") === (k === "name") ? "true" : "false",
+      onclick: () => A.set({ featSort: k }, { replace: true }) }, label), keyTip(`Order ${label}`, "O")));
   }
   return seg;
 }

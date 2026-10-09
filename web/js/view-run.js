@@ -7,11 +7,12 @@
 // there); the best row against luck; and the run's health: its pace and
 // segments, its problems and warnings, and the sampler.
 
-import { h, icon, tip, fmtT, fmtRowValue, fmtInt, fmtPct, fmtP, fmtNum, fmtPace, fmtDuration, fmtAgo, fmtClock, inText, rangeText, spanText, codeBlock, runName } from "./ui.js";
+import { h, icon, tip, keyTip, fmtT, fmtRowValue, fmtInt, fmtPct, fmtP, fmtNum, fmtPace, fmtDuration, fmtAgo, fmtClock, inText, rangeText, spanText, codeBlock, runName } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { lineChart, distChart } from "./charts.js";
 import { invariantBreaks, recordCurve, uniformity, summarize, rowsIn, gTest, MIN_N } from "./engine.js";
 import { buildSchema } from "./schema.js";
+import { limenProfile } from "./profiles.js";
 import { independence, moderatorParents, boardDims, background, setName, TOGETHER, together, togetherWhy } from "./model.js";
 import { clusterJob, clusterOutcomes, mannWhitney, composition, MIN_SILHOUETTE } from "./clusters.js";
 import { bhQ, rankAt } from "./stats.js";
@@ -241,23 +242,22 @@ function clusterIsland(m, A, res, sel) {
 // The number of clusters: the best by silhouette, or another with
 // structure, each with its silhouette.
 function kPicker(m, A, res) {
-  const seg = h("div", { class: "seg rn-k", role: "group", "aria-label": "Number of clusters" });
+  const seg = h("div", { class: "seg rn-k", role: "group", "aria-label": "Number of clusters", dataset: { key: "k" } });
   for (const s of res.scores) {
     const b = h("button", { type: "button", "aria-pressed": s.k === res.k ? "true" : "false", "aria-disabled": s.usable ? null : "true",
       dataset: { k: String(s.k), focus: `k-${s.k}` },
       onclick: () => { if (s.usable && s.k !== res.k) A.set({ clusterK: s.k === res.best ? null : s.k, clusters: [] }, { replace: true }); } }, String(s.k));
-    tip(b, () => h("div", null, h("b", { text: `${s.k} clusters${s.k === res.best ? ", the best" : ""}` }),
-      h("div", { class: "k", text: !s.valid ? "A cluster would hold fewer than 30 rows." : `Silhouette ${fmtNum(s.silhouette, 2)}${s.usable ? "" : ": no structure"}.` })));
+    tip(b, keyTip(`${s.k} clusters${s.k === res.best ? ", the best" : ""}`, "K",
+      !s.valid ? "A cluster would hold fewer than 30 rows." : `Silhouette ${fmtNum(s.silhouette, 2)}${s.usable ? "" : ": no structure"}. K moves to the next number with structure, Shift K to the one before.`));
     seg.append(b);
   }
   return seg;
 }
 
 function compareToggle(m, A, sel) {
-  const b = h("button", { class: "btn small rn-compare", type: "button", "aria-pressed": sel.compare ? "true" : "false", dataset: { focus: "compare" },
+  const b = h("button", { class: "btn small rn-compare", type: "button", "aria-pressed": sel.compare ? "true" : "false", dataset: { focus: "compare", key: "m" },
     onclick: () => setCompare(m, A, !sel.compare) }, "Compare two");
-  tip(b, () => h("div", null, h("b", { text: "Set two clusters against each other" }),
-    h("div", { class: "k", text: "With it on, choose two clusters: each card shows the first against the second. A third choice replaces the first." })));
+  tip(b, keyTip("Set two clusters against each other", "M", "With it on, choose two clusters: each card shows the first against the second. A third choice replaces the first."));
   return b;
 }
 
@@ -773,17 +773,20 @@ function samplerIsland(m) {
 }
 
 // The runs side by side on the needle on screen: did narrowing move it?
+// And each run's best by the runner's objective, the keys it ranks by.
 function runsIsland(m, A) {
   const t = m.target;
+  const keys = (m.schema.objective || []).map(([id, dir]) => ({ id, dir, t: m.schema.targetById.get(id) })).filter(k => k.t);
   const cache = m.cache.runSchemas || (m.cache.runSchemas = new Map());
   const tbl = h("table", { class: "vals" }, h("thead", null, h("tr", null,
     h("th", { text: "Run" }), h("th", { class: "r", text: "Rows" }), h("th", { class: "r", text: t.label }),
-    h("th", { class: "r", text: "95% interval" }), h("th", { class: "r", text: "Best gates" }), h("th", { class: "r", text: "Best %/mo" }))));
+    h("th", { class: "r", text: "95% interval" }), keys.map(k => h("th", { class: "r", text: `Best ${inText(k.t.label)}` })))));
   const tb = h("tbody");
   for (const ds of m.sweep.runs) {
     let entry = cache.get(ds.id);
     if (!entry || entry.version !== ds.version) {
-      const sc = ds === m.ds ? m.schema : buildSchema(ds);
+      const exp = ds.meta.experiment;
+      const sc = ds === m.ds ? m.schema : buildSchema(ds, exp && exp.kind === "limen" ? { profile: limenProfile(exp) } : {});
       entry = { version: ds.version, schema: sc };
       cache.set(ds.id, entry);
     }
@@ -791,12 +794,14 @@ function runsIsland(m, A) {
     const tt = sc.targetById.get(t.id);
     const rows = rowsIn(sc, [], ds.n);
     const s = tt ? summarize(tt, rows) : null;
-    const best = (id, f) => {
-      const x = sc.targetById.get(id);
+    // the best a run reached on one of the objective's keys, that key's way
+    const best = (k) => {
+      const x = sc.targetById.get(k.id);
       if (!x) return "–";
-      let b = -Infinity;
-      for (let j = 0; j < rows.length; j++) { const v = x.values[rows[j]]; if (v > b) b = v; }
-      return Number.isFinite(b) ? f(x, b) : "–";
+      const up = k.dir < 0;
+      let b = up ? -Infinity : Infinity;
+      for (let j = 0; j < rows.length; j++) { const v = x.values[rows[j]]; if (up ? v > b : v < b) b = v; }
+      return Number.isFinite(b) ? fmtRowValue(x, b) : "–";
     };
     const mine = ds.id === m.ds.id;
     tb.append(h("tr", { class: "clickable" + (mine ? " sel" : ""),
@@ -805,8 +810,7 @@ function runsIsland(m, A) {
     h("td", { class: "r num", text: fmtInt(ds.n) }),
     h("td", { class: "r num", text: s ? fmtT(t, s.mean) : "no such needle" }),
     h("td", { class: "r num", text: s ? rangeText(t, s.lo, s.hi) : "–" }),
-    h("td", { class: "r num", text: best("gates", (x, v) => String(v)) }),
-    h("td", { class: "r num", text: best("mean_mo", (x, v) => fmtT(x, v)) })));
+    keys.map(k => h("td", { class: "r num", text: best(k) }))));
   }
   tbl.append(tb);
   return h("section", { class: "island", "aria-label": "The runs of this sweep" },

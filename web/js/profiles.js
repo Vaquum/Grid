@@ -107,6 +107,7 @@ export const PLATE = {
   ],
   replay: {
     // How a row is replayed exactly (pocket_a.py perm_from_rec / replay).
+    title: "Replay it exactly (in research/, with its .venv)",
     python: (row) => `import json, pocket_a\npocket_a.loadall()\nrec = json.loads(${JSON.stringify(JSON.stringify(row))})\nprint(pocket_a.replay(rec))`,
   },
 };
@@ -192,5 +193,15 @@ export function limenProfile(experiment) {
     objective: [["backtest_pnl_per_bar_bps", -1]],
     objectiveLabel: "net PnL per bar",
     planned: Number.isInteger(uel.n_permutations) ? uel.n_permutations : null,
+    // A round is replayed from its result directory by Limen's Trainer,
+    // which rebuilds it from the manifest and checks its metrics against
+    // results.csv (docs/Trainer.md); a pack made before the page knew the
+    // directory has no command.
+    replay: typeof experiment.dir === "string" ? {
+      title: `Replay it exactly (with Limen${experiment.host ? `, on ${experiment.host}` : ""}; it checks the round's metrics)`,
+      python: (row) => (typeof row.id === "string"
+        ? `from limen.inference import Trainer\n\ntrainer = Trainer(${JSON.stringify(experiment.dir)})\nsensor, = trainer.train([${JSON.stringify(row.id)}])`
+        : null),
+    } : null,
   };
 }
