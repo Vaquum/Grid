@@ -133,6 +133,34 @@ class SweepTest(unittest.TestCase):
         self.assertEqual((fresh[0]["lo"], fresh[0]["hi"]), (0, 1))
         self.assertEqual(s.delta_text(cursor), [])
 
+    def test_an_archived_run_keeps_its_log_and_its_segment(self):
+        s = Sweep("t")
+        s.add_log("l0", "sweep.log")
+        run = Run("r0", "current", "x", None, True, "l0")
+        s.add_run(run)
+        # read at startup: the first start and its rows
+        s.log_line("l0", "sampling 100 A-perms...", True)
+        for i in range(3):
+            s.run_line(run, json.dumps({"i": i}), True)
+        # live: a relaunch's start line read before the results file
+        # starts over; the rows kept came from the first segment
+        s.log_line("l0", "--- 20261009_154104 relaunch ---", False)
+        s.log_line("l0", "sampling 100 A-perms...", False)
+        s.run_reset(run, "truncated")
+        old = s.runs[0].meta()
+        self.assertEqual((old["id"], old["logId"], old["segment"]),
+                         ("r0.g0", "l0", 0))
+        # rows of the relaunch, then the file starts over again before
+        # any start line: those came from the second segment
+        time.sleep(0.01)
+        for i in range(2):
+            s.run_line(run, json.dumps({"i": i}), False)
+        s.run_reset(run, "truncated")
+        self.assertEqual([r.id for r in s.runs], ["r0.g0", "r0.g1", "r0"])
+        self.assertEqual((s.runs[1].log_id, s.runs[1].segment), ("l0", 1))
+        # the run being written follows the latest segment
+        self.assertIsNone(run.segment)
+
 
 class ServerTest(unittest.TestCase):
     def test_pack_stream_and_row(self):

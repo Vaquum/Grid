@@ -613,8 +613,11 @@ function paceIsland(m, health) {
       h("span", { class: "isl-count", text: log ? `log ${(m.sweep.meta.logSources || {})[ds.meta.logId] || "embedded"}` : "no log for this run" })));
   const stats = h("div", { class: "stat-row" });
   const stat = (k, v, d, tp) => { const el = h("div", { class: "stat" + (tp ? " has-tip" : "") }, h("div", { class: "k", text: k }), h("div", { class: "v num", text: v }), d ? h("div", { class: "d", text: d }) : null); if (tp) tip(el, tp); stats.append(el); };
-  if (health.rate) stat("Pace", `${health.rate.rowsPerSec.toFixed(2)} rows/s`, health.rate.from === "log" ? "from the last progress lines" : "from row arrivals, last 5 min");
-  if (health.rate && health.total > ds.n) stat("Remaining", fmtDuration((health.total - ds.n) / health.rate.rowsPerSec), m.sweep.meta.mode === "live" ? "at this pace" : "at the pace when recorded");
+  // a run kept after its results file started over has stopped: its pace
+  // is the one it had, and nothing of it remains to run
+  const kept = !!ds.meta.archivedFrom;
+  if (health.rate) stat("Pace", `${health.rate.rowsPerSec.toFixed(2)} rows/s`, kept ? "before it stopped" : health.rate.from === "log" ? "from the last progress lines" : "from row arrivals, last 5 min");
+  if (health.rate && health.total > ds.n && !kept) stat("Remaining", fmtDuration((health.total - ds.n) / health.rate.rowsPerSec), m.sweep.meta.mode === "live" ? "at this pace" : "at the pace when recorded");
   const sec = m.schema.targets.find(x => x.cost);
   if (sec && m.allRows.length) {
     const s = summarize(sec, m.allRows);
