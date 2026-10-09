@@ -1,6 +1,7 @@
 import gzip
 import json
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -9,8 +10,12 @@ import urllib.error
 import urllib.request
 
 from grid.follow import FileFollower
+from grid.logparse import parse_text
 from grid.server import serve
 from grid.sweep import Cursor, Run, Sweep
+
+TOOLS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))), "tools")
 
 
 class Collect:
@@ -209,6 +214,39 @@ class ServerTest(unittest.TestCase):
 
     def test_cursor_type(self):
         self.assertEqual(Cursor().version, -1)
+
+
+class DemoTest(unittest.TestCase):
+    def test_the_demo_s_clock_carries_on_from_its_history(self):
+        sys.path.insert(0, TOOLS)
+        try:
+            import live_demo
+            import synth
+        finally:
+            sys.path.remove(TOOLS)
+        with tempfile.TemporaryDirectory() as d:
+            synth.write(300, d, 3, 500000)
+            log = os.path.join(d, "sweep.log")
+            stop = threading.Event()
+            play = threading.Thread(target=live_demo.play_append,
+                                    args=(d, 400.0, stop))
+            play.start()
+            try:
+                deadline = time.time() + 20
+                while time.time() < deadline:
+                    with open(log) as f:
+                        if "\n500/500000 " in f.read():
+                            break
+                    time.sleep(0.05)
+            finally:
+                stop.set()
+                play.join(10)
+            with open(log) as f:
+                seg = parse_text(f.read()).segments[-1]
+            # the rows the demo appends carry on the segment's clock
+            seconds = [p[2] for p in seg.progress]
+            self.assertGreaterEqual(len(seconds), 5, seconds)
+            self.assertEqual(seconds, sorted(seconds))
 
 
 if __name__ == "__main__":
