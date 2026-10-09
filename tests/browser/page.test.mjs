@@ -476,6 +476,10 @@ test("a Limen run reads with its manifest's parameters and Limen's metrics", asy
   const names = await page.locator(".pcard .pc-name").allInnerTexts();
   for (const p of ["take_profit_bps", "stop_loss_bps", "fee_bps", "num_leaves"]) assert.ok(names.includes(p), p);
   assert.ok(!names.includes("_round_index") && !names.includes("auc"));
+  // 40 rounds leave most values withheld; one past the scale the shown
+  // values set sits on its edge as a triangle pointing past it, never as a dot
+  assert.ok(await page.locator(".col:is(.past-hi, .past-lo) .past").count() > 0, "no withheld value lies past the scale");
+  assert.equal(await page.locator(".col:is(.past-hi, .past-lo) .pt").count(), 0);
   for (const key of ["2", "3", "4", "5", "6", "7", "1"]) {
     await page.keyboard.press(key);
     await page.waitForTimeout(150);

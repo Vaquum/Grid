@@ -143,6 +143,10 @@ export function effectPlot(levels, opts) {
     const a = j > 0 ? (prev + x) / 2 : 0, b = j < order.length - 1 ? (x + next) / 2 : 100;
     const cls = ["col"];
     if (l.withheld) cls.push("withheld");
+    // the shown values set the scale, so a withheld one can lie past it:
+    // it sits on the edge it passes, marked so
+    const past = l.withheld && l.n > 0 && Number.isFinite(l.mean) ? (l.mean > domain.y1 ? "hi" : l.mean < domain.y0 ? "lo" : null) : null;
+    if (past) cls.push(`past-${past}`);
     if (opts.selected === l.key) cls.push("sel");
     const tone = opts.tone ? opts.tone(l) : null;
     if (tone) cls.push(tone);
@@ -161,13 +165,18 @@ export function effectPlot(levels, opts) {
         const cut = (l.lo < domain.y0 ? " cut-lo" : "") + (l.hi > domain.y1 ? " cut-hi" : "");
         col.append(h("i", { class: "ci" + cut, style: { left: `${inner}%`, bottom: `${ylo}%`, height: `${Math.max(0, yhi - ylo)}%` } }));
       }
-      if (opts.kind === "num" && Number.isFinite(m)) col.append(h("i", { class: "pt", style: { left: `${inner}%`, bottom: `${Y(m)}%` } }));
+      if (opts.kind === "num" && Number.isFinite(m)) {
+        // past the scale: a hollow triangle on the edge, pointing past it
+        col.append(past ? s("svg", { class: "past", viewBox: "0 0 10 8", "aria-hidden": "true", style: { left: `${inner}%`, [past === "hi" ? "top" : "bottom"]: "0" } },
+          s("path", { d: past === "hi" ? "M5 .75 9.25 7.25H.75z" : "M5 7.25 9.25 .75H.75z" }))
+          : h("i", { class: "pt", style: { left: `${inner}%`, bottom: `${Y(m)}%` } }));
+      }
       if (opts.on && !l.withheld && (l.key === opts.best || l.key === opts.worst)) {
         const top = Number.isFinite(l.hi) ? Y(l.hi) : Y(m);
         col.append(h("span", { class: "dl" + (l.key === opts.best ? " best" : ""), style: { left: `${inner}%`, bottom: `${top}%` }, text: fmtT(target, m, { unit: false }) }));
       }
     }
-    tip(col, () => levelTip(l, target, ref));
+    tip(col, () => levelTip(l, target, ref, past));
     if (opts.pick) col.addEventListener("click", (ev) => { ev.stopPropagation(); opts.pick(l.key); });
     area.append(col);
     // its label on x, with a priority for the fitting pass

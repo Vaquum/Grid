@@ -18,14 +18,16 @@ export function needleDomain(effects, base) {
   return [lo - pad, hi + pad];
 }
 
-export function levelTip(l, target, base) {
+// `past` ("hi" or "lo") is set for a withheld value past the plot's scale.
+export function levelTip(l, target, base, past) {
   return h("div", null,
     h("div", null, h("b", { text: l.withheld ? "withheld" : fmtT(target, l.mean) }),
       l.withheld ? "" : h("span", { class: "k", text: `  [${fmtT(target, l.lo)}, ${fmtT(target, l.hi)}]` })),
     h("div", { class: "mono", text: l.label }),
     h("div", { class: "k", text: l.withheld
       ? `${fmtInt(l.n)} rows: fewer than 30, so no number is shown`
-      : `${fmtInt(l.n)} rows · ${fmtDelta(target, l.mean - base)} against the base` }));
+      : `${fmtInt(l.n)} rows · ${fmtDelta(target, l.mean - base)} against the base` }),
+    past ? h("div", { class: "k", text: `It lies ${past === "hi" ? "above" : "below"} the scale the shown values set.` }) : null);
 }
 
 // Interval bar for a table row: a reference line, the interval and a dot,
