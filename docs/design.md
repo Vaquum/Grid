@@ -40,7 +40,7 @@ Each field gets a **role**:
 | --- | --- | --- |
 | param | sampled by the sweep | `model`, `C_meta`, `tp` |
 | set | a sampled subset; each member becomes a binary param | `feats` |
-| nested | a dict of params, scoped to the value of the param it varies under | `hpcfg.learning_rate@lgbm_hp` |
+| nested | a dict of params, scoped to the value of the param it varies under | `hpcfg.learning_rate`, shown as `learning_rate · lgbm_hp` |
 | effective | a param the runner resolved from others | `cal_applied`, `pf_applied` |
 | metric | an outcome | `mean_mo`, `auc`, `sec` |
 | gate | a pass/fail check with a value | `gates_detail.wr` |
@@ -54,12 +54,12 @@ which roles were inferred and why. A null param is a level of its own
 (`tp = none` means no take-profit). A null metric is missing: it is
 excluded from that metric's statistics and counted where it is shown.
 
-A param is treated as **sampled** only if the data shows it is independent
-of every other param (Cramér's V below 0.05 in the rows where both are
-active). Independence is what makes a marginal difference a causal effect
-averaged over the rest of the space; where it fails (PocketA never draws
-`pf_frac` for `stack_dir`) the page says so and analyses that param inside
-the context where it was sampled.
+A **sampled** param is meant to be drawn independently of every other.
+Independence is what makes a marginal difference a causal effect averaged
+over the rest of the space; where it fails (PocketA never draws `pf_frac`
+for `stack_dir`) the two are **drawn together** (Cramér's V over 0.03 with
+p < 10⁻⁶), and the page says so wherever either shows, so the param is
+read inside the other's values.
 
 ## Targets
 
@@ -134,7 +134,7 @@ pocket, see below) and up to the replay edge.
   pairs). Columns: Limen drops `feature_drop_count` columns chosen with
   `random.Random(feature_drop_seed)`; with few seeds, columns dropped
   together come in fixed sets, so one least-squares model over every
-  round with a record (fixed effects for the feature groups, the
+  row with a record (fixed effects for the feature groups, the
   parameters the features take and the parameters that move the needle;
   one term per dropped column) gives each column the effect its varied
   company allows, with HC3 errors (calibrated on null sweeps: 4.5–5.5% of
@@ -183,12 +183,42 @@ pocket, see below) and up to the replay edge.
   means nothing.
 - **Recorded precision**: one row's value is printed no finer than the
   decimals its target was written with (Limen writes net PnL per bar to
-  0.1 bps: a round's 0.7, not 0.700); means keep the shown digits.
+  0.1 bps: a row's 0.7, not 0.700); means keep the shown digits.
 - **Shown digits**: a target is printed with its profile's digits, or more
   when its means are smaller than those can print: two significant digits
   at the larger of the mean's size and its 95% half-width over every row
   (Limen's net PnL per bar sits near −0.02 bps). Not the rows' spread: most
-  rounds can score exactly 0 and a few far out.
+  rows can score exactly 0 and a few far out.
+
+## Language
+
+The page says each thing one way, so a number, a name or a word means the
+same in every view (`ui.js` holds the number formats):
+
+- **Numbers** the page computes have a true minus (−0.021), group their
+  thousands (8,000) and carry no sign when they round to zero. A range
+  has an en dash between ends that are not negative (21.6–24.5%) and "to"
+  when one is (−0.03 to −0.01 bps), the unit once at its end; a 95%
+  interval is introduced by "95%" wherever its place does not say so
+  already (a column headed 95% interval).
+- **Units**: "%" is attached (12.5%), every other unit spaced (12.5 %/mo,
+  0.4 bps). Axis ticks are in the decimals of their step and carry no
+  unit, which a chart names once (a rate's % and money's $ are how those
+  numbers are written, so they stay).
+- **Values as written**: a parameter's values are the sweep's own
+  (`kline_size = 3600`, a hyphen for a minus), in mono, as they would be
+  typed into its config; a row's outcome is no finer than it was written.
+- **Missing**: a figure that does not exist is "–", one still being worked
+  out "…", and a count of nothing "0".
+- **Names**: a parameter is named by its field (`tp`), a nested one with the
+  value it varies under (`learning_rate · lgbm_hp`), in mono. Parameters
+  shown together are named in the board's order, the strongest first,
+  joined by ×.
+- **Words**: the outcome every view measures is the needle; a row is one
+  evaluated configuration (a Limen round is a row); the sampler drawing
+  two parameters together is "drawn together", in the warning colour.
+  Labels and table headers are in sentence case; a label inside a sentence
+  is lowercased (net PnL per bar).
 
 ## Views
 
@@ -265,8 +295,8 @@ an agent would have to supply for every new sweep.
    not; a value under 30 rows is hollow. The shown values set the scale,
    so a hollow value past it sits on the edge it passes: a triangle
    pointing past it, or a bar whose far end is dotted.
-4. **Tags**: where it acts, dead values, not independent, withheld values,
-   an inferred role.
+4. **Tags**: where it acts, dead values, drawn together with another
+   param, withheld values, an inferred role.
 
 The inspector opens a card in depth: its kind and scope, a sentence on
 what it does, its attributes and tests, where it acts, every value with its
