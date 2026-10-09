@@ -168,6 +168,16 @@ test("a card opens in the inspector and a value goes into the pocket", async () 
   // a value chosen on the card is chosen in the table
   await page.locator(".pcard", { has: page.locator(".pc-name", { hasText: /^model$/ }) }).locator(".col[data-key=xgb_tuned]").click();
   assert.equal(await page.locator("#inspector table.vals tr.sel td.v").innerText(), "xgb_tuned");
+  // the chosen value, clicked again on the card, closes the inspector, and so does the card
+  const modelCard = page.locator(".pcard", { has: page.locator(".pc-name", { hasText: /^model$/ }) });
+  await modelCard.locator(".col[data-key=xgb_tuned]").click();
+  assert.equal(await page.evaluate(() => document.getElementById("app").dataset.insp), "closed");
+  await modelCard.locator(".pc-name").click();
+  assert.equal(await page.evaluate(() => document.getElementById("app").dataset.insp), "open");
+  await modelCard.locator(".pc-name").click();
+  assert.equal(await page.evaluate(() => document.getElementById("app").dataset.insp), "closed");
+  await modelCard.locator(".pc-name").click();
+  await page.waitForSelector("#inspector .part");
   await page.locator("#inspector table.vals tbody tr", { hasText: "xgb_def" }).click();
   await page.keyboard.press("p");
   await page.keyboard.press("2");

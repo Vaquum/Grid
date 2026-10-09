@@ -146,7 +146,8 @@ function card(m, A, d, e, ctx) {
   const el = h("div", { class: "pcard" + (on ? "" : " off"), role: "listitem", tabindex: "0", "aria-pressed": selected ? "true" : "false",
     "aria-label": `${nameOf(d)}: ${on ? `moves ${t.label}, ω² ${strengthText(e)}, ${fmtP(e.q)}` : "no detectable effect"}`,
     dataset: { focus: "dim:" + d.id, dim: d.id } });
-  const open = () => A.select({ kind: "dim", id: d.id });
+  // a second click on the open card closes the inspector
+  const open = () => A.select(selected ? null : { kind: "dim", id: d.id });
   el.addEventListener("click", open);
   el.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); open(); } });
 
@@ -158,7 +159,7 @@ function card(m, A, d, e, ctx) {
     kind: d.ordered ? "num" : "cat", target: t, domain: ctx.domain, ref, on,
     best: e.best ? e.best.key : null, worst: e.worst ? e.worst.key : null, dead: e.dead,
     selected: sel && sel.kind === "level" && sel.dim === d.id ? sel.key : null,
-    pick: key => A.select({ kind: "level", dim: d.id, key }),
+    pick: key => A.select(sel && sel.kind === "level" && sel.dim === d.id && sel.key === key ? null : { kind: "level", dim: d.id, key }),
   }));
   el.append(tags(m, d, e, ctx));
   return el;
@@ -252,7 +253,7 @@ function setCard(m, A, g, ctx) {
     best: above ? above.d.id : null, worst: below ? below.d.id : null,
     selected: sel && (sel.kind === "dim" || sel.kind === "level") ? (sel.kind === "dim" ? sel.id : sel.dim) : null,
     tone: l => (order.find(x => x.d.id === l.key).e.detectable ? null : "off"),
-    pick: key => A.select({ kind: "dim", id: key }),
+    pick: key => A.select(sel && ((sel.kind === "dim" && sel.id === key) || (sel.kind === "level" && sel.dim === key)) ? null : { kind: "dim", id: key }),
   }));
   el.append(h("div", { class: "pc-foot" }, h("span", { class: "tag link", text: "Every member in Features →" })));
   return el;
