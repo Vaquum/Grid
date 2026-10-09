@@ -301,8 +301,9 @@ function comboList(m, A, chosen, size, plan, combos) {
   }
   // nothing detectable: the closest ones, to open and judge by eye
   if (!ranked.length && combos.tested) {
+    // nearest first, each meter against the strongest of them
     const closest = combos.list.slice().sort((a, b) => a.p - b.p || b.omega2 - a.omega2).slice(0, 5);
-    const strongest = Math.max(1e-9, closest[0].omega2);
+    const strongest = Math.max(1e-9, ...closest.map(r => r.omega2));
     isl.append(h("div", { class: "isl-part" }, h("h3", { class: "part-title" }, h("span", { text: "The closest" }),
       h("span", { class: "note", text: "the nearest to detectable, none after correction" })),
       h("div", { class: "pr-rows", role: "list" }, closest.map(r => row(r, strongest, true)))));

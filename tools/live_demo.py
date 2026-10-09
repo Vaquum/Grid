@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import threading
 import time
@@ -51,6 +52,17 @@ def main() -> None:
                            "--port", a.port]))
 
 
+def last_elapsed(path: str) -> float:
+    """The elapsed seconds of the log's last progress line, or 0."""
+    seconds = 0.0
+    with open(path) as f:
+        for line in f:
+            m = re.match(r"\d+/\d+ (\d+(?:\.\d+)?)s\b", line)
+            if m:
+                seconds = float(m.group(1))
+    return seconds
+
+
 def play_append(out: str, rate: float, stop: threading.Event) -> None:
     """Append to the files synth.write left, then crash and relaunch."""
     import json
@@ -61,31 +73,37 @@ def play_append(out: str, rate: float, stop: threading.Event) -> None:
     with open(results) as f:
         n = sum(1 for _ in f)
     f = open(results, "a", buffering=1)
+    # the segment's clock carries on from the history's last progress line
+    t0 = time.time() - last_elapsed(os.path.join(out, "sweep.log"))
     log = open(os.path.join(out, "sweep.log"), "a", buffering=1)
     best = (0, -1e9, "")
-    t0 = time.time() - 3000 / rate
     i = n
-    while not stop.is_set():
-        rec = synth.score(synth.sample(rng), rng)
-        rec["bt"] = grid.index((rec["tp"], rec["sl"]))
-        f.write(json.dumps({k: rec[k] for k in synth.ORDER}) + "\n")
-        i += 1
-        key = (int(rec["gates"]), float(rec["mean_mo"]), str(rec["model"]))
-        if key[:2] > best[:2]:
-            best = key
-        if i % 100 == 0:
-            log.write("%d/500000 %.0fs top: gates=%d mean=%+.2f %s\n" % (
-                i, time.time() - t0, best[0], best[1], best[2]))
-        if i == n + 900:
-            log.write(simulate.CRASH)
-            time.sleep(3.0)
-            log.write("--- %s relaunch after the crash ---\n"
-                      % time.strftime("%Y%m%d_%H%M%S", time.gmtime()))
-            log.write("sampling 500000 A-perms...\n")
-            f.close()
-            f = open(results, "w", buffering=1)  # a relaunch truncates
-            n, i, t0, best = -10**9, 0, time.time(), (0, -1e9, "")
-        time.sleep(rng.expovariate(rate))
+    try:
+        while not stop.is_set():
+            rec = synth.score(synth.sample(rng), rng)
+            rec["bt"] = grid.index((rec["tp"], rec["sl"]))
+            f.write(json.dumps({k: rec[k] for k in synth.ORDER}) + "\n")
+            i += 1
+            key = (int(rec["gates"]), float(rec["mean_mo"]),
+                   str(rec["model"]))
+            if key[:2] > best[:2]:
+                best = key
+            if i % 100 == 0:
+                log.write("%d/500000 %.0fs top: gates=%d mean=%+.2f %s\n" % (
+                    i, time.time() - t0, best[0], best[1], best[2]))
+            if i == n + 900:
+                log.write(simulate.CRASH)
+                time.sleep(3.0)
+                log.write("--- %s relaunch after the crash ---\n"
+                          % time.strftime("%Y%m%d_%H%M%S", time.gmtime()))
+                log.write("sampling 500000 A-perms...\n")
+                f.close()
+                f = open(results, "w", buffering=1)  # a relaunch truncates
+                n, i, t0, best = -10**9, 0, time.time(), (0, -1e9, "")
+            time.sleep(rng.expovariate(rate))
+    finally:
+        f.close()
+        log.close()
 
 
 if __name__ == "__main__":

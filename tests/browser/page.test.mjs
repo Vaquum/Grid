@@ -164,6 +164,24 @@ test("pairs: the strip, the ranked and linked pairs, and a chosen pair with its 
   await page.close();
 });
 
+test("pairs of three: when none acts, the closest, each meter against the strongest of them", async () => {
+  const { page, errors } = await open();
+  await page.keyboard.press("3");
+  await page.waitForSelector(".pr-map", { timeout: 20000 });
+  await page.locator(".pr-size button", { hasText: /^3$/ }).click();
+  await page.waitForSelector(".pr-row.quiet", { timeout: 60000 });
+  const rows = await page.$$eval(".pr-row.quiet", rs => rs.map(r => ({
+    width: parseFloat(r.querySelector(".pr-meter i").style.width),
+    omega: parseFloat(r.querySelector(".pr-fig").textContent.replace(/[^\d.]/g, "")) })));
+  assert.ok(rows.length >= 2, JSON.stringify(rows));
+  // no meter runs past its track, and the full ones are the strongest
+  assert.ok(rows.every(r => r.width <= 100), JSON.stringify(rows));
+  const full = rows.filter(r => r.width === 100);
+  assert.ok(full.length >= 1 && full.every(r => r.omega === Math.max(...rows.map(x => x.omega))), JSON.stringify(rows));
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("a card opens in the inspector and a value goes into the pocket", async () => {
   const { page, errors } = await open();
   await page.locator(".pcard .pc-name", { hasText: /^model$/ }).click();
@@ -365,6 +383,11 @@ test("run: a sweep with no groups gets its strip, every row's distributions and 
   const names = await page.locator(".rn-card .rn-name").allInnerTexts();
   assert.equal(names[0], "Tradeable");
   assert.ok(names.length >= 8, names.join(", "));
+  // the axes print values as the rows have them: a whole number whole, a 0/1 outcome no or yes
+  const ticks = id => page.locator(`.rn-card[data-outcome="${id}"] svg text.label:not(.ink)`).allTextContents();
+  const gates = await ticks("gates");
+  assert.ok(gates.length >= 3 && gates.every(t => /^\d+$/.test(t)), gates.join(" "));
+  assert.deepEqual(await ticks("tradeable"), ["no", "yes"]);
   assert.equal(await page.locator(".rn-legend").innerText(), "All rows · 6,000 rows");
   assert.equal(await page.locator(".rn-diff").count(), 0);
   for (const label of ["Best so far against luck", "Pace", "Problems", "The sampler"]) {
@@ -402,6 +425,15 @@ test("run: a Limen run's clusters, one against every row, two compared, and anot
   assert.equal(await page.locator('.rn-card[data-outcome="backtest_pnl_per_bar_bps"] .rn-diff').count(), 0);
   assert.match(await page.locator('.rn-card[data-outcome="execution_time"] .rn-diff').innerText(), /q/);
   assert.equal(await page.locator(".rn-apart .isl-title").innerText(), "What sets A apart");
+  // a bin where both groups' bars break says their shares once, in the
+  // order the bars stand, and no two such labels cross
+  const cuts = await page.locator(".rn-card svg.dist text.label.ink").allTextContents();
+  assert.ok(cuts.some(t => /^\d+% · \d+%$/.test(t)), cuts.join(" | "));
+  const crossed = await page.$$eval(".rn-card svg.dist", svgs => svgs.filter(svg => {
+    const rs = [...svg.querySelectorAll("text.label.ink")].map(t => t.getBoundingClientRect());
+    return rs.some((a, i) => rs.slice(i + 1).some(b => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom));
+  }).map(svg => svg.closest(".rn-card").dataset.outcome));
+  assert.deepEqual(crossed, []);
   // Compare: A against B
   await page.locator(".rn-compare").click();
   await page.locator('.rn-chip[data-cluster="B"]').click();
@@ -476,11 +508,31 @@ test("a Limen run reads with its manifest's parameters and Limen's metrics", asy
   const names = await page.locator(".pcard .pc-name").allInnerTexts();
   for (const p of ["take_profit_bps", "stop_loss_bps", "fee_bps", "num_leaves"]) assert.ok(names.includes(p), p);
   assert.ok(!names.includes("_round_index") && !names.includes("auc"));
+  // 40 rounds leave most values withheld; one past the scale the shown
+  // values set sits on its edge as a triangle pointing past it, never as a dot
+  assert.ok(await page.locator(".col:is(.past-hi, .past-lo) .past").count() > 0, "no withheld value lies past the scale");
+  assert.equal(await page.locator(".col:is(.past-hi, .past-lo) .pt").count(), 0);
   for (const key of ["2", "3", "4", "5", "6", "7", "1"]) {
     await page.keyboard.press(key);
     await page.waitForTimeout(150);
     assert.equal(await page.locator("text=This view failed to draw").count(), 0, `view ${key}`);
   }
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("features on a pool: each member's inclusion, then the needle by the number of members", async () => {
+  const { page, errors } = await open();
+  await page.keyboard.press("4");
+  await page.waitForSelector(".ft-island .legend");
+  // the interval's two bounds are one legend entry, and no entry is empty
+  assert.deepEqual(await page.locator(".ft-island .legend > span").allInnerTexts(), ["Tradeable", "95% interval"]);
+  // the chart's part keeps the gap between parts after the members' table
+  const gap = await page.evaluate(() => {
+    const isl = document.querySelector(".ft-island");
+    return isl.querySelector(":scope > .isl-part").getBoundingClientRect().top - isl.querySelector(":scope > .table-wrap").getBoundingClientRect().bottom;
+  });
+  assert.ok(gap >= 20, `gap ${gap}`);
   assert.deepEqual(errors, []);
   await page.close();
 });
@@ -701,3 +753,25 @@ test("live: rows stream in from a running sweep", async () => {
   }
 });
 
+
+test("live: the Run view's cards keep drawing as rows arrive after the clusters were found", async () => {
+  const sweep = await liveSweep();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const errors = [];
+    page.on("pageerror", e => errors.push(String(e)));
+    // a chart drawn on an outcome of fewer rows than are on screen has NaN coordinates
+    page.on("console", m => { if (m.type() === "error" && /NaN/.test(m.text())) errors.push(m.text()); });
+    await page.goto(sweep.url);
+    await page.waitForSelector(".status[data-kind=live]", { timeout: 15000 });
+    await page.keyboard.press("7");
+    await page.waitForFunction(() => { const c = document.querySelector(".rn-pick .isl-count"); return !!c && c.textContent !== "being found"; }, null, { timeout: 30000 });
+    await moreRows(page);
+    const blank = await page.$$eval(".rn-card", cards => cards.filter(c => !c.querySelector("svg.dist g.has-tip rect")).map(c => c.dataset.outcome));
+    assert.deepEqual(blank, []);
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    sweep.stop();
+  }
+});

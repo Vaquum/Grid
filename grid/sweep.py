@@ -173,12 +173,13 @@ class Sweep:
     def run_reset(self, run: Run, reason: str) -> None:
         with self.lock:
             if run.store.rows or run.bad_count:
+                # the rows kept keep their log, and the segment they came from
                 old = Run("%s.g%d" % (run.id, run.generation),
                           "%s before %s at %s" % (
                               run.label, reason,
                               time.strftime("%H:%M:%S", time.gmtime())),
-                          run.source, run.segment, False, None, run.fmt,
-                          run.experiment)
+                          run.source, self._segment_of(run), False,
+                          run.log_id, run.fmt, run.experiment)
                 old.store, old.lines = run.store, run.lines
                 old.bad, old.bad_count = run.bad, run.bad_count
                 old.arrivals, old.generation = run.arrivals, run.generation
@@ -191,6 +192,21 @@ class Sweep:
                                "rows": run.store.rows})
             run.restart()
             self._bump()
+
+    def _segment_of(self, run: Run) -> int | None:
+        """The log segment a run's rows so far came from: the one it names,
+        else the latest that started before its last row arrived (a
+        relaunch's start line can be read before the results file starts
+        over); for rows read at startup, the latest started by then."""
+        if run.segment is not None or run.log_id is None:
+            return run.segment
+        log = self.logs.get(run.log_id)
+        if log is None or not log.segments:
+            return None
+        last = run.arrivals[-1] if len(run.arrivals) else math.nan
+        started = [s for s in log.segments if s.wall is None
+                   or (not math.isnan(last) and s.wall <= last)]
+        return (started or log.segments)[-1].index
 
     def add_log(self, log_id: str, source: str) -> None:
         with self.lock:

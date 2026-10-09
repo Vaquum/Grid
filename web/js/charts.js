@@ -18,14 +18,16 @@ export function needleDomain(effects, base) {
   return [lo - pad, hi + pad];
 }
 
-export function levelTip(l, target, base) {
+// `past` ("hi" or "lo") is set for a withheld value past the plot's scale.
+export function levelTip(l, target, base, past) {
   return h("div", null,
     h("div", null, h("b", { text: l.withheld ? "withheld" : fmtT(target, l.mean) }),
       l.withheld ? "" : h("span", { class: "k", text: `  [${fmtT(target, l.lo)}, ${fmtT(target, l.hi)}]` })),
     h("div", { class: "mono", text: l.label }),
     h("div", { class: "k", text: l.withheld
       ? `${fmtInt(l.n)} rows: fewer than 30, so no number is shown`
-      : `${fmtInt(l.n)} rows · ${fmtDelta(target, l.mean - base)} against the base` }));
+      : `${fmtInt(l.n)} rows · ${fmtDelta(target, l.mean - base)} against the base` }),
+    past ? h("div", { class: "k", text: `It lies ${past === "hi" ? "above" : "below"} the scale the shown values set.` }) : null);
 }
 
 // Interval bar for a table row: a reference line, the interval and a dot,
@@ -57,8 +59,9 @@ export function divergingFill(t) {
   return { background: `color-mix(in oklab, ${pole} calc(var(--heat-cap) * ${share}), var(--mid))`, color: "var(--ink)" };
 }
 
-// Line chart with a crosshair: series [{label, color, points: [[x, y]], dash}],
-// x numeric. A legend is drawn for two or more series.
+// Line chart with a crosshair: series [{label, color, points: [[x, y]], dash,
+// group}], x numeric. Series that share a group read as one; a legend is
+// drawn for two or more.
 export function lineChart(series, opts = {}) {
   const W = opts.width || 640, H = opts.height || 200;
   const m = { l: 52, r: 14, t: 10, b: 26 };
@@ -111,21 +114,32 @@ export function lineChart(series, opts = {}) {
     cross.setAttribute("x1", px); cross.setAttribute("x2", px); cross.setAttribute("visibility", "visible");
   });
   overlay.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); hoverX = null; });
+  // series that share a group (an interval's two bounds) are one entry: one
+  // legend item, and in the tip their values as a range
+  const entries = [];
+  for (const sr of series) {
+    const e = sr.group ? entries.find(x => x.group === sr.group) : null;
+    if (e) e.members.push(sr);
+    else entries.push({ group: sr.group, label: sr.label, color: sr.color, dash: sr.dash, members: [sr] });
+  }
+  const fmtY = opts.fmtY || fmtNum;
   tip(overlay, () => {
     if (hoverX === null) return null;
-    const rows = series.map(sr => {
-      const p = nearest(sr.points, hoverX);
-      return p ? h("div", null, h("span", { style: { display: "inline-block", width: "12px", height: "2px", background: sr.color, verticalAlign: "middle", marginRight: "6px" } }),
-        h("b", { text: (opts.fmtY || fmtNum)(p[1]) }), h("span", { class: "k", text: "  " + sr.label })) : null;
+    const rows = entries.map(e => {
+      const ys = e.members.map(sr => nearest(sr.points, hoverX)).filter(Boolean).map(p => p[1]);
+      if (!ys.length) return null;
+      const lo = Math.min(...ys), hi = Math.max(...ys);
+      return h("div", null, h("span", { style: { display: "inline-block", width: "12px", height: "2px", background: e.color, verticalAlign: "middle", marginRight: "6px" } }),
+        h("b", { text: hi > lo ? `${fmtY(lo)} to ${fmtY(hi)}` : fmtY(lo) }), h("span", { class: "k", text: "  " + e.label }));
     });
     const p0 = nearest(series[0] ? series[0].points : [], hoverX);
     return h("div", null, h("div", { class: "k", text: `${opts.xLabel || "x"} ${(opts.fmtX || fmtInt)(p0 ? p0[0] : hoverX)}` }), rows);
   });
   svgEl.append(overlay);
   const wrap = h("figure", { class: "fig", style: { margin: 0 } });
-  if (series.length >= 2 || opts.legend) {
-    wrap.append(h("div", { class: "legend" }, series.map(sr =>
-      h("span", null, h("i", { style: { background: sr.color, height: sr.dash ? "0" : "2px", borderTop: sr.dash ? `2px dashed ${sr.color}` : null } }), sr.label))));
+  if (entries.length >= 2 || opts.legend) {
+    wrap.append(h("div", { class: "legend" }, entries.map(e =>
+      h("span", null, h("i", { style: { background: e.color, height: e.dash ? "0" : "2px", borderTop: e.dash ? `2px dashed ${e.color}` : null } }), e.label))));
   }
   wrap.append(svgEl);
   return wrap;
@@ -259,7 +273,9 @@ export function quantile(sorted, f) {
 // far taller than the rest (most rounds at exactly 0) is drawn broken at
 // twice the next, with its share, so the rest stay readable.
 //
-// groups: [{ label, fill, vals }] with vals the group's values, sorted.
+// groups: [{ label, fill, ink, text, vals }] with vals the group's values,
+// sorted; `ink` draws its spread, `text` writes its share over a broken
+// bin when two groups are drawn (default: its ink).
 export function distChart(groups, opts = {}) {
   const W = opts.width || 420;
   const shown = groups.filter(g => g.vals.length);
@@ -315,11 +331,17 @@ export function distChart(groups, opts = {}) {
   const Y = x => Math.min(x, top) / top * plotH;
   const base = m.t + plotH;
   const svg = s("svg", { class: "chart dist", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": opts.label || "distribution" });
+  // a value on the outcome's scale (a bin's edges); a value the rows have
+  // (a discrete outcome's values, the quantiles), as the cards print it;
+  // and a discrete value on the axis
   const fmtV = opts.fmt || (v => fmtNum(v, opts.digits));
+  const fmtRow = opts.fmtValue || fmtV;
+  const fmtTick = opts.fmtTick || fmtRow;
   for (let b = 0; b < nb; b++) {
     if (!shown.some((_, gi) => share[gi][b] > 0)) continue;
     const g0 = m.l + b * bw + 1, inner = Math.max(1, bw - 2), each = inner / shown.length;
     const bar = s("g", { class: "has-tip" });
+    const cut = [];
     shown.forEach((g, gi) => {
       const x = share[gi][b];
       if (!(x > 0)) return;
@@ -327,10 +349,11 @@ export function distChart(groups, opts = {}) {
       bar.append(s("rect", { x: g0 + gi * each + (shown.length > 1 ? 0.5 : 0), y: base - hgt, width: Math.max(1, each - (shown.length > 1 ? 1 : 0)), height: hgt, rx: 1.5, fill: g.fill }));
       if (brokenAt.has(b) && x > top) {
         bar.append(s("rect", { x: g0 + gi * each, y: base - hgt + 7, width: each + 0.5, height: 2, fill: "var(--surface)" }));
-        svg.append(s("text", { class: "label ink", x: g0 + gi * each + each / 2, y: m.t - 4, "text-anchor": "middle", text: fmtPct(x, x < 0.1 ? 1 : 0) }));
+        cut.push({ text: fmtPct(x, x < 0.1 ? 1 : 0), fill: shown.length > 1 ? g.text || g.ink || g.fill : null });
       }
     });
-    const range = discrete ? fmtV(distinct[b]) : `${fmtV(edges[b])} to ${fmtV(edges[b + 1])}`;
+    if (cut.length) svg.append(cutLabel(cut, g0 + inner / 2, m, W));
+    const range = discrete ? fmtRow(distinct[b]) : `${fmtV(edges[b])} to ${fmtV(edges[b + 1])}`;
     tip(bar, () => h("div", null, h("b", { text: range }),
       shown.map((g, gi) => h("div", { class: "k", text: `${g.label}: ${fmtPct(share[gi][b], share[gi][b] < 0.01 ? 2 : 1)} (${fmtInt(counts[gi][b])} of ${fmtInt(g.vals.length)})` }))));
     svg.append(bar);
@@ -343,7 +366,7 @@ export function distChart(groups, opts = {}) {
   const every = discrete ? Math.max(1, Math.ceil(nb / 10)) : 1;
   ticks.forEach((t, j) => {
     if (j % every) return;
-    svg.append(s("text", { class: "label", x: Math.min(W - m.r - 12, Math.max(m.l + 12, X(t))), y: base + 14, "text-anchor": "middle", text: discrete ? fmtV(t) : fmtNum(t, tickDigits) }));
+    svg.append(s("text", { class: "label", x: Math.min(W - m.r - 12, Math.max(m.l + 12, X(t))), y: base + 14, "text-anchor": "middle", text: discrete ? fmtTick(t) : fmtNum(t, tickDigits) }));
   });
   // each group's spread, on the same axis
   if (boxes) {
@@ -358,9 +381,23 @@ export function distChart(groups, opts = {}) {
       box.append(s("rect", { x: p25, y: y - 3.5, width: Math.max(1.5, p75 - p25), height: 7, rx: 1.5, fill: g.fill }));
       box.append(s("line", { x1: p50, x2: p50, y1: y - 5, y2: y + 5, stroke: "var(--ink)", "stroke-width": 2 }));
       tip(box, () => h("div", null, h("b", { text: g.label }),
-        h("div", { class: "k", text: `median ${fmtV(q(0.5))} · middle half ${fmtV(q(0.25))} to ${fmtV(q(0.75))} · 5th to 95th percentile ${fmtV(q(0.05))} to ${fmtV(q(0.95))}` })));
+        h("div", { class: "k", text: `median ${fmtRow(q(0.5))} · middle half ${fmtRow(q(0.25))} to ${fmtRow(q(0.75))} · 5th to 95th percentile ${fmtRow(q(0.05))} to ${fmtRow(q(0.95))}` })));
       svg.append(box);
     });
   }
   return { svg, outside, discrete };
+}
+
+// A broken bin's label, once over the bin and inside the chart: the share
+// of each group whose bar breaks there, in the order the bars stand, so
+// two groups' shares never print over each other.
+function cutLabel(cut, mid, m, W) {
+  const half = 3.3 * (cut.reduce((n, c) => n + c.text.length, 0) + 3 * (cut.length - 1));
+  const [x, anchor] = mid - half < m.l ? [m.l, "start"] : mid + half > W - m.r ? [W - m.r, "end"] : [mid, "middle"];
+  const text = s("text", { class: "label ink", x, y: m.t - 4, "text-anchor": anchor });
+  cut.forEach((c, k) => {
+    if (k) text.append(s("tspan", { text: " · " }));
+    text.append(s("tspan", { fill: c.fill, text: c.text }));
+  });
+  return text;
 }

@@ -401,6 +401,16 @@ button.sc:hover { background: var(--hover); }
 .col.withheld .bar { background: transparent; box-shadow: inset 0 0 0 1px var(--muted); }
 .col.sel .pt { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--ink); }
 .col.sel .bar { box-shadow: 0 0 0 1.5px var(--ink); }
+/* a withheld value past the scale: a hollow triangle on the edge it
+   passes, pointing past it, or an outlined bar whose far end is dotted,
+   as a cut interval's is */
+.col .past { position: absolute; width: 10px; height: 8px; margin-left: -5px; overflow: visible; }
+.col .past path { fill: var(--surface); stroke: var(--muted); stroke-width: 1.5; stroke-linejoin: round; }
+.col.sel .past path { stroke: var(--ink); }
+.col.withheld:is(.past-hi, .past-lo) .bar { box-shadow: none; border: 1px solid var(--muted); }
+.col.withheld.past-hi .bar { border-top-style: dotted; }
+.col.withheld.past-lo .bar { border-bottom-style: dotted; }
+.col.sel.withheld:is(.past-hi, .past-lo) .bar { border-color: var(--ink); }
 .xl {
   position: absolute; top: 7px; transform: translateX(-50%); font-size: var(--fs-s); line-height: 1.2;
   color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums;
@@ -516,7 +526,7 @@ pre.code .ln { color: var(--muted); user-select: none; }
 .isl-title { margin: 0; font-size: var(--fs-l); font-weight: 600; line-height: 20px; }
 .isl-count { color: var(--muted); font-size: var(--fs-m); }
 .isl-head .search { flex: 1 1 200px; width: auto; max-width: 300px; margin-left: auto; }
-.isl-part + .isl-part { margin-top: var(--sp-5); }
+.isl-part + .isl-part, .island > :not(.isl-head) + .isl-part { margin-top: var(--sp-5); }
 .part-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px var(--sp-2); margin: 0 0 var(--sp-2); font-size: var(--fs-m); font-weight: 600; }
 .part-title .note { font-weight: 400; color: var(--muted); }
 .isl-note { margin: var(--sp-2) 0 0; color: var(--muted); font-size: var(--fs-m); }
@@ -589,7 +599,6 @@ table.suggest th.iv, table.suggest td.iv { width: 34%; min-width: 96px; }
 .pr-map-island { grid-area: map; }
 .island.pending { color: var(--muted); }
 .pr-rows { display: grid; gap: 2px; margin: 0 -8px; }
-.pr-list .isl-note + .isl-part, .pr-list .pr-rows + .isl-part { margin-top: var(--sp-5); }
 .pr-row {
   display: grid; grid-template-columns: minmax(0, 1fr) 56px 52px 64px; align-items: center; gap: var(--sp-3);
   min-height: 34px; padding: 6px 8px; border: 0; border-radius: var(--r-m); background: transparent; color: var(--ink); text-align: left;

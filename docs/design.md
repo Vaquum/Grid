@@ -262,7 +262,9 @@ an agent would have to supply for every new sweep.
    reference (the base, or a nested param's own scope) is the dashed line.
    The best and worst value of a param that moves the needle carry their
    number. Blue marks a param that moves the needle, grey one that does
-   not; a value under 30 rows is hollow.
+   not; a value under 30 rows is hollow. The shown values set the scale,
+   so a hollow value past it sits on the edge it passes: a triangle
+   pointing past it, or a bar whose far end is dotted.
 4. **Tags**: where it acts, dead values, not independent, withheld values,
    an inferred role.
 

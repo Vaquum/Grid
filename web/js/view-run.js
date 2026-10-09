@@ -155,8 +155,9 @@ function setCompare(m, A, on) {
 }
 
 // The colours of what the cards show: the chosen rows in blue against
-// every row in grey; two clusters compared in the first two categorical
-// colours.
+// every row in grey (its share over a broken bin in the secondary ink,
+// which reads as text where the grey does not); two clusters compared in
+// the first two categorical colours.
 function shownGroups(m, sel) {
   if (sel.mode === "compare") {
     return [{ key: "a", label: sel.a.id, rows: sel.a.rows, fill: "var(--cat-1-bar)", ink: "var(--cat-1)" },
@@ -164,7 +165,7 @@ function shownGroups(m, sel) {
   }
   if (sel.mode === "against") {
     return [{ key: "sel", label: sel.label, rows: sel.rows, fill: "var(--data-bar)", ink: "var(--data)" },
-      { key: "all", label: "All rows", rows: m.rows, fill: "var(--off-bar)", ink: "var(--off)" }];
+      { key: "all", label: "All rows", rows: m.rows, fill: "var(--off-bar)", ink: "var(--off)", text: "var(--ink-2)" }];
   }
   return [{ key: "all", label: "All rows", rows: m.rows, fill: "var(--data-bar)", ink: "var(--data)" }];
 }
@@ -262,10 +263,13 @@ function compareToggle(m, A, sel) {
 // Distributions
 
 // The outcomes that get a card: the needle, the ones the clusters are
-// drawn on, and what a row cost to compute.
-function cardOutcomes(m, res) {
+// drawn on, and what a row cost to compute. The clusters are found in the
+// background and stay on screen while rows arrive, so their outcomes are
+// taken by id from the schema of the rows on screen: an outcome of an
+// earlier schema holds the values of its own rows only.
+export function cardOutcomes(m, res) {
   const out = [m.target];
-  const drawn = res && res.outcomes ? res.outcomes.map(o => o.t) : clusterOutcomes(m.schema).map(o => o.t);
+  const drawn = res && res.outcomes ? res.outcomes.map(o => m.schema.targetById.get(o.t.id)) : clusterOutcomes(m.schema).map(o => o.t);
   for (const t of drawn) out.push(t);
   for (const t of m.schema.targets) if (t.cost) out.push(t);
   const seen = new Set();
@@ -333,8 +337,10 @@ const KIND_OF = { activity: "activity", risk: "risk", skill: "model skill" };
 
 function distCard(m, t, groups, drawn, sel, test, q, res) {
   const vals = groups.map(g => sortedVals(t.values, g.rows));
-  const ch = distChart(groups.map((g, i) => ({ label: g.label, fill: g.fill, ink: g.ink, vals: vals[i] })),
-    { fmt: v => fmtT(t, v), label: `${t.label}: how the rows spread` });
+  // values the rows have read as the cards print them: a whole number
+  // whole, a 0/1 outcome no or yes
+  const ch = distChart(groups.map((g, i) => ({ label: g.label, fill: g.fill, ink: g.ink, text: g.text, vals: vals[i] })),
+    { fmt: v => fmtT(t, v), fmtValue: v => fmtRowValue(t, v), fmtTick: v => fmtRowValue(t, v, { unit: false }), label: `${t.label}: how the rows spread` });
   const isNeedle = t.id === m.target.id;
   const card = h("article", { class: "rn-card" + (isNeedle ? " needle" : ""), dataset: { outcome: t.id } });
   const tags = h("span", { class: "rn-tags" });
@@ -607,8 +613,11 @@ function paceIsland(m, health) {
       h("span", { class: "isl-count", text: log ? `log ${(m.sweep.meta.logSources || {})[ds.meta.logId] || "embedded"}` : "no log for this run" })));
   const stats = h("div", { class: "stat-row" });
   const stat = (k, v, d, tp) => { const el = h("div", { class: "stat" + (tp ? " has-tip" : "") }, h("div", { class: "k", text: k }), h("div", { class: "v num", text: v }), d ? h("div", { class: "d", text: d }) : null); if (tp) tip(el, tp); stats.append(el); };
-  if (health.rate) stat("Pace", `${health.rate.rowsPerSec.toFixed(2)} rows/s`, health.rate.from === "log" ? "from the last progress lines" : "from row arrivals, last 5 min");
-  if (health.rate && health.total > ds.n) stat("Remaining", fmtDuration((health.total - ds.n) / health.rate.rowsPerSec), m.sweep.meta.mode === "live" ? "at this pace" : "at the pace when recorded");
+  // a run kept after its results file started over has stopped: its pace
+  // is the one it had, and nothing of it remains to run
+  const kept = !!ds.meta.archivedFrom;
+  if (health.rate) stat("Pace", `${health.rate.rowsPerSec.toFixed(2)} rows/s`, kept ? "before it stopped" : health.rate.from === "log" ? "from the last progress lines" : "from row arrivals, last 5 min");
+  if (health.rate && health.total > ds.n && !kept) stat("Remaining", fmtDuration((health.total - ds.n) / health.rate.rowsPerSec), m.sweep.meta.mode === "live" ? "at this pace" : "at the pace when recorded");
   const sec = m.schema.targets.find(x => x.cost);
   if (sec && m.allRows.length) {
     const s = summarize(sec, m.allRows);
