@@ -1,6 +1,9 @@
 """Reading a Limen result directory: typed CSV fields, records that span
-lines, the manifest, and the CLI on a real run's first 40 rounds
-(tests/fixtures/limen_run, from lightgbm_binary_full on 1h BTCUSDT)."""
+lines, the manifest, the round log, and the CLI on a real run's first 40
+rounds (tests/fixtures/limen_run, from lightgbm_binary_full on 1h
+BTCUSDT; its round_data.jsonl keeps each round's id, index and
+parameters, without the 5,000 predictions and the alignment a round's
+line also holds)."""
 
 from __future__ import annotations
 
@@ -11,8 +14,14 @@ import tempfile
 import unittest
 
 from grid.__main__ import main
-from grid.limen import CsvRecords, csv_value, manifest_copy, read_experiment
-from grid.sweep import Run
+from grid.limen import (
+    CsvRecords,
+    csv_value,
+    manifest_copy,
+    read_experiment,
+    round_record,
+)
+from grid.sweep import Json, Run, Sweep
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "..", "fixtures",
                        "limen_run")
@@ -65,6 +74,74 @@ class CsvRun(unittest.TestCase):
     def test_an_unknown_format_is_refused(self) -> None:
         with self.assertRaisesRegex(ValueError, "jsonl or csv"):
             Run("r0", "x", "results.tsv", None, True, fmt="tsv")
+
+
+class RoundLog(unittest.TestCase):
+    EMPTY = '{"_round_index": 0, "round_params": {}}'
+
+    def test_a_round_line_gives_its_index_and_its_dropped_columns(
+            self) -> None:
+        line = json.dumps({
+            "round_id": "x", "_round_index": 7, "preds": [1, 0],
+            "round_params": {"feature_drop_count": 2,
+                             "_dropped_features": ["roc_24", "minute_cos"]}})
+        self.assertEqual(round_record(line), (7, ["minute_cos", "roc_24"]))
+        # a round that dropped nothing has no _dropped_features at all
+        self.assertEqual(round_record(self.EMPTY), (0, []))
+
+    def test_a_line_that_is_not_a_round_is_refused(self) -> None:
+        cases = [
+            ("[1]", "a JSON object"),
+            ('{"round_params": {}}', "_round_index"),
+            ('{"_round_index": true, "round_params": {}}', "_round_index"),
+            ('{"_round_index": -1, "round_params": {}}', "_round_index"),
+            ('{"_round_index": 3}', "no round_params"),
+            ('{"_round_index": 3, "round_params": '
+             '{"_dropped_features": "a"}}', "not a list"),
+            ("{", ""),
+        ]
+        for line, why in cases:
+            with self.assertRaisesRegex(ValueError, why, msg=line):
+                round_record(line)
+
+    def test_the_run_keeps_its_rounds_and_counts_lines_that_are_not(
+            self) -> None:
+        run = Run("r0", "x", "results.csv", None, True, fmt="csv")
+        for line in [self.EMPTY, "not json", "",
+                     '{"_round_index": 1, "round_params": '
+                     '{"_dropped_features": ["a"]}}']:
+            run.add_round_line(line)
+        self.assertEqual(run.rounds, [[0, []], [1, ["a"]]])
+        self.assertEqual(run.rounds_bad_count, 1)
+        self.assertEqual(run.rounds_bad[0]["line"], 2)
+        run.rounds_restart()
+        self.assertEqual((run.rounds, run.rounds_generation,
+                          run.rounds_bad_count), ([], 1, 0))
+
+    def test_rounds_reach_a_page_in_the_pack_and_as_they_arrive(
+            self) -> None:
+        sweep = Sweep("s")
+        run = Run("r0", "x", "results.csv", None, True, fmt="csv")
+        sweep.add_run(run)
+        sweep.round_line(run, self.EMPTY, True)
+        text, cursor = sweep.pack_text()
+        self.assertEqual(json.loads(text)["runs"][0]["rounds"], [[0, []]])
+        sweep.round_line(run, '{"_round_index": 1, "round_params": '
+                              '{"_dropped_features": ["b", "a"]}}', False)
+
+        def rounds() -> list[Json]:
+            msgs = [json.loads(m) for m in sweep.delta_text(cursor)]
+            return [m for m in msgs if m["type"] == "rounds"]
+
+        self.assertEqual(rounds(), [{"type": "rounds", "run": "r0",
+                                     "reset": False,
+                                     "entries": [[1, ["a", "b"]]]}])
+        # the round log starts over: the page starts its rounds over too
+        sweep.round_reset(run, "was truncated")
+        sweep.round_line(run, self.EMPTY, False)
+        self.assertEqual(rounds(), [{"type": "rounds", "run": "r0",
+                                     "reset": True, "entries": [[0, []]]}])
+        self.assertEqual(sweep.delta_text(cursor), [])
 
 
 class Experiment(unittest.TestCase):
@@ -120,6 +197,25 @@ class PackLimen(unittest.TestCase):
         self.assertEqual(kinds["stop_loss_bps"], "num")
         self.assertEqual(kinds["use_calibration"], "bool")
         self.assertEqual(kinds["_warnings"], "set")
+        # the round log: every round, the columns its ablation dropped
+        self.assertTrue(run["experiment"]["roundLog"].endswith("round_data.jsonl"))
+        self.assertEqual([r[0] for r in run["rounds"]], list(range(40)))
+        self.assertEqual(sum(1 for r in run["rounds"] if r[1]), 33)
+        self.assertEqual(run["roundsBadCount"], 0)
+
+    def test_a_directory_without_a_round_log_says_so(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("metadata.json", "results.csv",
+                         "lightgbm_binary_full.yaml"):
+                with open(os.path.join(FIXTURE, name), "rb") as src, \
+                        open(os.path.join(tmp, name), "wb") as dst:
+                    dst.write(src.read())
+            out = os.path.join(tmp, "pack.json.gz")
+            self.assertEqual(main(["pack", "--limen", tmp, "--out", out]), 0)
+            with gzip.open(out, "rt", encoding="utf-8") as f:
+                run = json.load(f)["runs"][0]
+        self.assertIsNone(run["experiment"]["roundLog"])
+        self.assertEqual(run["rounds"], [])
 
     def test_a_directory_without_metadata_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

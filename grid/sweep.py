@@ -7,6 +7,11 @@ relaunched sweep reopens it for writing), the rows read so far are kept as
 an archived run and the run continues empty with a new generation, so the
 page never loses rows it has shown.
 
+A Limen run also keeps its rounds as round_data.jsonl records them: each
+round's index and the feature columns its ablation dropped, joined to the
+rows by ``_round_index`` on the page (a round's line comes after its row,
+and never for a round that failed).
+
 Lines that are not rows (not a JSON object, or a CSV record whose fields
 do not match the header) are counted per run with their line number and
 the parser's message, and the page shows them.
@@ -23,7 +28,7 @@ from typing import Any
 
 from . import PACK_VERSION, __version__
 from .columns import Store
-from .limen import CsvRecords
+from .limen import CsvRecords, round_record
 from .logparse import LogParser
 
 Json = dict[str, Any]
@@ -54,6 +59,11 @@ class Run:
         self.arrivals = array("d")  # wall time a row arrived; NaN = history
         self.archived_from: str | None = None
         self.resets: list[Json] = []
+        self.rounds: list[list[Any]] = []   # [round index, dropped columns]
+        self.rounds_generation = 0
+        self.rounds_lines = 0
+        self.rounds_bad: list[Json] = []
+        self.rounds_bad_count = 0
 
     def meta(self) -> Json:
         return {"id": self.id, "label": self.label, "source": self.source,
@@ -63,7 +73,9 @@ class Run:
                 "lines": self.lines, "badCount": self.bad_count,
                 "bad": self.bad, "schemaEvents": self.store.events,
                 "archivedFrom": self.archived_from, "resets": self.resets,
-                "format": self.fmt, "experiment": self.experiment}
+                "format": self.fmt, "experiment": self.experiment,
+                "roundsBadCount": self.rounds_bad_count,
+                "roundsBad": self.rounds_bad}
 
     def add_line(self, text: str, now: float | None) -> None:
         self.lines += 1
@@ -94,6 +106,30 @@ class Run:
             self.records.header = fields
             return None
         return self.records.row(fields)
+
+    def add_round_line(self, text: str) -> None:
+        """A line of the run's round log; one that is not a round is
+        counted with its reason, as a bad results line is."""
+        self.rounds_lines += 1
+        if not text.strip():
+            return
+        try:
+            index, dropped = round_record(text)
+        except ValueError as exc:
+            self.rounds_bad_count += 1
+            if len(self.rounds_bad) < BAD_KEEP:
+                self.rounds_bad.append({"line": self.rounds_lines,
+                                        "error": str(exc),
+                                        "text": text[:300]})
+            return
+        self.rounds.append([index, dropped])
+
+    def rounds_restart(self) -> None:
+        """Empty, for the next generation of the round log."""
+        self.rounds = []
+        self.rounds_generation += 1
+        self.rounds_lines = 0
+        self.rounds_bad, self.rounds_bad_count = [], 0
 
     def restart(self) -> None:
         """Empty, for the next generation of the same file."""
@@ -147,6 +183,9 @@ class Sweep:
                 old.bad, old.bad_count = run.bad, run.bad_count
                 old.arrivals, old.generation = run.arrivals, run.generation
                 old.archived_from = run.id
+                # the rounds are the experiment's, read again only when
+                # the round log itself starts over
+                old.rounds = list(run.rounds)
                 self.runs.insert(self.runs.index(run), old)
             run.resets.append({"at": time.time(), "reason": reason,
                                "rows": run.store.rows})
@@ -170,6 +209,19 @@ class Sweep:
                 if log.tb is not None:
                     log.flush()
                     self._bump()
+
+    def round_line(self, run: Run, text: str, preload: bool) -> None:
+        with self.lock:
+            run.add_round_line(text)
+            self._bump()
+
+    def round_reset(self, run: Run, reason: str) -> None:
+        with self.lock:
+            self.errors.append({"at": time.time(),
+                                "message": "round log of %s %s; reading it "
+                                           "again" % (run.label, reason)})
+            run.rounds_restart()
+            self._bump()
 
     def log_reset(self, log_id: str, reason: str) -> None:
         with self.lock:
@@ -212,8 +264,12 @@ class Sweep:
                 for j, col in enumerate(r.store.export_iter()):
                     parts.append(("," if j else "") + col)
                 parts.append('],"arrivals":' +
-                             json.dumps(_arrivals(r.arrivals, 0)) + "}")
+                             json.dumps(_arrivals(r.arrivals, 0)) +
+                             ',"rounds":' +
+                             json.dumps(r.rounds, separators=(",", ":")) +
+                             "}")
                 cursor.runs[r.id] = (r.generation, r.store.rows)
+                cursor.rounds[r.id] = (r.rounds_generation, len(r.rounds))
             for k, v in self.logs.items():
                 cursor.progress[k] = v.progress_cursor()
                 cursor.log_lines[k] = v.lines
@@ -237,10 +293,13 @@ class Sweep:
                 return []
             for r in self.runs:
                 gen, rows = cursor.runs.get(r.id, (-1, 0))
+                rgen, sent = cursor.rounds.get(r.id, (-1, 0))
                 if gen != r.generation:
                     msgs.append({"type": "run", "run": r.meta(),
                                  "known": gen != -1})
                     rows = 0
+                    # a page starts that run afresh, rounds and all
+                    rgen, sent = -1, 0
                 if r.store.rows > rows:
                     msgs.append({"type": "rows", "run": r.id,
                                  "generation": r.generation,
@@ -250,6 +309,13 @@ class Sweep:
                                  "arrivals": _arrivals(r.arrivals, rows),
                                  "meta": r.meta()})
                 cursor.runs[r.id] = (r.generation, r.store.rows)
+                reset = rgen not in (-1, r.rounds_generation)
+                if reset:
+                    sent = 0
+                if reset or len(r.rounds) > sent:
+                    msgs.append({"type": "rounds", "run": r.id,
+                                 "reset": reset, "entries": r.rounds[sent:]})
+                cursor.rounds[r.id] = (r.rounds_generation, len(r.rounds))
             for k, log in self.logs.items():
                 if log.lines == cursor.log_lines.get(k, -1):
                     continue
@@ -270,11 +336,12 @@ class Sweep:
 
 
 class Cursor:
-    """What one page holds: per run (generation, rows), per log what it
-    has read."""
+    """What one page holds: per run (generation, rows) and (round log
+    generation, rounds), per log what it has read."""
 
     def __init__(self) -> None:
         self.runs: dict[str, tuple[int, int]] = {}
+        self.rounds: dict[str, tuple[int, int]] = {}
         self.progress: dict[str, dict[int, int]] = {}
         self.log_lines: dict[str, int] = {}
         self.version = -1

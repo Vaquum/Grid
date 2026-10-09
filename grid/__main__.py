@@ -45,7 +45,7 @@ from .follow import (
     list_remote,
     read_remote,
 )
-from .limen import experiment_name, manifest_copy, read_experiment
+from .limen import ROUND_LOG, experiment_name, manifest_copy, read_experiment
 from .server import serve
 from .sweep import Json, Run, Sweep
 
@@ -154,7 +154,7 @@ class Wiring:
     def add_run(self, run_id: str, label: str, path: str,
                 segment: int | None, live: bool,
                 log_id: str | None, fmt: str = "jsonl",
-                experiment: Json | None = None) -> None:
+                experiment: Json | None = None) -> Run:
         run = Run(run_id, label, self.shown(path), segment, live, log_id,
                   fmt, experiment)
         self.sweep.add_run(run)
@@ -162,6 +162,25 @@ class Wiring:
         self.followers.append(self._follower(
             path, lambda text, pre: sweep.run_line(run, text, pre),
             lambda reason: sweep.run_reset(run, reason)))
+        return run
+
+    def add_round_log(self, run: Run, directory: str) -> None:
+        """Follow a Limen run's round_data.jsonl, when its directory has
+        one; the experiment says which (``roundLog``, or None)."""
+        a = self.args
+        assert run.experiment is not None
+        names = (list_remote(a.ssh, directory) if a.ssh
+                 else os.listdir(directory))
+        if ROUND_LOG not in names:
+            run.experiment["roundLog"] = None
+            return
+        join = posixpath.join if a.ssh else os.path.join
+        path = join(directory, ROUND_LOG)
+        run.experiment["roundLog"] = self.shown(path)
+        sweep = self.sweep
+        self.followers.append(self._follower(
+            path, lambda text, pre: sweep.round_line(run, text, pre),
+            lambda reason: sweep.round_reset(run, reason)))
 
     def add_log(self, path: str) -> str:
         """Follow a log once, however many runs share it; its id."""
@@ -188,8 +207,9 @@ class Wiring:
                          log_id)
         if a.limen:
             label = a.label or os.path.basename(a.limen.rstrip("/"))
-            self.add_run("r0", label, self.results_path(), None, True,
-                         main_log, "csv", self.experiment)
+            run = self.add_run("r0", label, self.results_path(), None, True,
+                               main_log, "csv", self.experiment)
+            self.add_round_log(run, a.limen)
         else:
             self.add_run("r0", a.label or "current", a.results, None, True,
                          main_log)

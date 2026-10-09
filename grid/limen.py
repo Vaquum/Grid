@@ -7,6 +7,9 @@ appends one line to ``results.csv`` as each round finishes: the metrics,
 then every parameter, then the round's own bookkeeping. The manifest says
 which columns are parameters, so nothing is inferred about them; its copy
 is kept as written, comments and all, for the page to show and narrow.
+After a round that succeeded, it appends the round to ``round_data.jsonl``
+(its parameters as the round used them, and its predictions); from it the
+page learns which feature columns the round's ablation dropped.
 
 CSV carries no types. Limen writes ``None`` as an empty field and Python
 booleans as ``True``/``False``; numbers and JSON lists (``_warnings``) are
@@ -23,6 +26,7 @@ from typing import Any, cast
 
 Json = dict[str, Any]
 _INT = re.compile(r"[+-]?\d+\Z")
+ROUND_LOG = "round_data.jsonl"
 
 
 def manifest_copy(names: Iterable[str], directory: str) -> str:
@@ -113,3 +117,34 @@ class CsvRecords:
                              % (len(fields), len(self.header)))
         return {k: csv_value(v)
                 for k, v in zip(self.header, fields, strict=True)}
+
+
+def round_record(text: str) -> tuple[int, list[str]]:
+    """One line of a Limen run's round_data.jsonl: the round's index and
+    the feature columns its ablation dropped.
+
+    ``limen run`` writes the line after the round's results.csv row, and
+    only for a round that succeeded. Its ``round_params`` hold
+    ``_dropped_features`` (sorted) when the round dropped any; results.csv
+    cannot carry them, as its columns are fixed by the first round. The
+    predictions on the line are not read.
+    """
+    raw: Any = json.loads(text)
+    if not isinstance(raw, dict):
+        raise ValueError("a round line is a JSON object")
+    rec = cast(Json, raw)
+    index: Any = rec.get("_round_index")
+    params: Any = rec.get("round_params")
+    if not isinstance(index, int) or isinstance(index, bool) or index < 0:
+        raise ValueError("a round line needs a _round_index, got %r"
+                         % (index,))
+    if not isinstance(params, dict):
+        raise ValueError("round %d has no round_params" % index)
+    dropped: Any = cast(Json, params).get("_dropped_features")
+    if dropped is None:
+        return index, []
+    if not isinstance(dropped, list) or not all(
+            isinstance(c, str) for c in cast(list[Any], dropped)):
+        raise ValueError("round %d: _dropped_features is not a list of "
+                         "column names" % index)
+    return index, sorted(cast(list[str], dropped))

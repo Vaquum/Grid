@@ -183,10 +183,21 @@ export class Dataset {
     this.cols = new Map();
     this.order = [];
     this.arrivals = new Float64Array(0);
+    // a Limen run's rounds as its round log records them: round index ->
+    // the feature columns its ablation dropped
+    this.rounds = new Map();
     this.version = 0;
   }
 
   col(name) { return this.cols.get(name); }
+
+  // Rounds from the round log, in the order they were written; a reset
+  // starts the map over (the log was truncated or replaced).
+  addRounds(entries, reset = false) {
+    if (reset) this.rounds = new Map();
+    for (const [index, dropped] of entries) this.rounds.set(index, dropped);
+    this.version++;
+  }
 
   // Append rows [lo, hi) from an export (a whole pack has lo = 0).
   append(lo, hi, columns, arrivals) {
@@ -221,8 +232,10 @@ export function decodePack(pack) {
   const runs = pack.runs.map(r => {
     const ds = new Dataset(r);
     ds.append(0, r.rows, r.columns, r.arrivals);
+    if (r.rounds) ds.addRounds(r.rounds);
     delete r.columns;
     delete r.arrivals;
+    delete r.rounds;
     return ds;
   });
   return { meta: pack, runs, logs: pack.logs || {} };

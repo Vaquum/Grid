@@ -157,6 +157,10 @@ function applyMessage(msg) {
     if (!ds) { console.error("rows for an unknown run", msg.run); return; }
     ds.append(msg.lo, msg.hi, msg.columns, msg.arrivals);
     ds.meta = msg.meta;
+  } else if (msg.type === "rounds") {
+    const ds = sw.runs.find(r => r.id === msg.run);
+    if (!ds) { console.error("rounds for an unknown run", msg.run); return; }
+    ds.addRounds(msg.entries, msg.reset);
   } else if (msg.type === "log") {
     mergeLog(sw, msg.logId, msg.log);
   } else if (msg.type === "meta") {
