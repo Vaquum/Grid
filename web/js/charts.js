@@ -2,7 +2,7 @@
 // lines, dots with a 2px surface ring, intervals as thin bars, withheld
 // values hollow. Every mark answers hover and focus with its numbers.
 
-import { h, s, tip, fmtT, fmtDelta, fmtInt, fmtNum } from "./ui.js";
+import { h, s, tip, fmtT, fmtDelta, fmtInt, fmtNum, fmtPct } from "./ui.js";
 
 // A horizontal domain for interval bars (the inspector's table): every
 // shown level mean and interval, plus the base, with a little air.
@@ -238,4 +238,126 @@ export function passHistogram(values, passOf, rows, opts = {}) {
     svgEl.append(s("text", { class: "label ink", x: x + (right ? -5 : 5), y: m.t - 5, "text-anchor": right ? "end" : "start", text: opts.needLabel || "need" }));
   }
   return { svg: svgEl, outside };
+}
+
+// A value's quantile in sorted values (linear between order statistics).
+export function quantile(sorted, f) {
+  const n = sorted.length;
+  if (!n) return NaN;
+  const x = f * (n - 1), i = Math.floor(x), r = x - i;
+  return i + 1 < n ? sorted[i] + r * (sorted[i + 1] - sorted[i]) : sorted[n - 1];
+}
+
+// Where one or two groups of rows sit on an outcome: each group's share of
+// its own rows in each bin (so a small group reads against a large one),
+// side by side, and under the axis each group's middle half (box), its
+// 5th to 95th percentile (whisker) and its median (tick). An outcome with
+// a dozen whole values or fewer gets a bar per value. Bins span the 1st to
+// 99th percentile of the rows drawn (`outside` counts the rest). One bin
+// far taller than the rest (most rounds at exactly 0) is drawn broken at
+// twice the next, with its share, so the rest stay readable.
+//
+// groups: [{ label, fill, vals }] with vals the group's values, sorted.
+export function distChart(groups, opts = {}) {
+  const W = opts.width || 420;
+  const shown = groups.filter(g => g.vals.length);
+  if (!shown.length) return { svg: h("p", { class: "muted", text: "No row has a value." }), outside: 0, discrete: false };
+  const pooled = [].concat(...shown.map(g => Array.from(g.vals))).sort((a, b) => a - b);
+  const N = pooled.length;
+  const distinct = [];
+  for (const v of pooled) if (v !== distinct[distinct.length - 1]) { distinct.push(v); if (distinct.length > 12) break; }
+  const discrete = distinct.length <= 12 && distinct.every(Number.isInteger);
+  const boxes = !(discrete && distinct.length <= 2);
+  const m = { l: 6, r: 6, t: 16, b: 20 };
+  const plotH = opts.plotHeight || 78, boxH = boxes ? 10 * shown.length + 6 : 0;
+  const H = m.t + plotH + m.b + boxH;
+  let edges = null, lo, hi, nb;
+  if (discrete) {
+    nb = distinct.length;
+    lo = distinct[0] - 0.5; hi = distinct[nb - 1] + 0.5;
+  } else {
+    lo = N >= 200 ? quantile(pooled, 0.01) : pooled[0];
+    hi = N >= 200 ? quantile(pooled, 0.99) : pooled[N - 1];
+    if (!(hi > lo)) { lo -= 1; hi += 1; }
+    nb = shown.length > 1 ? 24 : 30;
+    edges = Array.from({ length: nb + 1 }, (_, b) => lo + (hi - lo) * b / nb);
+  }
+  // discrete: the bar of each value at its place; continuous: equal bins
+  const at = discrete ? v => distinct.indexOf(v) : v => (v < lo || v > hi ? -1 : Math.min(nb - 1, Math.floor((v - lo) / (hi - lo) * nb)));
+  let outside = 0;
+  const share = shown.map(g => {
+    const c = new Float64Array(nb);
+    for (const v of g.vals) { const b = at(v); if (b < 0) { outside++; continue; } c[b]++; }
+    return Float64Array.from(c, x => x / g.vals.length);
+  });
+  const counts = shown.map((g, gi) => Array.from(share[gi], x => Math.round(x * g.vals.length)));
+  const tall = Array.from({ length: nb }, (_, b) => Math.max(...share.map(sh => sh[b])));
+  const order = tall.map((x, b) => [x, b]).sort((a, b) => b[0] - a[0]);
+  let top = Math.max(1e-9, order[0][0]);
+  const brokenAt = new Set();
+  if (nb > 1 && order[0][0] > 4 * Math.max(1e-9, order[1][0])) {
+    top = 2 * order[1][0] || order[0][0];
+    for (let b = 0; b < nb; b++) if (tall[b] > top) brokenAt.add(b);
+  }
+  const bw = (W - m.l - m.r) / nb;
+  // a discrete outcome's values sit at their bars' centres, in order
+  const X = discrete
+    ? v => {
+      if (v <= distinct[0]) return m.l + bw / 2;
+      for (let j = 0; j + 1 < nb; j++) {
+        if (v <= distinct[j + 1]) return m.l + (j + 0.5 + (v - distinct[j]) / (distinct[j + 1] - distinct[j])) * bw;
+      }
+      return m.l + (nb - 0.5) * bw;
+    }
+    : v => m.l + (v - lo) / (hi - lo) * (W - m.l - m.r);
+  const Y = x => Math.min(x, top) / top * plotH;
+  const base = m.t + plotH;
+  const svg = s("svg", { class: "chart dist", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": opts.label || "distribution" });
+  const fmtV = opts.fmt || (v => fmtNum(v, opts.digits));
+  for (let b = 0; b < nb; b++) {
+    if (!shown.some((_, gi) => share[gi][b] > 0)) continue;
+    const g0 = m.l + b * bw + 1, inner = Math.max(1, bw - 2), each = inner / shown.length;
+    const bar = s("g", { class: "has-tip" });
+    shown.forEach((g, gi) => {
+      const x = share[gi][b];
+      if (!(x > 0)) return;
+      const hgt = Math.max(1, Y(x));
+      bar.append(s("rect", { x: g0 + gi * each + (shown.length > 1 ? 0.5 : 0), y: base - hgt, width: Math.max(1, each - (shown.length > 1 ? 1 : 0)), height: hgt, rx: 1.5, fill: g.fill }));
+      if (brokenAt.has(b) && x > top) {
+        bar.append(s("rect", { x: g0 + gi * each, y: base - hgt + 7, width: each + 0.5, height: 2, fill: "var(--surface)" }));
+        svg.append(s("text", { class: "label ink", x: g0 + gi * each + each / 2, y: m.t - 4, "text-anchor": "middle", text: fmtPct(x, x < 0.1 ? 1 : 0) }));
+      }
+    });
+    const range = discrete ? fmtV(distinct[b]) : `${fmtV(edges[b])} to ${fmtV(edges[b + 1])}`;
+    tip(bar, () => h("div", null, h("b", { text: range }),
+      shown.map((g, gi) => h("div", { class: "k", text: `${g.label}: ${fmtPct(share[gi][b], share[gi][b] < 0.01 ? 2 : 1)} (${fmtInt(counts[gi][b])} of ${fmtInt(g.vals.length)})` }))));
+    svg.append(bar);
+  }
+  svg.append(s("line", { class: "axis", x1: m.l, x2: W - m.r, y1: base, y2: base }));
+  // the axis: each value of a discrete outcome, else round ticks
+  const ticks = discrete ? distinct : niceTicks(lo, hi, 5);
+  const step = !discrete && ticks.length > 1 ? ticks[1] - ticks[0] : 1;
+  const tickDigits = discrete ? 0 : Math.min(6, Math.max(0, Math.ceil(-Math.log10(step) - 1e-9)));
+  const every = discrete ? Math.max(1, Math.ceil(nb / 10)) : 1;
+  ticks.forEach((t, j) => {
+    if (j % every) return;
+    svg.append(s("text", { class: "label", x: Math.min(W - m.r - 12, Math.max(m.l + 12, X(t))), y: base + 14, "text-anchor": "middle", text: discrete ? fmtV(t) : fmtNum(t, tickDigits) }));
+  });
+  // each group's spread, on the same axis
+  if (boxes) {
+    shown.forEach((g, gi) => {
+      const y = base + m.b + 4 + gi * 10;
+      const clamp = v => Math.min(W - m.r, Math.max(m.l, X(v)));
+      const q = f => quantile(g.vals, f);
+      const p5 = clamp(q(0.05)), p25 = clamp(q(0.25)), p50 = clamp(q(0.5)), p75 = clamp(q(0.75)), p95 = clamp(q(0.95));
+      const box = s("g", { class: "has-tip dist-box" });
+      box.append(s("line", { x1: p5, x2: p95, y1: y, y2: y, stroke: g.ink || g.fill, "stroke-width": 1.25 }));
+      box.append(s("rect", { x: p25, y: y - 3.5, width: Math.max(1.5, p75 - p25), height: 7, rx: 1.5, fill: g.fill }));
+      box.append(s("line", { x1: p50, x2: p50, y1: y - 5, y2: y + 5, stroke: "var(--ink)", "stroke-width": 2 }));
+      tip(box, () => h("div", null, h("b", { text: g.label }),
+        h("div", { class: "k", text: `median ${fmtV(q(0.5))} · middle half ${fmtV(q(0.25))} to ${fmtV(q(0.75))} · 5th to 95th percentile ${fmtV(q(0.05))} to ${fmtV(q(0.95))}` })));
+      svg.append(box);
+    });
+  }
+  return { svg, outside, discrete };
 }

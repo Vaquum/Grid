@@ -19,16 +19,18 @@ export function moderatorParents(schema) {
 // snapshot of the rows, so the page stays responsive. A finished result
 // stays on screen while new rows arrive (it says how many rows it covers)
 // and is refreshed once the rows have grown by 5% or 30 seconds have
-// passed; a new target, context or edge starts over at once.
-export function background(m, name, compute, done) {
+// passed; a new target, context or edge starts over at once. `akey` is the
+// question the result answers (by default the model's, which includes the
+// target; an analysis that does not read the target passes its own).
+export function background(m, name, compute, done, akey = m.cache.akey) {
   const c = m.cache;
   const slot = c[name] || (c[name] = { result: null, akey: null, rows: 0, at: 0, running: null });
-  const fresh = slot.result && slot.akey === c.akey;
+  const fresh = slot.result && slot.akey === akey;
   const grown = m.rows.length > slot.rows * 1.05 || Date.now() - slot.at > 30000;
-  if (slot.running && slot.running.akey !== c.akey) slot.running.cancelled = true;
+  if (slot.running && slot.running.akey !== akey) slot.running.cancelled = true;
   if (slot.running && !slot.running.cancelled) return fresh ? slot.result : null;
   if (fresh && (m.rows.length === slot.rows || !grown)) return slot.result;
-  const job = { akey: c.akey, cancelled: false };
+  const job = { akey, cancelled: false };
   slot.running = job;
   const steps = compute(m);
   const step = () => {
