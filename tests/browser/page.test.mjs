@@ -425,6 +425,15 @@ test("run: a Limen run's clusters, one against every row, two compared, and anot
   assert.equal(await page.locator('.rn-card[data-outcome="backtest_pnl_per_bar_bps"] .rn-diff').count(), 0);
   assert.match(await page.locator('.rn-card[data-outcome="execution_time"] .rn-diff').innerText(), /q/);
   assert.equal(await page.locator(".rn-apart .isl-title").innerText(), "What sets A apart");
+  // a bin where both groups' bars break says their shares once, in the
+  // order the bars stand, and no two such labels cross
+  const cuts = await page.locator(".rn-card svg.dist text.label.ink").allTextContents();
+  assert.ok(cuts.some(t => /^\d+% · \d+%$/.test(t)), cuts.join(" | "));
+  const crossed = await page.$$eval(".rn-card svg.dist", svgs => svgs.filter(svg => {
+    const rs = [...svg.querySelectorAll("text.label.ink")].map(t => t.getBoundingClientRect());
+    return rs.some((a, i) => rs.slice(i + 1).some(b => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom));
+  }).map(svg => svg.closest(".rn-card").dataset.outcome));
+  assert.deepEqual(crossed, []);
   // Compare: A against B
   await page.locator(".rn-compare").click();
   await page.locator('.rn-chip[data-cluster="B"]').click();
