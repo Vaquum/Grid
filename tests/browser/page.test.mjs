@@ -200,7 +200,8 @@ test("a Limen run reads with its manifest's parameters and Limen's metrics", asy
   await page.close();
 });
 
-test("live: rows stream in from a running sweep", async () => {
+// A live sweep for the duration of one test: its page URL and a stop.
+async function liveSweep() {
   const live = mkdtempSync(join(tmpdir(), "tessera-live-"));
   const proc = spawn("python3", ["tools/live_demo.py", "--out", live, "--port", "0", "--rate", "20"], { cwd: ROOT });
   const url = await new Promise((resolve, reject) => {
@@ -209,23 +210,71 @@ test("live: rows stream in from a running sweep", async () => {
     proc.stdout.on("data", d => { out += d; const m = /at (http:\/\/127\.0\.0\.1:\d+\/)/.exec(out); if (m) { clearTimeout(t); resolve(m[1]); } });
     proc.stderr.on("data", d => { out += d; });
   });
+  return { url, stop: () => proc.kill() };
+}
+
+const shownRows = page => page.evaluate(() => Number(document.querySelector(".progress-text").textContent.split(" rows")[0].replace(/,/g, "")));
+
+// Wait until more rows are on screen than now, then one more redraw.
+async function moreRows(page, by = 30) {
+  const n = await shownRows(page);
+  await page.waitForFunction(([want]) => Number(document.querySelector(".progress-text").textContent.split(" rows")[0].replace(/,/g, "")) >= want, [n + by], { timeout: 20000 });
+  await page.waitForTimeout(1500);
+}
+
+test("live: arriving rows leave the reader's controls alone", async () => {
+  const sweep = await liveSweep();
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     const errors = [];
     page.on("pageerror", e => errors.push(String(e)));
-    await page.goto(url);
+    await page.goto(sweep.url);
     await page.waitForSelector(".status[data-kind=live]", { timeout: 15000 });
-    const rows = async () => Number((await page.locator(".progress-text").innerText()).split(" rows")[0].replace(/,/g, ""));
-    const first = await rows();
-    await page.waitForFunction((n) => {
-      const t = document.querySelector(".progress-text").textContent;
-      return Number(t.split(" rows")[0].replace(/,/g, "")) > n;
-    }, first, { timeout: 20000 });
-    assert.ok(await rows() > first);
+    await page.waitForSelector(".pcard");
+    // the needle select: the same element and options, still focused
+    const select = await page.$("#target-pick");
+    const option = await page.$("#target-pick option");
+    await select.focus();
+    await moreRows(page);
+    assert.equal(await select.evaluate(el => el.isConnected && document.activeElement === el), true, "the needle select was replaced or lost focus");
+    assert.equal(await option.evaluate(el => el.isConnected), true, "the needle options were rebuilt");
+    // the inspector keeps its scroll while the same parameter is open
+    await page.locator(".pcard .pc-name", { hasText: /^model$/ }).click();
+    await page.waitForSelector("#inspector .part");
+    const scrolled = await page.evaluate(() => { const el = document.getElementById("inspector"); el.scrollTop = 400; return el.scrollTop; });
+    assert.ok(scrolled > 0, "the inspector has room to scroll");
+    await moreRows(page);
+    assert.equal(await page.evaluate(() => document.getElementById("inspector").scrollTop), scrolled);
+    // the pocket's search keeps what was typed, its focus and its caret
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("2");
+    await page.locator("input[data-search]").click();
+    await page.keyboard.type("lea");
+    await page.keyboard.press("ArrowLeft");
+    await moreRows(page);
+    assert.deepEqual(await page.evaluate(() => { const el = document.activeElement; return [el.dataset.focus, el.value, el.selectionStart]; }), ["pocket-search", "lea", 2]);
     assert.deepEqual(errors, []);
     await page.close();
   } finally {
-    proc.kill();
+    sweep.stop();
+  }
+});
+
+test("live: rows stream in from a running sweep", async () => {
+  const sweep = await liveSweep();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const errors = [];
+    page.on("pageerror", e => errors.push(String(e)));
+    await page.goto(sweep.url);
+    await page.waitForSelector(".status[data-kind=live]", { timeout: 15000 });
+    const first = await shownRows(page);
+    await moreRows(page, 1);
+    assert.ok(await shownRows(page) > first);
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    sweep.stop();
   }
 });
 

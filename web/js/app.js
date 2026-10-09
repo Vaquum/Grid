@@ -35,7 +35,7 @@ const DEFAULT_STATE = {
 
 const app = {
   config: null, sweep: null, state: null, cache: {}, live: null, playback: null,
-  els: {}, lastBest: new Map(), started: Date.now(),
+  els: {}, top: null, lastBest: new Map(), started: Date.now(),
 };
 
 // ---------------------------------------------------------------------------
@@ -268,22 +268,44 @@ function update() {
   const view = app.els.view;
   const sameView = app.lastView === app.state.view;
   app.lastView = app.state.view;
-  const scroll = sameView ? view.scrollTop : 0;
-  const focusId = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.focus : null;
-  clear(view);
   const render = { board: renderBoard, pocket: renderPocket, pairs: renderPairs, features: renderFeatures,
     trials: renderTrials, gates: renderGates, run: renderRun }[app.state.view] || renderBoard;
-  try {
-    if (!m.rows.length && app.state.view !== "run") renderNoRows(view, m);
-    else render(view, m, ACTIONS);
-  } catch (err) {
-    console.error(err);
-    view.append(h("div", { class: "empty" }, h("b", { text: "This view failed to draw. " }), String(err && err.message || err)));
-  }
-  view.scrollTop = scroll;
-  if (focusId) { const el = view.querySelector(`[data-focus="${CSS.escape(focusId)}"]`); if (el) el.focus({ preventScroll: true }); }
-  renderInspector(app.els.insp, m, ACTIONS);
+  redraw(view, sameView, () => {
+    try {
+      if (!m.rows.length && app.state.view !== "run") renderNoRows(view, m);
+      else render(view, m, ACTIONS);
+    } catch (err) {
+      console.error(err);
+      view.append(h("div", { class: "empty" }, h("b", { text: "This view failed to draw. " }), String(err && err.message || err)));
+    }
+  });
+  // the inspector keeps its place while the same parameter or row stays
+  // open in it (choosing one of its values included)
+  const sel = app.state.sel;
+  const selKey = !sel ? null : sel.kind === "row" ? `row:${sel.i}` : `dim:${sel.kind === "dim" ? sel.id : sel.dim}`;
+  redraw(app.els.insp, selKey !== null && app.lastSel === selKey, () => renderInspector(app.els.insp, m, ACTIONS));
+  app.lastSel = selKey;
   app.els.root.dataset.insp = app.state.sel ? "open" : "closed";
+}
+
+// Redraw a container, keeping what the reader is doing in it while it shows
+// the same thing: its scroll and its inner lists' ([data-scroll]), and the
+// focused control ([data-focus]) with its caret.
+function redraw(el, same, draw) {
+  const scroll = same ? el.scrollTop : 0;
+  const inner = same ? new Map([...el.querySelectorAll("[data-scroll]")].map(x => [x.dataset.scroll, x.scrollTop])) : new Map();
+  const active = document.activeElement;
+  const focusId = same && active && el.contains(active) && active.dataset ? active.dataset.focus : null;
+  const caret = focusId && typeof active.selectionStart === "number" ? [active.selectionStart, active.selectionEnd] : null;
+  clear(el);
+  draw();
+  el.scrollTop = scroll;
+  for (const x of el.querySelectorAll("[data-scroll]")) if (inner.has(x.dataset.scroll)) x.scrollTop = inner.get(x.dataset.scroll);
+  if (!focusId) return;
+  const x = el.querySelector(`[data-focus="${CSS.escape(focusId)}"]`);
+  if (!x) return;
+  x.focus({ preventScroll: true });
+  if (caret && typeof x.setSelectionRange === "function") x.setSelectionRange(caret[0], caret[1]);
 }
 
 // Nothing to measure: say why, and how to get rows back.
@@ -298,65 +320,115 @@ function renderNoRows(view, m) {
       m.context.length ? h("button", { class: "btn", onclick: () => setState({ context: [] }) }, "Clear the context ", h("kbd", { text: "Shift C" })) : null)));
 }
 
-function updateTop(m0) {
-  if (!app.sweep) return;
-  const m = m0 || model();
+// The top bar is built once. An update changes only what has changed, so
+// a control under the reader's hand (an open select, a button being
+// pressed) survives rows arriving and the clock ticking.
+function buildTop() {
   const t = app.els.top;
   clear(t);
-  const ds = m.ds;
-  const runs = app.sweep.runs;
-  const runSel = h("select", { class: "run-pick", id: "run-pick", "aria-label": "Run" },
-    runs.map(r => h("option", { value: r.id, selected: r.id === ds.id ? "selected" : null, text: `${r.meta.label} · ${fmtInt(r.n)} rows` })));
-  runSel.addEventListener("change", () => setState({ run: runSel.value, sel: null, context: [], pocket: [], edge: null }));
-  const health = runHealth(m);
-  const st = statusOf(m);
-  const pill = h("span", { class: "status", dataset: { kind: st.kind } }, h("b", { text: st.label }), st.detail ? h("span", { class: "detail", text: `· ${st.detail}` }) : null);
-  tip(pill, st.tip);
-  t.append(h("div", { class: "sweep" },
-    h("div", { class: "sweep-line" },
-      h("span", { class: "sweep-name", text: app.sweep.meta.name || "sweep" }),
-      runs.length > 1 ? runSel : null, pill),
-    h("span", { class: "progress-text num", text: health.line })));
-  // target and context
-  const targets = m.schema.targets.filter(x => !x.diagnostic);
-  const tsel = h("select", { id: "target-pick", "aria-label": "Target" },
-    h("optgroup", { label: "Outcome" }, targets.filter(x => !x.gate).map(x => h("option", { value: x.id, selected: x.id === m.target.id ? "selected" : null, text: x.label }))),
-    h("optgroup", { label: "Gates passing" }, targets.filter(x => x.gate).map(x => h("option", { value: x.id, selected: x.id === m.target.id ? "selected" : null, text: x.label }))),
-    h("optgroup", { label: "Fit diagnostics" }, m.schema.targets.filter(x => x.diagnostic).map(x => h("option", { value: x.id, selected: x.id === m.target.id ? "selected" : null, text: x.label }))));
-  tsel.addEventListener("change", () => setState({ target: tsel.value }));
-  const picker = h("label", { class: "picker" }, h("span", { class: "label", text: "Needle" }), tsel);
-  tip(picker, () => h("div", null, h("b", { text: m.target.label }), h("div", { text: m.target.definition || `${m.target.unit || "value"}; ${m.target.better > 0 ? "higher is better" : m.target.better < 0 ? "lower is better" : "no better direction"}` }), h("div", { class: "k" }, "Key ", h("kbd", { text: "T" }))));
-  const chips = h("div", { class: "chips" });
-  for (const cnd of m.context) {
-    const d = m.schema.dimById.get(cnd.dim);
-    const labels = cnd.keys.map(k => (d.levels.find(l => l.key === k) || { label: k }).label);
-    chips.append(h("span", { class: "chip" },
-      h("span", { class: "mono", text: `${d.label} = ${labels.join(" or ")}` }),
-      h("button", { "aria-label": `Remove ${d.label} from the context`, onclick: () => setState({ context: app.state.context.filter(x => x !== cnd) }), text: "×" })));
-  }
-  if (!m.context.length) chips.append(h("span", { class: "chip ghost", text: "All rows" }));
-  else chips.append(h("span", { class: "muted num", text: `${fmtInt(m.rows.length)} of ${fmtInt(m.allRows.length)} rows` }));
-  t.append(h("div", { class: "top-mid" }, picker, chips));
-  // replay transport and tools
-  const right = h("div", { class: "top-right" });
-  const playing = !!app.playback;
-  right.append(
+  const els = {};
+  els.name = h("span", { class: "sweep-name" });
+  els.runSel = h("select", { class: "run-pick", id: "run-pick", "aria-label": "Run" });
+  els.runSel.addEventListener("change", () => setState({ run: els.runSel.value, sel: null, context: [], pocket: [], edge: null }));
+  els.statusLabel = h("b");
+  els.statusDetail = h("span", { class: "detail" });
+  els.pill = h("span", { class: "status" }, els.statusLabel, els.statusDetail);
+  tip(els.pill, () => (app.top.status ? app.top.status.tip : null));
+  els.progress = h("span", { class: "progress-text num" });
+  t.append(h("div", { class: "sweep" }, h("div", { class: "sweep-line" }, els.name, els.runSel, els.pill), els.progress));
+  els.tsel = h("select", { id: "target-pick", "aria-label": "Target" });
+  els.tsel.addEventListener("change", () => setState({ target: els.tsel.value }));
+  const picker = h("label", { class: "picker" }, h("span", { class: "label", text: "Needle" }), els.tsel);
+  tip(picker, () => {
+    const tg = app.top.target;
+    if (!tg) return null;
+    return h("div", null, h("b", { text: tg.label }),
+      h("div", { text: tg.definition || `${tg.unit || "value"}; ${tg.better > 0 ? "higher is better" : tg.better < 0 ? "lower is better" : "no better direction"}` }),
+      h("div", { class: "k" }, "Key ", h("kbd", { text: "T" })));
+  });
+  els.chips = h("div", { class: "chips" });
+  t.append(h("div", { class: "top-mid" }, picker, els.chips));
+  els.play = btnIcon("play", "Replay the rows as they arrived", "Space", togglePlay);
+  t.append(h("div", { class: "top-right" },
     h("div", { class: "group", role: "group", "aria-label": "Replay" },
       btnIcon("start", "Start of the run", "Home", () => setState({ edge: 0 }, { replace: true })),
       btnIcon("back", "Step back", "[", () => stepEdge(-1)),
-      btnIcon(playing ? "pause" : "play", playing ? "Pause the replay" : "Replay the rows as they arrived", "Space", togglePlay, playing),
+      els.play,
       btnIcon("fwd", "Step forward", "]", () => stepEdge(1)),
       btnIcon("end", "Latest row (follow live)", "End", () => { stopPlay(); setState({ edge: null }, { replace: true }); })),
     h("div", { class: "group", role: "group", "aria-label": "Help" },
       btnIcon("sun", "Light or dark", "D", toggleTheme),
       btnIcon("keys", "Keys", "?", () => openReference("keys")),
-      btnIcon("info", "System reference", "I", () => openReference())));
-  t.append(right);
+      btnIcon("info", "System reference", "I", () => openReference()))));
+  app.top = { els, runsKey: null, targetsKey: null, contextKey: null, count: null, status: null, target: null, playing: false };
 }
 
-function btnIcon(name, label, key, fn, pressed) {
-  const b = h("button", { class: "icon-btn", "aria-label": label, "aria-pressed": pressed ? "true" : null, onclick: fn }, icon(name));
-  tip(b, () => h("div", null, h("b", { text: label }), key ? h("span", { class: "k" }, "  ", h("kbd", { text: key })) : null));
+function setText(el, text) {
+  if (el.textContent !== text) el.textContent = text;
+}
+
+function updateTop(m0) {
+  if (!app.sweep) return;
+  const m = m0 || model();
+  if (!app.top) buildTop();
+  const top = app.top, els = top.els;
+  const ds = m.ds, runs = app.sweep.runs;
+  setText(els.name, app.sweep.meta.name || "sweep");
+  // runs: their options change only when a run is added or renamed
+  const runsKey = runs.map(r => `${r.id}\t${r.meta.label}`).join("\n");
+  if (runsKey !== top.runsKey) {
+    top.runsKey = runsKey;
+    els.runSel.replaceChildren(...runs.map(r => h("option", { value: r.id, text: r.meta.label })));
+  }
+  els.runSel.hidden = runs.length < 2;
+  if (els.runSel.value !== ds.id) els.runSel.value = ds.id;
+  const st = statusOf(m);
+  top.status = st;
+  if (els.pill.dataset.kind !== st.kind) els.pill.dataset.kind = st.kind;
+  setText(els.statusLabel, st.label);
+  setText(els.statusDetail, st.detail ? `· ${st.detail}` : "");
+  els.statusDetail.hidden = !st.detail;
+  setText(els.progress, runHealth(m).line);
+  // needles: their options change only when the schema's targets do
+  const targetsKey = m.schema.targets.map(x => `${x.id}\t${x.label}\t${x.diagnostic ? 1 : 0}`).join("\n");
+  if (targetsKey !== top.targetsKey) {
+    top.targetsKey = targetsKey;
+    const groups = [["Outcome", x => !x.diagnostic && !x.gate], ["Gates passing", x => !x.diagnostic && x.gate], ["Fit diagnostics", x => x.diagnostic]];
+    els.tsel.replaceChildren(...groups.map(([label, keep]) => [label, m.schema.targets.filter(keep)]).filter(([, list]) => list.length)
+      .map(([label, list]) => h("optgroup", { label }, list.map(x => h("option", { value: x.id, text: x.label })))));
+  }
+  if (els.tsel.value !== m.target.id) els.tsel.value = m.target.id;
+  top.target = m.target;
+  // the context: chips change with it; the row count in place
+  const contextKey = `${ds.id}\n${JSON.stringify(m.context)}`;
+  if (contextKey !== top.contextKey) {
+    top.contextKey = contextKey;
+    top.count = null;
+    els.chips.replaceChildren();
+    for (const cnd of m.context) {
+      const d = m.schema.dimById.get(cnd.dim);
+      const labels = cnd.keys.map(k => (d.levels.find(l => l.key === k) || { label: k }).label);
+      els.chips.append(h("span", { class: "chip" },
+        h("span", { class: "mono", text: `${d.label} = ${labels.join(" or ")}` }),
+        h("button", { "aria-label": `Remove ${d.label} from the context`, onclick: () => setState({ context: app.state.context.filter(x => x.dim !== cnd.dim) }), text: "×" })));
+    }
+    if (!m.context.length) els.chips.append(h("span", { class: "chip ghost", text: "All rows" }));
+    else { top.count = h("span", { class: "muted num" }); els.chips.append(top.count); }
+  }
+  if (top.count) setText(top.count, `${fmtInt(m.rows.length)} of ${fmtInt(m.allRows.length)} rows`);
+  // play turns to pause while a replay runs
+  const playing = !!app.playback;
+  if (playing !== top.playing) {
+    top.playing = playing;
+    els.play.replaceChildren(icon(playing ? "pause" : "play"));
+    els.play.setAttribute("aria-label", playing ? "Pause the replay" : "Replay the rows as they arrived");
+    if (playing) els.play.setAttribute("aria-pressed", "true"); else els.play.removeAttribute("aria-pressed");
+  }
+}
+
+function btnIcon(name, label, key, fn) {
+  const b = h("button", { class: "icon-btn", "aria-label": label, onclick: fn }, icon(name));
+  tip(b, () => h("div", null, h("b", { text: b.getAttribute("aria-label") }), key ? h("span", { class: "k" }, "  ", h("kbd", { text: key })) : null));
   return b;
 }
 

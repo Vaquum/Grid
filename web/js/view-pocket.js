@@ -104,10 +104,15 @@ function brick(m, A, pocket, c, k, step) {
   return el;
 }
 
+// What the reader typed into the palette, kept across redraws.
+let paletteQuery = "";
+
 function palette(m, A, pocket) {
   const box = h("div");
-  const input = h("input", { class: "search", type: "search", placeholder: "Find a parameter or value", "data-search": "1", "aria-label": "Find a parameter or value" });
-  const list = h("div", { style: { marginTop: "8px", display: "flex", flexDirection: "column", gap: "8px", maxHeight: "460px", overflowY: "auto" } });
+  const input = h("input", { class: "search", type: "search", placeholder: "Find a parameter or value", "data-search": "1",
+    "aria-label": "Find a parameter or value", dataset: { focus: "pocket-search" } });
+  input.value = paletteQuery;
+  const list = h("div", { dataset: { scroll: "pocket-palette" }, style: { marginTop: "8px", display: "flex", flexDirection: "column", gap: "8px", maxHeight: "460px", overflowY: "auto" } });
   const dims = boardDims(m.schema).concat(memberDims(m.schema));
   const draw = () => {
     list.replaceChildren();
@@ -133,7 +138,7 @@ function palette(m, A, pocket) {
     }
     if (!shown) list.append(h("p", { class: "muted", text: "Nothing matches." }));
   };
-  input.addEventListener("input", draw);
+  input.addEventListener("input", () => { paletteQuery = input.value; draw(); });
   draw();
   box.append(h("div", { class: "section-title", text: "Blocks" }), input, list);
   return box;

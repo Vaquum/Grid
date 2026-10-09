@@ -27,7 +27,7 @@ export function renderInspector(el, m, A) {
 
 function closeRow(A, title) {
   return h("div", { class: "insp-head" }, title || null,
-    h("button", { class: "icon-btn close", "aria-label": "Close the inspector", onclick: () => A.select(null) }, icon("close")));
+    h("button", { class: "icon-btn close", "aria-label": "Close the inspector", dataset: { focus: "insp-close" }, onclick: () => A.select(null) }, icon("close")));
 }
 
 function part(title, ...kids) {
@@ -101,6 +101,7 @@ function dimDetail(box, m, A, d, levelKey) {
   for (const l of e.levels) {
     if (!(l.n > 0)) continue;
     const tr = h("tr", { class: "clickable" + (l.withheld ? " withheld" : "") + (levelKey === l.key ? " sel" : ""), tabindex: "0",
+      dataset: { focus: `level:${l.key}` },
       "aria-selected": levelKey === l.key ? "true" : "false",
       onclick: () => A.select({ kind: "level", dim: d.id, key: l.key }),
       onkeydown: (ev) => { if (ev.key === "Enter") A.select({ kind: "level", dim: d.id, key: l.key }); } },
