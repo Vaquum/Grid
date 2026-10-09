@@ -744,3 +744,25 @@ test("live: rows stream in from a running sweep", async () => {
   }
 });
 
+
+test("live: the Run view's cards keep drawing as rows arrive after the clusters were found", async () => {
+  const sweep = await liveSweep();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const errors = [];
+    page.on("pageerror", e => errors.push(String(e)));
+    // a chart drawn on an outcome of fewer rows than are on screen has NaN coordinates
+    page.on("console", m => { if (m.type() === "error" && /NaN/.test(m.text())) errors.push(m.text()); });
+    await page.goto(sweep.url);
+    await page.waitForSelector(".status[data-kind=live]", { timeout: 15000 });
+    await page.keyboard.press("7");
+    await page.waitForFunction(() => { const c = document.querySelector(".rn-pick .isl-count"); return !!c && c.textContent !== "being found"; }, null, { timeout: 30000 });
+    await moreRows(page);
+    const blank = await page.$$eval(".rn-card", cards => cards.filter(c => !c.querySelector("svg.dist g.has-tip rect")).map(c => c.dataset.outcome));
+    assert.deepEqual(blank, []);
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    sweep.stop();
+  }
+});
