@@ -189,9 +189,10 @@ export function niceTicks(a, b, n) {
 // A bin edge sits on the need, so a bin holds rows from one side of it;
 // only rows at the need itself can share a bin with the others (a strict
 // need), and then the two are stacked. The 1st to 99th percentile is drawn
-// (with the need); `outside` counts the rows beyond. `labels` ([value,
-// text] pairs) names the values of a needle that takes only those (no and
-// yes for 0 and 1) on the axis and in the tips.
+// (with the need); `outside` counts the rows beyond. The axis is written as
+// a needle's ticks are, in its `unit`; `labels` ([value, text] pairs) names
+// the values of a needle that takes only those (no and yes for 0 and 1) on
+// the axis and in the tips.
 export function passHistogram(values, passOf, rows, opts = {}) {
   const W = opts.width || 420, H = opts.height || 104;
   const m = { l: 6, r: 6, t: 16, b: 20 };
@@ -255,7 +256,7 @@ export function passHistogram(values, passOf, rows, opts = {}) {
   svgEl.append(s("line", { class: "axis", x1: m.l, x2: W - m.r, y1: base, y2: base }));
   const ticks = niceTicks(lo, hi, 5);
   const step = ticks.length > 1 ? ticks[1] - ticks[0] : 1;
-  const marks = opts.labels || ticks.map(t => [t, fmtNum(t, stepDecimals(step))]);
+  const marks = opts.labels || ticks.map(t => [t, tickText({ kind: "cont", unit: opts.unit || "" }, t, step)]);
   for (const [t, text] of marks) svgEl.append(s("text", { class: "label", x: Math.min(W - m.r - 12, Math.max(m.l + 12, X(t))), y: H - 6, "text-anchor": "middle", text }));
   if (Number.isFinite(need)) {
     const x = X(need);

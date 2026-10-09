@@ -110,6 +110,41 @@ test("the strip copies the board as notes", async () => {
   await page.close();
 });
 
+test("a nested parameter has one name on its card, in the inspector and in the notes, and a row of cards keeps its plots level", async () => {
+  const { page, errors } = await open();
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: base });
+  const title = page.locator(".pcard .pc-name[title*=' · ']").first();
+  const name = await title.getAttribute("title");
+  assert.match(name, /^\w+ · \w+$/);
+  // the whole name shows, on a second line if it must
+  assert.deepEqual(await page.$$eval(".pc-name", ns => ns.filter(n => n.scrollHeight > n.clientHeight + 1).map(n => n.title)), []);
+  // where it applies, said the same on its card and in the inspector
+  const sub = await page.locator(".pcard", { has: title }).locator(".pc-sub").innerText();
+  assert.match(sub, /^only when \w+ = \w+ · \d+%$/);
+  await title.click();
+  assert.equal(await page.locator("#inspector h2").innerText(), name);
+  assert.ok((await page.locator("#inspector .eyebrow").first().innerText()).endsWith(` · ${sub}`));
+  await page.keyboard.press("Escape");
+  await page.locator(".strip-copy").click();
+  await page.waitForSelector("text=Board copied.");
+  const notes = await page.evaluate(() => navigator.clipboard.readText());
+  assert.ok(notes.includes(name), notes);
+  assert.doesNotMatch(notes, /@|\(\w+ = \w+\)/);
+  // the cards of a row start their plots at one height
+  const tops = await page.$$eval(".pgrid", grids => grids.flatMap(g => {
+    const rows = new Map();
+    for (const c of g.querySelectorAll(".pcard")) {
+      const at = Math.round(c.getBoundingClientRect().top);
+      if (!rows.has(at)) rows.set(at, new Set());
+      rows.get(at).add(Math.round(c.querySelector(".plot").getBoundingClientRect().top));
+    }
+    return [...rows.values()].map(s => s.size);
+  }));
+  assert.ok(tops.length > 1 && tops.every(n => n === 1), `plot tops per row: ${tops.join(",")}`);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("every view draws without an error", async () => {
   const { page, errors } = await open();
   for (const key of ["2", "3", "4", "5", "6", "7", "1"]) {
@@ -720,7 +755,7 @@ test("live: a Limen run's rounds arrive after its rows, and Features reads them"
       appendFileSync(join(dir, "results.csv"), csv[k + 1] + "\n");
       appendFileSync(join(dir, "round_data.jsonl"), rounds[k] + "\n");
     }
-    await page.waitForFunction(() => /in 33 of 40 rounds/.test(document.querySelector(".strip").textContent), null, { timeout: 20000 });
+    await page.waitForFunction(() => /in 33 of 40 rows/.test(document.querySelector(".strip").textContent), null, { timeout: 20000 });
     assert.deepEqual(errors, []);
     await page.close();
   } finally {

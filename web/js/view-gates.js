@@ -218,7 +218,7 @@ function maker(m, A, gate) {
     const passOf = valid ? (i => { const v = t.values[i]; return v === v ? (test(v, x) ? 1 : 0) : NaN; }) : (() => 0);
     let k = 0, n = 0;
     for (let j = 0; j < m.rows.length; j++) { const p = passOf(m.rows[j]); if (p === p && t.values[m.rows[j]] === t.values[m.rows[j]]) { n++; k += p; } }
-    const chart = passHistogram(t.values, passOf, m.rows, { need: valid ? x : undefined, needLabel: valid ? `need ${needText(t, x)}` : undefined, label: `${t.label} against the need` });
+    const chart = passHistogram(t.values, passOf, m.rows, { need: valid ? x : undefined, needLabel: valid ? `need ${needText(t, x)}` : undefined, unit: t.unit, label: `${t.label} against the need` });
     clear(preview);
     preview.append(chart.svg, h("div", { class: "gt-cap" }, valid
       ? h("span", null, h("b", { class: "num", text: n ? rate(k / n) : "–" }), ` of the rows pass · ${fmtInt(k)} of ${fmtInt(n)}`)
@@ -267,7 +267,7 @@ function gateCard(m, A, g, s) {
   card.append(h("header", { class: "gt-head" }, h("h3", { class: "gt-title", text: g.label }),
     h("span", { class: "gt-rate num", text: s.n ? rate(s.rate) : "–" })));
   card.append(h("div", { class: "gt-sub" },
-    h("span", { class: "num", text: s.n ? `${fmtInt(s.passed)} of ${fmtInt(s.n)} rows pass · 95% ${pctRange(s.lo, s.hi, 1)}` : "No row has a value." }),
+    h("span", { class: "num", text: s.n ? `${fmtInt(s.passed)} of ${fmtInt(s.n)} rows pass · 95% ${pctRange(s.lo, s.hi, s.rate > 0 && s.rate < 0.01 ? 2 : 1)}` : "No row has a value." }),
     s.never ? h("span", { class: "sev crit" }, icon("alert"), "never passed") : s.always ? h("span", { class: "sev ok" }, icon("check"), "always passes") : null,
     g.set ? null : h("span", { class: "gt-tag", text: "the runner's" })));
   if (!g.set) card.append(h("div", { class: "gt-need-line", text: `Need: ${g.need}` }));
@@ -278,8 +278,9 @@ function gateCard(m, A, g, s) {
   for (let j = 0; j < m.rows.length; j++) { const v = g.value[m.rows[j]]; if (v === v) { vals.push(v); if (v < lo) lo = v; if (v > hi) hi = v; } }
   if (vals.length) {
     vals.sort((a, b) => a - b);
-    const chart = passHistogram(g.value, i => g.pass[i], m.rows, { need: g.needAt, needLabel: g.needAt !== undefined ? `need ${g.set ? needText(g.target, g.needAt) : gateValueText(g, g.needAt)}` : undefined,
-      labels: g.yesNo ? [[0, "no"], [1, "yes"]] : undefined, label: `${g.label}: rows against the need` });
+    const unit = g.set ? g.target.unit : g.unit;
+    const chart = passHistogram(g.value, i => g.pass[i], m.rows, { need: g.needAt, needLabel: g.needAt !== undefined ? `need ${needText(g.set ? g.target : { unit }, g.needAt)}` : undefined,
+      unit, labels: g.yesNo ? [[0, "no"], [1, "yes"]] : undefined, label: `${g.label}: rows against the need` });
     card.append(h("div", { class: "gt-chart" }, chart.svg));
     // a gate set here knows which way is better; the runner's says only its
     // need; a yes or no gate's pass line above says it all

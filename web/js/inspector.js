@@ -96,7 +96,9 @@ function dimDetail(box, m, A, d, levelKey) {
   // its values
   const domain = needleDomain([e], base.mean);
   const tbl = h("table", { class: "vals" },
-    h("thead", null, h("tr", null, h("th", { text: "Value" }), h("th", { class: "r", text: "Rows" }), h("th", { class: "r", text: target.label }), h("th", { class: "r", text: "Against the base" }), h("th", { style: { width: "34%" }, text: "95% interval" }))));
+    h("thead", null, h("tr", null, h("th", { text: "Value" }), h("th", { class: "r", text: "Rows" }), h("th", { class: "r", text: target.label }),
+      tip(h("th", { class: "r has-tip", text: "Difference" }), `Each value's ${inText(target.label)} against the base, ${fmtT(target, base.mean)} over the rows in view.`),
+      h("th", { style: { width: "34%" }, text: "95% interval" }))));
   const tb = h("tbody");
   const shareOf = new Map(d.levels.map((l, j) => [l.key, uni.shares ? uni.shares[j] : NaN]));
   for (const l of e.levels) {

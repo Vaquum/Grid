@@ -19,9 +19,9 @@ export function scopeShare(m, d) {
 }
 
 // Where a nested parameter applies, said one way on its card and in the
-// inspector: only when its scope holds, on that share of the rows.
+// inspector: only when its scope holds, and the share of the rows that is.
 export function scopeText(m, d) {
-  return `only when ${d.scope.label} · ${fmtPct(scopeShare(m, d), 0)} of rows`;
+  return `only when ${d.scope.label} · ${fmtPct(scopeShare(m, d), 0)}`;
 }
 
 // The words for where a dim acts (engine actsSummary).
@@ -222,9 +222,11 @@ function card(m, A, d, e, ctx) {
   return el;
 }
 
+// A long name takes a second line, the scope starting it (min_child_weight
+// / · xgb_hp); the cards of a row keep their plots level (grid.css).
 function head(name, sub, ev) {
   return h("div", { class: "pc-head" },
-    h("div", { class: "pc-row" }, h("span", { class: "pc-name", title: name, text: name }), ev.top),
+    h("div", { class: "pc-row" }, h("span", { class: "pc-name", title: name, text: name.replace(" · ", " ·\u00a0") }), ev.top),
     h("div", { class: "pc-row" }, h("span", { class: "pc-sub", title: sub, text: sub }), ev.bottom));
 }
 
