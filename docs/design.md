@@ -220,6 +220,31 @@ same in every view (`ui.js` holds the number formats):
   Labels and table headers are in sentence case; a label inside a sentence
   is lowercased (net PnL per bar).
 
+## Visual system
+
+The page looks like one instrument, so the same kind of thing looks the
+same in every view:
+
+- **Cards and panels** share one padding (12px, 16px at the sides and
+  foot), a radius of 8px and a 14px title; a parameter's name in a title
+  is mono a step smaller, as mono runs larger. Tags have one style.
+- **Chosen**: a pressed segment, toggle, button or chip, a chosen row and
+  the view in the rail take the --on fill; a chosen card is ringed in ink.
+- **Colour** is kept for data and states. Blue is a parameter that moves
+  the needle; persimmon is worse than the base and nothing else. Series
+  run blue, aqua, violet, pink. States: green live, amber a warning (a run
+  gone quiet, two parameters drawn together), red a crash or a dead value.
+- **Charts** are drawn at their box's width, so their text is the small
+  size (11px) at any width.
+- **Parts**: a panel's actions sit at its foot in buttons of one size; a
+  part's head is 13px; an empty or pending state is one dashed box;
+  headline figures are written as the strip's cells are.
+- **Copying** says what was copied in a toast, or that the browser
+  refused and the text is selected; every block of code has a Copy
+  button.
+- **Spacing** is on a 4px scale. Inline styles only place marks or carry a
+  series' colour; everything else is a class.
+
 ## Views
 
 The Board, the Pocket, Pairs, Trials, Gates and the Run open with a strip
@@ -248,7 +273,7 @@ text. A sweep without a manifest has no such section.
    and the effect of keeping each column its ablation dropped; on a sweep
    that draws subsets of a pool, every member's inclusion effect.
 5. **Trials**: a strip that sets the best row against the luck line and
-   the rows like it; the best rows ranked with their ties, and icons that
+   the rows like it; the best rows ranked with their ties, and toggles that
    add column sets (the parameters that move the needle, the other
    parameters, the rows like each row, and the activity, risk, model
    skill and run time behind each score); any row in full in the

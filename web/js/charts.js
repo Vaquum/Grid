@@ -59,17 +59,47 @@ export function divergingFill(t) {
   return { background: `color-mix(in oklab, ${pole} calc(var(--heat-cap) * ${share}), var(--mid))`, color: "var(--ink)" };
 }
 
+// A chart drawn at its box's width, so its text is the page's small size
+// at any width: drawn at the width its kind of chart last had (`guess` the
+// first time), and again whenever its box's width changes, before the
+// page is painted. One observer serves every chart; a box taken off the
+// page leaves it.
+const chartWidths = new Map();
+const chartBoxes = new Map();
+let sizer = null;
+export function sized(kind, guess, draw) {
+  const box = h("div", { class: "chart-box" });
+  const w = chartWidths.get(kind) || guess;
+  box.append(draw(w));
+  if (typeof ResizeObserver === "undefined") return box;
+  if (!sizer) {
+    sizer = new ResizeObserver(entries => {
+      for (const r of entries) {
+        const e = chartBoxes.get(r.target);
+        if (!e) continue;
+        if (!r.target.isConnected) { sizer.unobserve(r.target); chartBoxes.delete(r.target); continue; }
+        const cw = Math.floor(r.contentRect.width);
+        if (cw > 0 && cw !== e.w) { e.w = cw; chartWidths.set(e.kind, cw); r.target.replaceChildren(e.draw(cw)); }
+      }
+    });
+  }
+  chartBoxes.set(box, { kind, draw, w });
+  sizer.observe(box);
+  return box;
+}
+
 // Line chart with a crosshair: series [{label, color, points: [[x, y]], dash,
 // group}], x numeric. Series that share a group read as one; a legend is
 // drawn for two or more. Ticks are in the decimals of their step and carry
 // no unit: with a `target`, y is written as that needle's ticks are and its
 // unit is named once over the axis. The tip writes y with fmtY (the
 // target's values by default) and x with fmtX, or as a count of xLabel.
+// `kind` names the chart for its width (sized).
 export function lineChart(series, opts = {}) {
-  const W = opts.width || 640, H = opts.height || 200;
+  const H = opts.height || 200;
   const t0 = opts.target || null;
   const unit = t0 && t0.kind !== "binary" && t0.unit && t0.unit !== "$" ? t0.unit : null;
-  const m = { l: 52, r: 14, t: unit ? 22 : 10, b: 26 };
+  const m = { l: 52, r: 16, t: unit ? 24 : 12, b: 28 };
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   for (const sr of series) for (const [x, y] of sr.points) {
     if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
@@ -80,46 +110,6 @@ export function lineChart(series, opts = {}) {
   if (!(y1 > y0)) { y0 -= 1; y1 += 1; }
   const ypad = (y1 - y0) * 0.08;
   y0 -= opts.yZero && y0 === 0 ? 0 : ypad; y1 += ypad;
-  const X = x => m.l + (x - x0) / (x1 - x0) * (W - m.l - m.r);
-  const Y = y => H - m.b - (y - y0) / (y1 - y0) * (H - m.t - m.b);
-  const svgEl = s("svg", { class: "chart", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": opts.label || "chart" });
-  const yt = niceTicks(y0, y1, 4), ystep = yt.length > 1 ? yt[1] - yt[0] : 1;
-  for (const t of yt) {
-    svgEl.append(s("line", { class: "grid", x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t) }));
-    svgEl.append(s("text", { class: "label", x: m.l - 6, y: Y(t) + 3.5, "text-anchor": "end", text: t0 ? tickText(t0, t, ystep) : fmtFixed(t, stepDecimals(ystep)) }));
-  }
-  if (unit) svgEl.append(s("text", { class: "label", x: m.l - 6, y: m.t - 9, "text-anchor": "end", text: unit }));
-  const xt = niceTicks(x0, x1, 5), xstep = xt.length > 1 ? xt[1] - xt[0] : 1;
-  for (const t of xt) {
-    svgEl.append(s("text", { class: "label", x: X(t), y: H - 8, "text-anchor": "middle", text: fmtFixed(t, stepDecimals(xstep)) }));
-  }
-  svgEl.append(s("line", { class: "axis", x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b }));
-  for (const sr of series) {
-    const pts = sr.points.filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
-    if (!pts.length) continue;
-    const d = (sr.step ? stepPath(pts, X, Y) : pts.map(([x, y], i) => `${i ? "L" : "M"}${X(x).toFixed(1)},${Y(y).toFixed(1)}`).join(""));
-    svgEl.append(s("path", { class: "series", d, stroke: sr.color, "stroke-dasharray": sr.dash || null, "stroke-width": sr.width || 2 }));
-    if (sr.endDot !== false && pts.length) {
-      const [lx, ly] = pts[pts.length - 1];
-      svgEl.append(s("circle", { class: "marker", cx: X(lx), cy: Y(ly), r: 4, fill: sr.color }));
-    }
-  }
-  for (const mk of opts.marks || []) {
-    svgEl.append(s("line", { x1: X(mk.x), x2: X(mk.x), y1: m.t, y2: H - m.b, stroke: mk.color || "var(--critical)", "stroke-width": 1.5 }));
-    if (mk.label) svgEl.append(s("text", { class: "label ink", x: X(mk.x) + 4, y: m.t + 10, text: mk.label }));
-  }
-  // crosshair
-  const cross = s("line", { class: "crosshair", y1: m.t, y2: H - m.b, visibility: "hidden" });
-  svgEl.append(cross);
-  const overlay = s("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent", class: "has-tip" });
-  let hoverX = null;
-  overlay.addEventListener("pointermove", (e) => {
-    const r = svgEl.getBoundingClientRect();
-    const px = (e.clientX - r.left) / r.width * W;
-    hoverX = x0 + (px - m.l) / (W - m.l - m.r) * (x1 - x0);
-    cross.setAttribute("x1", px); cross.setAttribute("x2", px); cross.setAttribute("visibility", "visible");
-  });
-  overlay.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); hoverX = null; });
   // series that share a group (an interval's two bounds) are one entry: one
   // legend item, and in the tip their values as a range
   const entries = [];
@@ -131,25 +121,68 @@ export function lineChart(series, opts = {}) {
   const fmtY = opts.fmtY || (t0 ? (v => fmtT(t0, v)) : fmtNum);
   const span = (lo, hi) => (t0 ? rangeText(t0, lo, hi) : spanText(fmtY(lo), fmtY(hi)));
   const fmtX = opts.fmtX || (v => `${fmtInt(v)}${opts.xLabel ? ` ${opts.xLabel}` : ""}`);
-  tip(overlay, () => {
-    if (hoverX === null) return null;
-    const rows = entries.map(e => {
-      const ys = e.members.map(sr => nearest(sr.points, hoverX)).filter(Boolean).map(p => p[1]);
-      if (!ys.length) return null;
-      const lo = Math.min(...ys), hi = Math.max(...ys);
-      return h("div", null, h("span", { style: { display: "inline-block", width: "12px", height: "2px", background: e.color, verticalAlign: "middle", marginRight: "6px" } }),
-        h("b", { text: hi > lo ? span(lo, hi) : fmtY(lo) }), h("span", { class: "k", text: "  " + e.label }));
+  const yt = niceTicks(y0, y1, 4), ystep = yt.length > 1 ? yt[1] - yt[0] : 1;
+  const xt = niceTicks(x0, x1, 5), xstep = xt.length > 1 ? xt[1] - xt[0] : 1;
+  const draw = (W) => {
+    const X = x => m.l + (x - x0) / (x1 - x0) * (W - m.l - m.r);
+    const Y = y => H - m.b - (y - y0) / (y1 - y0) * (H - m.t - m.b);
+    const svgEl = s("svg", { class: "chart", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": opts.label || "chart" });
+    for (const t of yt) {
+      svgEl.append(s("line", { class: "grid", x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t) }));
+      svgEl.append(s("text", { class: "label", x: m.l - 6, y: Y(t) + 3.5, "text-anchor": "end", text: t0 ? tickText(t0, t, ystep) : fmtFixed(t, stepDecimals(ystep)) }));
+    }
+    if (unit) svgEl.append(s("text", { class: "label", x: m.l - 6, y: m.t - 10, "text-anchor": "end", text: unit }));
+    for (const t of xt) {
+      svgEl.append(s("text", { class: "label", x: X(t), y: H - 10, "text-anchor": "middle", text: fmtFixed(t, stepDecimals(xstep)) }));
+    }
+    svgEl.append(s("line", { class: "axis", x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b }));
+    for (const sr of series) {
+      const pts = sr.points.filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+      if (!pts.length) continue;
+      const d = (sr.step ? stepPath(pts, X, Y) : pts.map(([x, y], i) => `${i ? "L" : "M"}${X(x).toFixed(1)},${Y(y).toFixed(1)}`).join(""));
+      svgEl.append(s("path", { class: "series", d, stroke: sr.color, "stroke-dasharray": sr.dash || null, "stroke-width": sr.width || 2 }));
+      if (sr.endDot !== false && pts.length) {
+        const [lx, ly] = pts[pts.length - 1];
+        svgEl.append(s("circle", { class: "marker", cx: X(lx), cy: Y(ly), r: 4, fill: sr.color }));
+      }
+    }
+    for (const mk of opts.marks || []) {
+      svgEl.append(s("line", { x1: X(mk.x), x2: X(mk.x), y1: m.t, y2: H - m.b, stroke: mk.color || "var(--critical)", "stroke-width": 1.5 }));
+      if (mk.label) svgEl.append(s("text", { class: "label ink", x: X(mk.x) + 4, y: m.t + 10, text: mk.label }));
+    }
+    // crosshair
+    const cross = s("line", { class: "crosshair", y1: m.t, y2: H - m.b, visibility: "hidden" });
+    svgEl.append(cross);
+    const overlay = s("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent", class: "has-tip" });
+    let hoverX = null;
+    overlay.addEventListener("pointermove", (e) => {
+      const r = svgEl.getBoundingClientRect();
+      const px = (e.clientX - r.left) / r.width * W;
+      hoverX = x0 + (px - m.l) / (W - m.l - m.r) * (x1 - x0);
+      cross.setAttribute("x1", px); cross.setAttribute("x2", px); cross.setAttribute("visibility", "visible");
     });
-    const p0 = nearest(series[0] ? series[0].points : [], hoverX);
-    return h("div", null, h("div", { class: "k", text: fmtX(p0 ? p0[0] : hoverX) }), rows);
-  });
-  svgEl.append(overlay);
-  const wrap = h("figure", { class: "fig", style: { margin: 0 } });
+    overlay.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); hoverX = null; });
+    tip(overlay, () => {
+      if (hoverX === null) return null;
+      const rows = entries.map(e => {
+        const ys = e.members.map(sr => nearest(sr.points, hoverX)).filter(Boolean).map(p => p[1]);
+        if (!ys.length) return null;
+        const lo = Math.min(...ys), hi = Math.max(...ys);
+        return h("div", null, h("i", { class: "swatch" + (e.dash ? " dash" : ""), style: { "--c": e.color } }),
+          h("b", { text: hi > lo ? span(lo, hi) : fmtY(lo) }), h("span", { class: "k", text: "  " + e.label }));
+      });
+      const p0 = nearest(series[0] ? series[0].points : [], hoverX);
+      return h("div", null, h("div", { class: "k", text: fmtX(p0 ? p0[0] : hoverX) }), rows);
+    });
+    svgEl.append(overlay);
+    return svgEl;
+  };
+  const wrap = h("figure", { class: "fig" });
   if (entries.length >= 2 || opts.legend) {
     wrap.append(h("div", { class: "legend" }, entries.map(e =>
-      h("span", null, h("i", { style: { background: e.color, height: e.dash ? "0" : "2px", borderTop: e.dash ? `2px dashed ${e.color}` : null } }), e.label))));
+      h("span", null, h("i", { class: "swatch" + (e.dash ? " dash" : ""), style: { "--c": e.color } }), e.label))));
   }
-  wrap.append(svgEl);
+  wrap.append(sized(opts.kind || "line", opts.width || 640, draw));
   return wrap;
 }
 
@@ -194,8 +227,8 @@ export function niceTicks(a, b, n) {
 // the values of a needle that takes only those (no and yes for 0 and 1) on
 // the axis and in the tips.
 export function passHistogram(values, passOf, rows, opts = {}) {
-  const W = opts.width || 420, H = opts.height || 104;
-  const m = { l: 6, r: 6, t: 16, b: 20 };
+  const H = opts.height || 104;
+  const m = { l: 8, r: 8, t: 16, b: 20 };
   const pts = [];
   for (let j = 0; j < rows.length; j++) {
     const i = rows[j], v = values[i], p = passOf(i);
@@ -220,8 +253,7 @@ export function passHistogram(values, passOf, rows, opts = {}) {
     if (p) pass[b]++; else fail[b]++;
   }
   const end = start + nb * w;
-  const X = v => m.l + (v - start) / (end - start) * (W - m.l - m.r);
-  // one bin far taller than the rest (most rounds at exactly 0) is drawn
+  // one bin far taller than the rest (most rows at exactly 0) is drawn
   // broken at twice the next, with its count, so the rest stay readable
   const totals = pass.map((c, b) => c + fail[b]);
   const order = totals.map((c, b) => [c, b]).sort((x, y) => y[0] - x[0]);
@@ -229,42 +261,46 @@ export function passHistogram(values, passOf, rows, opts = {}) {
   if (order.length > 1 && order[0][0] > 4 * Math.max(1, order[1][0])) { top = 2 * Math.max(1, order[1][0]); broken = order[0][1]; }
   const plotH = H - m.t - m.b;
   const Y = c => Math.min(c, top) / top * plotH;
-  const svgEl = s("svg", { class: "chart", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": opts.label || "distribution against the need" });
-  const bw = (W - m.l - m.r) / nb, base = H - m.b;
-  for (let b = 0; b < nb; b++) {
-    const c = pass[b] + fail[b];
-    if (!c) continue;
-    const x = m.l + b * bw + 1, width = Math.max(1, bw - 2);
-    // passing rows at the foot, failing above, a 2px gap between; a
-    // broken bin keeps their shares of its height
-    const full = Y(c), hp = full * pass[b] / c, hf = full * fail[b] / c, gap = pass[b] && fail[b] ? 2 : 0;
-    const bar = s("g", { class: "has-tip" });
-    if (pass[b]) bar.append(s("rect", { x, y: base - hp, width, height: Math.max(1, hp), rx: 1.5, fill: "var(--data-bar)" }));
-    if (fail[b]) bar.append(s("rect", { x, y: base - hp - gap - hf, width, height: Math.max(1, hf), rx: 1.5, fill: "var(--off-bar)" }));
-    if (b === broken) {
-      bar.append(s("rect", { x: x - 1, y: base - full + 7, width: width + 2, height: 2, fill: "var(--surface)" }));
-      const left = x + width + 40 > W;
-      svgEl.append(s("text", { class: "label ink", x: left ? x - 3 : x + width + 3, y: m.t + 9, "text-anchor": left ? "end" : "start", text: fmtInt(c) }));
-    }
-    const a = start + b * w, z = a + w;
-    const named = opts.labels ? opts.labels.find(([v]) => v >= a && v < z) : null;
-    tip(bar, () => h("div", null, h("b", { text: `${fmtInt(c)} row${c === 1 ? "" : "s"}` }),
-      h("span", { class: "k", text: `  ${named ? named[1] : spanText(fmtNum(a, opts.digits), fmtNum(z, opts.digits))}` }),
-      h("div", { class: "k", text: pass[b] && fail[b] ? `${fmtInt(pass[b])} pass, ${fmtInt(fail[b])} fail` : pass[b] ? "every one passes" : "none passes" })));
-    svgEl.append(bar);
-  }
-  svgEl.append(s("line", { class: "axis", x1: m.l, x2: W - m.r, y1: base, y2: base }));
   const ticks = niceTicks(lo, hi, 5);
   const step = ticks.length > 1 ? ticks[1] - ticks[0] : 1;
   const marks = opts.labels || ticks.map(t => [t, tickText({ kind: "cont", unit: opts.unit || "" }, t, step)]);
-  for (const [t, text] of marks) svgEl.append(s("text", { class: "label", x: Math.min(W - m.r - 12, Math.max(m.l + 12, X(t))), y: H - 6, "text-anchor": "middle", text }));
-  if (Number.isFinite(need)) {
-    const x = X(need);
-    svgEl.append(s("line", { x1: x, x2: x, y1: m.t - 4, y2: base, stroke: "var(--ink)", "stroke-width": 1.25, "stroke-dasharray": "3 2" }));
-    const right = x > W * 0.62;
-    svgEl.append(s("text", { class: "label ink", x: x + (right ? -5 : 5), y: m.t - 5, "text-anchor": right ? "end" : "start", text: opts.needLabel || "need" }));
-  }
-  return { svg: svgEl, outside };
+  const draw = (W) => {
+    const X = v => m.l + (v - start) / (end - start) * (W - m.l - m.r);
+    const svgEl = s("svg", { class: "chart", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": opts.label || "distribution against the need" });
+    const bw = (W - m.l - m.r) / nb, base = H - m.b;
+    for (let b = 0; b < nb; b++) {
+      const c = pass[b] + fail[b];
+      if (!c) continue;
+      const x = m.l + b * bw + 1, width = Math.max(1, bw - 2);
+      // passing rows at the foot, failing above, a 2px gap between; a
+      // broken bin keeps their shares of its height
+      const full = Y(c), hp = full * pass[b] / c, hf = full * fail[b] / c, gap = pass[b] && fail[b] ? 2 : 0;
+      const bar = s("g", { class: "has-tip" });
+      if (pass[b]) bar.append(s("rect", { x, y: base - hp, width, height: Math.max(1, hp), rx: 1.5, fill: "var(--data-bar)" }));
+      if (fail[b]) bar.append(s("rect", { x, y: base - hp - gap - hf, width, height: Math.max(1, hf), rx: 1.5, fill: "var(--off-bar)" }));
+      if (b === broken) {
+        bar.append(s("rect", { x: x - 1, y: base - full + 7, width: width + 2, height: 2, fill: "var(--surface)" }));
+        const left = x + width + 40 > W;
+        svgEl.append(s("text", { class: "label ink", x: left ? x - 3 : x + width + 3, y: m.t + 9, "text-anchor": left ? "end" : "start", text: fmtInt(c) }));
+      }
+      const a = start + b * w, z = a + w;
+      const named = opts.labels ? opts.labels.find(([v]) => v >= a && v < z) : null;
+      tip(bar, () => h("div", null, h("b", { text: `${fmtInt(c)} row${c === 1 ? "" : "s"}` }),
+        h("span", { class: "k", text: `  ${named ? named[1] : spanText(fmtNum(a, opts.digits), fmtNum(z, opts.digits))}` }),
+        h("div", { class: "k", text: pass[b] && fail[b] ? `${fmtInt(pass[b])} pass, ${fmtInt(fail[b])} fail` : pass[b] ? "every one passes" : "none passes" })));
+      svgEl.append(bar);
+    }
+    svgEl.append(s("line", { class: "axis", x1: m.l, x2: W - m.r, y1: base, y2: base }));
+    for (const [t, text] of marks) svgEl.append(s("text", { class: "label", x: Math.min(W - m.r - 12, Math.max(m.l + 12, X(t))), y: H - 6, "text-anchor": "middle", text }));
+    if (Number.isFinite(need)) {
+      const x = X(need);
+      svgEl.append(s("line", { x1: x, x2: x, y1: m.t - 4, y2: base, stroke: "var(--ink)", "stroke-width": 1.25, "stroke-dasharray": "3 2" }));
+      const right = x > W * 0.62;
+      svgEl.append(s("text", { class: "label ink", x: x + (right ? -5 : 5), y: m.t - 5, "text-anchor": right ? "end" : "start", text: opts.needLabel || "need" }));
+    }
+    return svgEl;
+  };
+  return { svg: sized(opts.kind || "hist", opts.width || 420, draw), outside };
 }
 
 // A value's quantile in sorted values (linear between order statistics).
@@ -282,7 +318,7 @@ export function quantile(sorted, f) {
 // rows have (stats rankAt), as the cards print them. An outcome with
 // a dozen whole values or fewer gets a bar per value. Bins span the 1st to
 // 99th percentile of the rows drawn (`outside` counts the rest). One bin
-// far taller than the rest (most rounds at exactly 0) is drawn broken at
+// far taller than the rest (most rows at exactly 0) is drawn broken at
 // twice the next, with its share, so the rest stay readable.
 //
 // groups: [{ label, fill, ink, text, vals }] with vals the group's values,
@@ -291,7 +327,6 @@ export function quantile(sorted, f) {
 // values: a bin's edges on its scale, a value the rows have as the cards
 // print it (a whole number whole, a 0/1 outcome no or yes).
 export function distChart(groups, opts = {}) {
-  const W = opts.width || 420;
   const shown = groups.filter(g => g.vals.length);
   if (!shown.length) return { svg: h("p", { class: "muted", text: "No row has a value." }), outside: 0, discrete: false };
   const pooled = [].concat(...shown.map(g => Array.from(g.vals))).sort((a, b) => a - b);
@@ -300,8 +335,8 @@ export function distChart(groups, opts = {}) {
   for (const v of pooled) if (v !== distinct[distinct.length - 1]) { distinct.push(v); if (distinct.length > 12) break; }
   const discrete = distinct.length <= 12 && distinct.every(Number.isInteger);
   const boxes = !(discrete && distinct.length <= 2);
-  const m = { l: 6, r: 6, t: 16, b: 20 };
-  const plotH = opts.plotHeight || 78, boxH = boxes ? 10 * shown.length + 6 : 0;
+  const m = { l: 8, r: 8, t: 16, b: 20 };
+  const plotH = opts.plotHeight || 80, boxH = boxes ? 10 * shown.length + 6 : 0;
   const H = m.t + plotH + m.b + boxH;
   let edges = null, lo, hi, nb;
   if (discrete) {
@@ -331,20 +366,8 @@ export function distChart(groups, opts = {}) {
     top = 2 * order[1][0] || order[0][0];
     for (let b = 0; b < nb; b++) if (tall[b] > top) brokenAt.add(b);
   }
-  const bw = (W - m.l - m.r) / nb;
-  // a discrete outcome's values sit at their bars' centres, in order
-  const X = discrete
-    ? v => {
-      if (v <= distinct[0]) return m.l + bw / 2;
-      for (let j = 0; j + 1 < nb; j++) {
-        if (v <= distinct[j + 1]) return m.l + (j + 0.5 + (v - distinct[j]) / (distinct[j + 1] - distinct[j])) * bw;
-      }
-      return m.l + (nb - 0.5) * bw;
-    }
-    : v => m.l + (v - lo) / (hi - lo) * (W - m.l - m.r);
   const Y = x => Math.min(x, top) / top * plotH;
   const base = m.t + plotH;
-  const svg = s("svg", { class: "chart dist", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": opts.label || "distribution" });
   // a value on the outcome's scale (a bin's edges) and a value the rows
   // have (a discrete outcome's values, the quantiles), each with its unit
   // or, at a range's low end and on the axis, without
@@ -352,54 +375,69 @@ export function distChart(groups, opts = {}) {
   const fmtRow = (v, o) => fmtRowValue(t, v, o);
   const edges2 = (a, b) => spanText(fmtT(t, a, { unit: false }), fmtT(t, b));
   const rows2 = (a, b) => spanText(fmtRow(a, { unit: false }), fmtRow(b));
-  for (let b = 0; b < nb; b++) {
-    if (!shown.some((_, gi) => share[gi][b] > 0)) continue;
-    const g0 = m.l + b * bw + 1, inner = Math.max(1, bw - 2), each = inner / shown.length;
-    const bar = s("g", { class: "has-tip" });
-    const cut = [];
-    shown.forEach((g, gi) => {
-      const x = share[gi][b];
-      if (!(x > 0)) return;
-      const hgt = Math.max(1, Y(x));
-      bar.append(s("rect", { x: g0 + gi * each + (shown.length > 1 ? 0.5 : 0), y: base - hgt, width: Math.max(1, each - (shown.length > 1 ? 1 : 0)), height: hgt, rx: 1.5, fill: g.fill }));
-      if (brokenAt.has(b) && x > top) {
-        bar.append(s("rect", { x: g0 + gi * each, y: base - hgt + 7, width: each + 0.5, height: 2, fill: "var(--surface)" }));
-        cut.push({ text: fmtPct(x, x < 0.1 ? 1 : 0), fill: shown.length > 1 ? g.text || g.ink || g.fill : null });
-      }
-    });
-    if (cut.length) svg.append(cutLabel(cut, g0 + inner / 2, m, W));
-    const range = discrete ? fmtRow(distinct[b]) : edges2(edges[b], edges[b + 1]);
-    tip(bar, () => h("div", null, h("b", { text: range }),
-      shown.map((g, gi) => h("div", { class: "k", text: `${g.label}: ${fmtPct(share[gi][b], share[gi][b] < 0.01 ? 2 : 1)} (${fmtInt(counts[gi][b])} of ${fmtInt(g.vals.length)})` }))));
-    svg.append(bar);
-  }
-  svg.append(s("line", { class: "axis", x1: m.l, x2: W - m.r, y1: base, y2: base }));
   // the axis: each value of a discrete outcome, else round ticks
   const ticks = discrete ? distinct : niceTicks(lo, hi, 5);
   const step = !discrete && ticks.length > 1 ? ticks[1] - ticks[0] : 1;
   const every = discrete ? Math.max(1, Math.ceil(nb / 10)) : 1;
-  ticks.forEach((v, j) => {
-    if (j % every) return;
-    svg.append(s("text", { class: "label", x: Math.min(W - m.r - 12, Math.max(m.l + 12, X(v))), y: base + 14, "text-anchor": "middle", text: discrete ? fmtRow(v, { unit: false }) : tickText(t, v, step) }));
-  });
-  // each group's spread, on the same axis
-  if (boxes) {
-    shown.forEach((g, gi) => {
-      const y = base + m.b + 4 + gi * 10;
-      const clamp = v => Math.min(W - m.r, Math.max(m.l, X(v)));
-      // the same values the cards print (stats rankAt)
-      const q = f => rankAt(g.vals, f);
-      const p5 = clamp(q(0.05)), p25 = clamp(q(0.25)), p50 = clamp(q(0.5)), p75 = clamp(q(0.75)), p95 = clamp(q(0.95));
-      const box = s("g", { class: "has-tip dist-box" });
-      box.append(s("line", { x1: p5, x2: p95, y1: y, y2: y, stroke: g.ink || g.fill, "stroke-width": 1.25 }));
-      box.append(s("rect", { x: p25, y: y - 3.5, width: Math.max(1.5, p75 - p25), height: 7, rx: 1.5, fill: g.fill }));
-      box.append(s("line", { x1: p50, x2: p50, y1: y - 5, y2: y + 5, stroke: "var(--ink)", "stroke-width": 2 }));
-      tip(box, () => h("div", null, h("b", { text: g.label }),
-        h("div", { class: "k", text: `median ${fmtRow(q(0.5))} · middle half ${rows2(q(0.25), q(0.75))} · 5th to 95th percentile ${rows2(q(0.05), q(0.95))}` })));
-      svg.append(box);
+  const draw = (W) => {
+    const bw = (W - m.l - m.r) / nb;
+    // a discrete outcome's values sit at their bars' centres, in order
+    const X = discrete
+      ? v => {
+        if (v <= distinct[0]) return m.l + bw / 2;
+        for (let j = 0; j + 1 < nb; j++) {
+          if (v <= distinct[j + 1]) return m.l + (j + 0.5 + (v - distinct[j]) / (distinct[j + 1] - distinct[j])) * bw;
+        }
+        return m.l + (nb - 0.5) * bw;
+      }
+      : v => m.l + (v - lo) / (hi - lo) * (W - m.l - m.r);
+    const svg = s("svg", { class: "chart dist", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": opts.label || "distribution" });
+    for (let b = 0; b < nb; b++) {
+      if (!shown.some((_, gi) => share[gi][b] > 0)) continue;
+      const g0 = m.l + b * bw + 1, inner = Math.max(1, bw - 2), each = inner / shown.length;
+      const bar = s("g", { class: "has-tip" });
+      const cut = [];
+      shown.forEach((g, gi) => {
+        const x = share[gi][b];
+        if (!(x > 0)) return;
+        const hgt = Math.max(1, Y(x));
+        bar.append(s("rect", { x: g0 + gi * each + (shown.length > 1 ? 0.5 : 0), y: base - hgt, width: Math.max(1, each - (shown.length > 1 ? 1 : 0)), height: hgt, rx: 1.5, fill: g.fill }));
+        if (brokenAt.has(b) && x > top) {
+          bar.append(s("rect", { x: g0 + gi * each, y: base - hgt + 7, width: each + 0.5, height: 2, fill: "var(--surface)" }));
+          cut.push({ text: fmtPct(x, x < 0.1 ? 1 : 0), fill: shown.length > 1 ? g.text || g.ink || g.fill : null });
+        }
+      });
+      if (cut.length) svg.append(cutLabel(cut, g0 + inner / 2, m, W));
+      const range = discrete ? fmtRow(distinct[b]) : edges2(edges[b], edges[b + 1]);
+      tip(bar, () => h("div", null, h("b", { text: range }),
+        shown.map((g, gi) => h("div", { class: "k", text: `${g.label}: ${fmtPct(share[gi][b], share[gi][b] < 0.01 ? 2 : 1)} (${fmtInt(counts[gi][b])} of ${fmtInt(g.vals.length)})` }))));
+      svg.append(bar);
+    }
+    svg.append(s("line", { class: "axis", x1: m.l, x2: W - m.r, y1: base, y2: base }));
+    ticks.forEach((v, j) => {
+      if (j % every) return;
+      svg.append(s("text", { class: "label", x: Math.min(W - m.r - 12, Math.max(m.l + 12, X(v))), y: base + 14, "text-anchor": "middle", text: discrete ? fmtRow(v, { unit: false }) : tickText(t, v, step) }));
     });
-  }
-  return { svg, outside, discrete };
+    // each group's spread, on the same axis
+    if (boxes) {
+      shown.forEach((g, gi) => {
+        const y = base + m.b + 4 + gi * 10;
+        const clamp = v => Math.min(W - m.r, Math.max(m.l, X(v)));
+        // the same values the cards print (stats rankAt)
+        const q = f => rankAt(g.vals, f);
+        const p5 = clamp(q(0.05)), p25 = clamp(q(0.25)), p50 = clamp(q(0.5)), p75 = clamp(q(0.75)), p95 = clamp(q(0.95));
+        const box = s("g", { class: "has-tip dist-box" });
+        box.append(s("line", { x1: p5, x2: p95, y1: y, y2: y, stroke: g.ink || g.fill, "stroke-width": 1.25 }));
+        box.append(s("rect", { x: p25, y: y - 3.5, width: Math.max(1.5, p75 - p25), height: 7, rx: 1.5, fill: g.fill }));
+        box.append(s("line", { x1: p50, x2: p50, y1: y - 5, y2: y + 5, stroke: "var(--ink)", "stroke-width": 2 }));
+        tip(box, () => h("div", null, h("b", { text: g.label }),
+          h("div", { class: "k", text: `median ${fmtRow(q(0.5))} · middle half ${rows2(q(0.25), q(0.75))} · 5th to 95th percentile ${rows2(q(0.05), q(0.95))}` })));
+        svg.append(box);
+      });
+    }
+    return svg;
+  };
+  return { svg: sized(opts.kind || "dist", opts.width || 420, draw), outside, discrete };
 }
 
 // A broken bin's label, once over the bin and inside the chart: the share

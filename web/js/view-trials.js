@@ -1,6 +1,6 @@
 // Trials: the best rows, ranked as the runner ranks them, each a click from
 // its full record and its replay. The strip sets the best row against what
-// noise alone and the rows like it give; icons over the table add columns:
+// noise alone and the rows like it give; toggles over the table add columns:
 // the parameters that move the needle and the rest, the rows like each
 // row, and the activity, risk, model skill and run time behind each score
 // where the sweep records them.
@@ -98,7 +98,7 @@ function trialsAbout(m) {
   return about("The best rows",
     `Ranked by ${m.schema.objectiveLabel}, as the runner ranks them, over the rows in view. Rows that tie share a rank (4=) and keep the order they arrived in; a tie too large for the list of ${BEST_LIMIT} is told in one line instead, since inside it the order means nothing.`,
     "The best of many noisy rows is also the luckiest. The strip sets the best row against the luck line, what noise alone would reach in as many rows, and against the rows like it: the other rows that share its values where the needle moves, which is what those values earn without its luck.",
-    "The icons above the table add columns: the parameters that move the needle and the other parameters; the rows like each row; and, where the sweep records them, the activity, risk and model skill behind each score and the time it took. Choose a row to open its full record and its replay.");
+    "The toggles above the table add columns: the parameters that move the needle and the other parameters; the rows like each row; and, where the sweep records them, the activity, risk and model skill behind each score and the time it took. Choose a row to open its full record and its replay.");
 }
 
 // No objective: nothing to rank by.
@@ -220,25 +220,28 @@ function likeTip(m, ranked, x) {
 // ---------------------------------------------------------------------------
 // The island: its head with the column toggles, the table, the tie left out.
 
+// The column sets as toggles that say what they are: an icon and a name,
+// in a group for each part (a row's parameters, the checks on its score,
+// what it cost).
 function colTools(m, A, cols) {
   const bar = h("div", { class: "tr-tools", role: "toolbar", "aria-label": "Columns" });
   const on = m.state.trialCols;
-  let part = null;
+  let part = null, group = null;
   for (const p of PRESETS) {
     const c = cols[p.id];
     if (!c) continue;
-    if (part !== null && p.part !== part) bar.append(h("span", { class: "tr-sep", "aria-hidden": "true" }));
+    if (p.part !== part) { group = h("div", { class: "seg" }); bar.append(group); }
     part = p.part;
     const empty = !c.length;
-    const b = h("button", { class: "icon-btn", type: "button", "aria-label": p.name,
+    const b = h("button", { type: "button",
       "aria-pressed": on.includes(p.id) && !empty ? "true" : "false", "aria-disabled": empty ? "true" : null,
       dataset: { cols: p.id, focus: `cols-${p.id}` },
       onclick: () => {
         if (empty) return;
         A.set({ trialCols: on.includes(p.id) ? on.filter(x => x !== p.id) : [...on, p.id] }, { replace: true });
-      } }, icon(p.icon));
+      } }, icon(p.icon), h("span", { text: p.name }));
     tip(b, () => h("div", null, h("b", { text: p.name }), h("div", { class: "k", text: presetWhat(p.id, m, c) })));
-    bar.append(b);
+    group.append(b);
   }
   return bar;
 }

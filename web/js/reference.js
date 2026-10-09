@@ -34,8 +34,8 @@ const TOPICS = [
     use: "Sort by effect or by name; choose a pool's member to open it in the inspector. The last card, and the strip's copy, say what the evidence so far supports for the next manifest or pool." },
   { id: "trials", title: "Trials",
     purpose: "See the best rows the way the runner ranks them, what each score rests on, and open any of them in full.",
-    read: "The strip sets the best row against the luck line, what noise alone would reach in as many rows, and against the rows like it: the other rows that share its values of the parameters that move the needle, which is what those values earn without its luck. It counts the rows clear of the luck line and the rows that arrived since the best. The table ranks rows by the runner's objective (Limen: net PnL per bar; plate sweeps: gates passed, then mean %/mo). Rows that tie share a rank (4=) and keep the order they arrived in; a tie too large for the list of 100 is told in one line instead, since inside it the order means nothing. A value shows no finer than the runner wrote it (Limen writes net PnL per bar to 0.1 bps). The pills are the nine gates, dark when passed. The icons above the table add column sets: Movers (the parameters that move the needle, strongest first), Other parameters, Rows like it, and where the sweep records them Activity (Limen: entries and deployed notional), Risk (drawdown and losses), Model skill (AUC and its errors) and Run time.",
-    use: "Toggle the icons for the columns you need, as many as you like; rest on one for what it adds. Choose a row, or the best row on the strip, for every field, its gates, its parameters and the command that replays it; choose it again to close it. The copy button on the strip copies the table as notes." },
+    read: "The strip sets the best row against the luck line, what noise alone would reach in as many rows, and against the rows like it: the other rows that share its values of the parameters that move the needle, which is what those values earn without its luck. It counts the rows clear of the luck line and the rows that arrived since the best. The table ranks rows by the runner's objective (Limen: net PnL per bar; plate sweeps: gates passed, then mean %/mo). Rows that tie share a rank (4=) and keep the order they arrived in; a tie too large for the list of 100 is told in one line instead, since inside it the order means nothing. A value shows no finer than the runner wrote it (Limen writes net PnL per bar to 0.1 bps). The pills are the nine gates, dark when passed. The toggles above the table add column sets: Movers (the parameters that move the needle, strongest first), Other parameters, Rows like it, and where the sweep records them Activity (Limen: entries and deployed notional), Risk (drawdown and losses), Model skill (AUC and its errors) and Run time.",
+    use: "Turn on the column sets you need, as many as you like; rest on one for what it adds. Choose a row, or the best row on the strip, for every field, its gates, its parameters and the command that replays it; choose it again to close it. The copy button on the strip copies the table as notes." },
   { id: "gates", title: "Gates",
     purpose: "Set the needs a row must meet, and see how often rows meet them, which never do, what stops the best rows, and what moves each.",
     read: "The first card sets a gate: a needle, a comparison (≥, >, ≤, <) and a need, with the needle's rows against the need as you type, the passing ones in blue. Each gate then has a card: the share of rows that pass it with its 95% interval (Wilson); its needle's rows against the need (a bar far taller than the rest is drawn broken, with its count); and for a gate that never passed, the most its true rate can be (three over the rows, the rule of three) and the outcome it moves with, which holds it back. The strip says how many rows pass every gate, the hardest gate, the gates never passed, what the rows passing the most fail together, and how many gates the runner's best row passes; the foot lists every set of gates those rows fail. A row without a value for a gate's needle is neither a pass nor a fail of that gate. A runner's own gates (plate sweeps) come with the sweep and sit beside the ones set here.",
@@ -78,14 +78,14 @@ const KEYS = [
 
 export function renderReference(pane, topic, close) {
   clear(pane);
-  pane.append(h("div", { style: { display: "flex", alignItems: "center", gap: "10px" } },
+  pane.append(h("div", { class: "ref-head" },
     h("h2", { text: "System reference" }),
-    h("button", { class: "icon-btn", style: { marginLeft: "auto" }, "aria-label": "Close the reference", onclick: close }, icon("close"))),
+    h("button", { class: "icon-btn", "aria-label": "Close the reference", onclick: close }, icon("close"))),
   h("p", { text: "Each topic says what a surface is for, how to read it and how to use it." }));
-  const toc = h("div", { class: "chips", style: { margin: "8px 0 4px" } },
-    TOPICS.map(t => h("a", { class: "chip", href: `#ref-${t.id}`, style: { paddingRight: "8px", textDecoration: "none", color: "inherit" },
+  const toc = h("div", { class: "chips ref-toc" },
+    TOPICS.map(t => h("a", { class: "chip", href: `#ref-${t.id}`,
       onclick: (e) => { e.preventDefault(); pane.querySelector(`#ref-${t.id}`).scrollIntoView({ behavior: "smooth" }); }, text: t.title })),
-    h("a", { class: "chip", href: "#ref-keys", style: { paddingRight: "8px", textDecoration: "none", color: "inherit" },
+    h("a", { class: "chip", href: "#ref-keys",
       onclick: (e) => { e.preventDefault(); pane.querySelector("#ref-keys").scrollIntoView({ behavior: "smooth" }); }, text: "Keys" }));
   pane.append(toc);
   for (const t of TOPICS) {
@@ -93,6 +93,6 @@ export function renderReference(pane, topic, close) {
       h("dl", { class: "pru" }, h("dt", { text: "Purpose" }), h("dd", { text: t.purpose }), h("dt", { text: "Read" }), h("dd", { text: t.read }), h("dt", { text: "Use" }), h("dd", { text: t.use }))));
   }
   pane.append(h("section", { class: "topic", id: "ref-keys" }, h("h3", { text: "Keys" }),
-    h("div", { class: "keys" }, KEYS.map(([k, v]) => [h("div", null, k.split("  ").map(x => h("kbd", { text: x, style: { marginRight: "4px" } }))), h("div", { text: v })]))));
+    h("div", { class: "keys" }, KEYS.map(([k, v]) => [h("div", null, k.split("  ").map(x => h("kbd", { text: x }))), h("div", { text: v })]))));
   if (topic === "keys") pane.querySelector("#ref-keys").scrollIntoView();
 }
