@@ -5,6 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { clusterOutcomes, clusterRows, rankScale, mannWhitney, composition, grade } from "../../web/js/clusters.js";
+import { rankAt } from "../../web/js/stats.js";
 
 function rng(seed) {
   let a = seed >>> 0;
@@ -77,6 +78,13 @@ test("three planted kinds of row come back as three clusters, largest first, the
   // the same rows give the same clusters
   const again = clusterRows(schema, rows, { n: rows.length });
   assert.deepEqual(again.clusters.map(c => [...c.rows].join()), r.clusters.map(c => [...c.rows].join()));
+  // a cluster's median is the one the cards print (stats rankAt), even for an even count
+  for (const c of r.clusters) {
+    r.outcomes.forEach((o, j) => {
+      const v = Array.from(c.rows, i => o.t.values[i]).filter(x => x === x).sort((a, b) => a - b);
+      assert.equal(c.medians[j], rankAt(v, 0.5), `${c.id} ${o.t.id}`);
+    });
+  }
   // a cluster names the outcomes it stands out on
   const big = r.clusters.find(c => c.rows.every(i => kinds[i] === 0) || c.n > 400);
   assert.equal(big.standsOut.length, 2);
