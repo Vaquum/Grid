@@ -155,8 +155,9 @@ export function niceTicks(a, b, n) {
   const mag = Math.pow(10, Math.floor(Math.log10(step0)));
   const err = step0 / mag;
   const step = (err >= 7.5 ? 10 : err >= 3.5 ? 5 : err >= 1.5 ? 2 : 1) * mag;
+  // whole multiples of the step: summing steps drifts (0 came out 1.4e-17)
   const out = [];
-  for (let t = Math.ceil(a / step) * step; t <= b + step * 1e-9; t += step) out.push(+t.toPrecision(12));
+  for (let k = Math.ceil(a / step - 1e-9); k * step <= b + step * 1e-9; k++) out.push(+(k * step).toPrecision(12));
   return out;
 }
 
