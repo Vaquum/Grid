@@ -474,17 +474,16 @@ test("charts are drawn at their box's width, so their text is the small size at 
     assert.ok(charts.length >= 8, `charts: ${charts.length}`);
     for (const c of charts) assert.equal(c.fs, "11px");
   }
-  // the cards of a row start their charts at one height, however their tags wrap
-  const tops = await page.$$eval(".rn-grid", grids => grids.flatMap(g => {
-    const rows = new Map();
-    for (const c of g.querySelectorAll(".rn-card")) {
-      const at = Math.round(c.getBoundingClientRect().top);
-      if (!rows.has(at)) rows.set(at, new Set());
-      rows.get(at).add(Math.round(c.querySelector(".chart").getBoundingClientRect().top));
-    }
-    return [...rows.values()].map(s => s.size);
-  }));
-  assert.ok(tops.length > 1 && tops.every(n => n === 1), `chart tops per row: ${tops.join(",")}`);
+  // the cards of a row start their charts at one height, however their tags
+  // wrap: each row's chart tops, by the row's top
+  const rows = await page.$$eval(".rn-grid .rn-card", cards => {
+    const by = {};
+    for (const c of cards) (by[Math.round(c.getBoundingClientRect().top)] ||= []).push(Math.round(c.querySelector(".chart").getBoundingClientRect().top));
+    return by;
+  });
+  const said = `chart tops by row (900 px wide, ${await page.evaluate(() => document.documentElement.scrollWidth)} px of page): ${JSON.stringify(rows)}`;
+  assert.ok(Object.keys(rows).length > 1, said);
+  assert.ok(Object.values(rows).every(tops => new Set(tops).size === 1), said);
   assert.deepEqual(errors, []);
   await page.close();
 });
