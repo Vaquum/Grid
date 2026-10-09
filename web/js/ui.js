@@ -148,7 +148,7 @@ const tipFns = new WeakMap();
 let tipTimer = null, tipWarm = false, tipCool = null, tipEl = null;
 
 export function tip(el, content) {
-  if (typeof content === "function") tipFns.set(el, content);
+  if (typeof content === "function") { tipFns.set(el, content); el.classList.add("has-tip"); }
   else el.dataset.tip = content;
   return el;
 }
@@ -160,7 +160,7 @@ export function installTips(root, tipBox) {
     clear(tipEl);
     if (fn) {
       const c = fn();
-      if (!c) return;
+      if (!c) { tipEl.hidden = true; return; }
       tipEl.append(c);
     } else tipEl.textContent = target.dataset.tip;
     tipEl.hidden = false;
