@@ -27,13 +27,13 @@ const VIEWS = [
   { id: "features", label: "Features", icon: "features", key: "4", title: "Feature inclusion" },
   { id: "trials", label: "Trials", icon: "trials", key: "5", title: "The best rows" },
   { id: "gates", label: "Gates", icon: "gates", key: "6", title: "Set gates, see what they allow" },
-  { id: "run", label: "Run", icon: "run", key: "7", title: "The run itself" },
+  { id: "run", label: "Run", icon: "run", key: "7", title: "The whole run: its distributions and clusters" },
 ];
 
 const DEFAULT_STATE = {
   run: null, view: "board", target: null, context: [], pocket: [], pocketB: null,
   sel: null, edge: null, show: { hp: true, flat: true }, pair: null, order: 2, featSort: "effect",
-  trialCols: ["movers"], gates: [],
+  trialCols: ["movers"], gates: [], clusters: [], compare: false, clusterK: null,
 };
 
 const app = {
@@ -46,7 +46,8 @@ const app = {
 // only a bare #anchor.
 
 function encodeState(st) {
-  const o = { v: st.view, r: st.run, t: st.target, c: st.context, p: st.pocket, s: st.sel, e: st.edge, pr: st.pair, po: st.order, sh: st.show, fs: st.featSort, tc: st.trialCols, g: st.gates };
+  const o = { v: st.view, r: st.run, t: st.target, c: st.context, p: st.pocket, s: st.sel, e: st.edge, pr: st.pair, po: st.order, sh: st.show, fs: st.featSort, tc: st.trialCols, g: st.gates,
+    cl: st.clusters, cm: st.compare, ck: st.clusterK };
   const json = JSON.stringify(o);
   const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(json)));
   return "s1." + b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -61,7 +62,8 @@ function decodeState(hash) {
     const o = JSON.parse(new TextDecoder().decode(bytes));
     return { ...DEFAULT_STATE, view: o.v, run: o.r, target: o.t, context: o.c || [], pocket: o.p || [], sel: o.s || null,
       edge: o.e ?? null, pair: o.pr || null, order: o.po || 2, show: o.sh || DEFAULT_STATE.show, featSort: o.fs || "effect",
-      trialCols: Array.isArray(o.tc) ? o.tc : DEFAULT_STATE.trialCols, gates: Array.isArray(o.g) ? o.g : [] };
+      trialCols: Array.isArray(o.tc) ? o.tc : DEFAULT_STATE.trialCols, gates: Array.isArray(o.g) ? o.g : [],
+      clusters: Array.isArray(o.cl) ? o.cl : [], compare: !!o.cm, clusterK: Number.isInteger(o.ck) ? o.ck : null };
   } catch (err) {
     console.warn("ignoring an address that is not a Grid view", err);
     return null;
@@ -238,6 +240,8 @@ export function model() {
   const key = `${ds.id}|${ds.version}|${targetId}|${rev}|${edge}|${JSON.stringify(ctx)}`;
   // the same question, whatever rows have arrived since
   c.akey = `${ds.id}|${ds.meta.generation}|${targetId}|${rev}|${st.edge === null ? "latest" : edge}|${JSON.stringify(ctx)}`;
+  // the same rows, whatever the needle (the clusters do not read it)
+  c.rkey = `${ds.id}|${ds.meta.generation}|${st.edge === null ? "latest" : edge}|${JSON.stringify(ctx)}`;
   if (c.key !== key) {
     c.key = key;
     c.rows = rowsIn(schema, ctx, edge);
@@ -359,7 +363,7 @@ function buildTop() {
   const els = {};
   els.name = h("span", { class: "sweep-name" });
   els.runSel = h("select", { class: "run-pick", id: "run-pick", "aria-label": "Run" });
-  els.runSel.addEventListener("change", () => setState({ run: els.runSel.value, sel: null, context: [], pocket: [], edge: null }));
+  els.runSel.addEventListener("change", () => setState({ run: els.runSel.value, sel: null, context: [], pocket: [], edge: null, clusters: [], clusterK: null }));
   els.statusLabel = h("b");
   els.statusDetail = h("span", { class: "detail" });
   els.pill = h("span", { class: "status" }, els.statusLabel, els.statusDetail);

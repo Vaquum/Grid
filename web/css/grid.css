@@ -40,6 +40,8 @@
   --heat-cap: 50%;
   /* Series identity, in this order (adjacent pairs checked for colour
      vision; a chart with two or more series always has a legend) */
+  --cat-1-bar: color-mix(in oklab, var(--cat-1) 74%, var(--surface));
+  --cat-2-bar: color-mix(in oklab, var(--cat-2) 74%, var(--surface));
   --cat-1: #4d699b;
   --cat-2: #ab5d2b;
   --cat-3: #624c83;
@@ -798,6 +800,63 @@ kbd { border: 1px solid var(--line-2); border-radius: 4px; padding: 0 5px; backg
 .sev.on { color: var(--ink); }
 .sev.off { color: var(--muted); font-weight: 500; }
 tr.sel td { background: var(--on); }
+
+/* run: the whole run. Its clusters as toggles, a card per outcome's
+   distribution, what makes each cluster, then two islands a row */
+.view > .island + .island, .view > .island + .rn-pair, .view > .rn-pair + .island, .view > .rn-pair + .rn-pair { margin-top: var(--sp-4); }
+.rn-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: var(--sp-4); align-items: start; }
+.rn-pick .isl-head .rn-k { margin-left: auto; }
+.rn-k button { min-width: 28px; padding: 0 8px; }
+.rn-k button[aria-disabled="true"] { color: var(--muted); opacity: 0.5; cursor: default; }
+.rn-compare[aria-pressed="true"] { background: var(--on); border-color: var(--on); }
+.rn-chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.rn-chip {
+  display: inline-flex; align-items: center; gap: var(--sp-2); min-height: var(--h-l); max-width: 100%; padding: 0 var(--sp-3) 0 5px;
+  border: 1px solid var(--line-2); border-radius: var(--r-m); background: var(--surface); font-size: var(--fs-m); text-align: left;
+}
+.rn-chip:hover { background: var(--hover); }
+.rn-chip[aria-pressed="true"] { border-color: var(--ink-2); background: var(--surface-2); }
+.rn-key {
+  display: inline-grid; place-items: center; flex: none; width: 22px; height: 22px; border: 1px solid var(--line-2); border-radius: var(--r-s);
+  font-weight: 600; font-size: var(--fs-m); color: var(--ink);
+}
+.rn-chip-n { font-weight: 600; }
+.rn-chip-share { color: var(--muted); }
+.rn-chip-what { min-width: 0; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rn-dists .isl-head .rn-legend { margin: 0 0 0 auto; }
+.rn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--sp-3); }
+.rn-card { display: flex; flex-direction: column; min-width: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-l); background: var(--surface); }
+.rn-card.needle { border-color: var(--line-2); }
+.rn-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px var(--sp-2); }
+.rn-name { margin: 0; font-size: var(--fs-b); font-weight: 600; }
+.rn-unit { color: var(--muted); font-size: var(--fs-m); }
+.rn-tags { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
+.rn-plot { margin: 6px 0 2px; }
+.rn-figs { display: grid; gap: 2px; font-size: var(--fs-m); color: var(--ink-2); }
+.rn-fig { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 4px; }
+.rn-fig i.box, .rn-legend i.box { width: 9px; height: 9px; border-radius: var(--r-s); display: inline-block; flex: none; }
+.rn-diff { margin: var(--sp-2) 0 0; padding-top: var(--sp-2); border-top: 1px solid var(--line); color: var(--muted); font-size: var(--fs-m); }
+.rn-diff.on { color: var(--ink); }
+.rn-cls { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--sp-3); }
+.rn-cl {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 10px 12px; text-align: left;
+  border: 1px solid var(--line); border-radius: var(--r-l); background: var(--surface); font-size: var(--fs-m);
+}
+.rn-cl:hover { background: var(--hover); }
+.rn-cl-head { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.rn-cl-params { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; color: var(--ink-2); }
+.rn-cl p { margin: 0; }
+.rn-params { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--sp-3) var(--sp-5); }
+.rn-param { min-width: 0; }
+.rn-pname { margin-bottom: 4px; font-size: var(--fs-m); }
+.rn-levels { display: grid; gap: 3px; }
+.rn-level { display: grid; grid-template-columns: minmax(48px, 30%) minmax(0, 1fr) max-content; align-items: center; gap: var(--sp-2); font-size: var(--fs-s); }
+.rn-lv { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rn-bars { display: grid; gap: 2px; }
+.rn-bars i { display: block; height: 5px; min-width: 1px; border-radius: 1px; }
+.rn-lvn { color: var(--muted); }
+.rn-rest { margin-top: var(--sp-3); font-size: var(--fs-m); }
+.rn-rest p { margin: 6px 0 0; overflow-wrap: anywhere; }
 
 /* ---- narrow screens ----------------------------------------------------- */
 /* the pocket's and the pairs' two columns need room; with the inspector open they stack */
