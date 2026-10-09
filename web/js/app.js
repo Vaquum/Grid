@@ -136,7 +136,14 @@ function startStream(cfg, cursor) {
 async function reconnect(cfg) {
   try {
     const body = await loadLive(cfg);
+    // the run on screen, and its generation: it may have started over while
+    // the stream was down, and its rows kept then are in the pack, not resent
+    const was = app.sweep.runs.find(r => r.id === app.state.run);
+    const gen = was ? was.meta.generation : null;
     installSweep(body.pack, true);
+    const now = was && app.sweep.runs.find(r => r.id === was.id);
+    if (now && now.meta.generation !== gen && !app.stayOn) app.stayOn = `${was.id}.g${gen}`;
+    settleStay();
     startStream(cfg, body.cursor);
     note(null, "Reconnected.", "Rows read again from the server.");
   } catch (err) {
@@ -174,11 +181,7 @@ function applyMessage(msg) {
     if (!ds) { console.error("rows for an unknown run", msg.run); return; }
     ds.append(msg.lo, msg.hi, msg.columns, msg.arrivals);
     ds.meta = msg.meta;
-    if (app.stayOn === ds.id) {
-      app.stayOn = null;
-      app.state = { ...app.state, run: ds.id };
-      try { history.replaceState(null, "", "#" + encodeState(app.state)); } catch (err) { /* host refused */ }
-    }
+    if (app.stayOn === ds.id) settleStay();
   } else if (msg.type === "rounds") {
     const ds = sw.runs.find(r => r.id === msg.run);
     if (!ds) { console.error("rounds for an unknown run", msg.run); return; }
@@ -189,6 +192,18 @@ function applyMessage(msg) {
     sw.meta = { ...sw.meta, ...msg.meta };
   }
   scheduleUpdate();
+}
+
+// The reader stays on the rows kept when the run on screen started over,
+// once they are here; a run the reader chose in the meantime stands.
+function settleStay() {
+  const id = app.stayOn;
+  const ds = id && app.sweep.runs.find(r => r.id === id);
+  if (!ds || !ds.n) return;
+  app.stayOn = null;
+  if (app.state.run !== ds.meta.archivedFrom) return;
+  app.state = { ...app.state, run: id };
+  try { history.replaceState(null, "", "#" + encodeState(app.state)); } catch (err) { /* host refused */ }
 }
 
 function mergeLog(sw, logId, delta) {
