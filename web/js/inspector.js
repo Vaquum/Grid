@@ -162,7 +162,9 @@ function settling(m, d, e) {
   const shown = e.levels.map((l, j) => j).filter(j => !e.levels[j].withheld && e.levels[j].n > 0)
     .sort((a, b) => e.levels[b].mean - e.levels[a].mean);
   const pick = shown.length > 4 ? [shown[0], shown[1], shown[shown.length - 2], shown[shown.length - 1]] : shown;
-  const series = pick.map((j, i) => ({ label: d.levels[j].label, color: ["var(--better)", "color-mix(in oklab, var(--better) 50%, var(--muted))", "color-mix(in oklab, var(--worse) 50%, var(--muted))", "var(--worse)"][pick.length === 2 ? i * 3 : i], points: [] }));
+  // each value its own series colour, highest first: which value a line is,
+  // not whether it is better (the legend names them)
+  const series = pick.map((j, i) => ({ label: d.levels[j].label, color: `var(--cat-${i + 1})`, points: [] }));
   const steps = 60, every = Math.max(1, Math.floor(rows.length / steps));
   for (let j = 0; j < rows.length; j++) {
     const i = rows[j], c = codes[i], v = y[i];

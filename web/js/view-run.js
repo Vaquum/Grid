@@ -601,7 +601,7 @@ function recordIsland(m) {
   if (!rec) { isl.append(h("p", { class: "isl-note", text: "Too few rows for a luck line." })); return isl; }
   isl.append(lineChart([
     { label: "best so far", color: "var(--ink)", points: rec.pts.map(p => [p.n, p.best]), step: true },
-    { label: "expected best under noise", color: "var(--worse)", points: rec.pts.map(p => [p.n, p.luck]), dash: "5 4" },
+    { label: "expected best under noise", color: "var(--cat-3)", points: rec.pts.map(p => [p.n, p.luck]), dash: "5 4" },
     { label: "mean", color: "var(--muted)", points: rec.pts.map(p => [p.n, p.mean]), endDot: false },
   ], { height: 190, xLabel: "rows", target: rec.t, label: "record against the luck line" }));
   const above = (rec.last.best - rec.last.luck) * (rec.t.better < 0 ? -1 : 1) > 0;
