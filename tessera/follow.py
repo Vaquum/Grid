@@ -207,8 +207,3 @@ def _ssh(host: str, *argv: str, timeout: float = 30.0) -> bytes:
 
 def remote_size(host: str, path: str) -> int:
     return int(_ssh(host, "stat", "-c", "%s", _quote(path)).strip())
-
-
-def read_remote(host: str, path: str) -> str:
-    """Read a whole remote text file once (space spec, sampler source)."""
-    return _ssh(host, "cat", _quote(path)).decode("utf-8", errors="replace")

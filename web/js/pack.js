@@ -225,7 +225,7 @@ export function decodePack(pack) {
     delete r.arrivals;
     return ds;
   });
-  return { meta: pack, runs, logs: pack.logs || {}, docs: pack.docs || {} };
+  return { meta: pack, runs, logs: pack.logs || {} };
 }
 
 // Row i rebuilt as a JSON object (absent keys left out), the way

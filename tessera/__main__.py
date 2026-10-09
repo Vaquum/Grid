@@ -1,8 +1,8 @@
 """Command line: serve a live sweep, or write a static pack.
 
     python3 -m tessera serve --results data/pocketA/results.jsonl \\
-        --log pocketA_sweep.log --space pocketA_space.yaml \\
-        --source pocket_a.py --run "pre-P0=data/pocketA/results_preP0.jsonl#0"
+        --log pocketA_sweep.log \\
+        --run "pre-P0=data/pocketA/results_preP0.jsonl#0"
 
     python3 -m tessera serve --ssh root@s0 --results /srv/.../results.jsonl \\
         --log /srv/.../pocketA_sweep.log
@@ -30,7 +30,7 @@ import webbrowser
 from typing import Any
 
 from . import __version__
-from .follow import FileFollower, LineFn, ResetFn, SSHFollower, read_remote
+from .follow import FileFollower, LineFn, ResetFn, SSHFollower
 from .server import serve
 from .sweep import Run, Sweep
 
@@ -123,14 +123,6 @@ class Wiring:
             lambda reason: sweep.log_reset(log_id, reason)))
         return log_id
 
-    def add_doc(self, key: str, path: str) -> None:
-        if self.args.ssh:
-            text = read_remote(self.args.ssh, path)
-        else:
-            with open(path, encoding="utf-8", errors="replace") as f:
-                text = f.read()
-        self.sweep.docs[key] = {"path": self.shown(path), "text": text}
-
     def build(self) -> Sweep:
         a = self.args
         main_log = self.add_log(a.log) if a.log else None
@@ -143,10 +135,6 @@ class Wiring:
                          log_id)
         self.add_run("r0", a.label or "current", a.results, None, True,
                      main_log)
-        if a.space:
-            self.add_doc("space", a.space)
-        if a.source:
-            self.add_doc("source", a.source)
         return self.sweep
 
     def read_once(self) -> None:
@@ -260,8 +248,6 @@ def main(argv: list[str] | None = None) -> int:
                        help="results JSONL the sweep is writing now")
         p.add_argument("--label", help="name of the current run")
         p.add_argument("--log", help="the sweep's stdout log")
-        p.add_argument("--space", help="the sweep space file (shown as is)")
-        p.add_argument("--source", help="the sampler source (shown as is)")
         p.add_argument("--run", action="append",
                        help="another results file: LABEL=PATH[#SEGMENT]")
         p.add_argument("--name", help="sweep name (default: results folder)")

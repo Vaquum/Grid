@@ -81,7 +81,6 @@ class Sweep:
         self.runs: list[Run] = []
         self.logs: dict[str, LogParser] = {}
         self.log_sources: dict[str, str] = {}
-        self.docs: dict[str, Json] = {}
         self.errors: list[Json] = []
         self.started = time.time()
 
@@ -190,9 +189,7 @@ class Sweep:
             parts.append('],"logs":' +
                          json.dumps({k: v.to_json()
                                      for k, v in self.logs.items()},
-                                    separators=(",", ":")) +
-                         ',"docs":' +
-                         json.dumps(self.docs, separators=(",", ":")) + "}")
+                                    separators=(",", ":")) + "}")
             return parts, cursor
 
     def pack_text(self, mode: str = "live") -> tuple[str, Cursor]:

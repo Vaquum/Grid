@@ -25,7 +25,6 @@ server runs `tail -F` there over SSH):
 R=/srv/<deployment>/research
 python3 -m tessera serve --ssh user@sweep-host --name PocketA \
   --results $R/data/pocketA/results.jsonl --log $R/pocketA_sweep.log \
-  --space $R/pocketA_space.yaml --source $R/pocket_a.py \
   --run "pre-P0=$R/data/pocketA/results_preP0_20261008_182937.jsonl#0" \
   --run "label=logregone,results=$R/data/logregone/results.jsonl,log=$R/logregone_sweep.log" \
   --open
@@ -35,7 +34,7 @@ Follow local files the same way without `--ssh`. `--results` is the run
 being written now, `--log` its stdout. `--run LABEL=PATH#SEGMENT` adds an
 earlier run kept under another name (its rows came from that segment of
 the same log); `--run label=…,results=…,log=…` adds a run with a log of its
-own. `--space` and `--source` are shown next to every parameter.
+own.
 
 A static snapshot, for reading offline or sharing:
 

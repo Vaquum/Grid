@@ -185,8 +185,8 @@ function mergeLog(sw, logId, delta) {
 }
 
 function installSweep(pack, keepState) {
-  const { meta, runs, logs, docs } = decodePack(pack);
-  app.sweep = { meta, runs, logs, docs };
+  const { meta, runs, logs } = decodePack(pack);
+  app.sweep = { meta, runs, logs };
   app.cache = {};
   if (!keepState) {
     const fromUrl = decodeState(location.hash);
