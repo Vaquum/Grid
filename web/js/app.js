@@ -43,6 +43,8 @@ const app = {
   // what happened while the page was open, newest first; the run and the
   // state the pill last said, to tell a change of it
   events: [], watch: null,
+  // the archive to move the reader to once its rows are here
+  stayOn: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -134,7 +136,14 @@ function startStream(cfg, cursor) {
 async function reconnect(cfg) {
   try {
     const body = await loadLive(cfg);
+    // the run on screen, and its generation: it may have started over while
+    // the stream was down, and its rows kept then are in the pack, not resent
+    const was = app.sweep.runs.find(r => r.id === app.state.run);
+    const gen = was ? was.meta.generation : null;
     installSweep(body.pack, true);
+    const now = was && app.sweep.runs.find(r => r.id === was.id);
+    if (now && now.meta.generation !== gen && !app.stayOn) app.stayOn = `${was.id}.g${gen}`;
+    settleStay();
     startStream(cfg, body.cursor);
     note(null, "Reconnected.", "Rows read again from the server.");
   } catch (err) {
@@ -161,11 +170,9 @@ function applyMessage(msg) {
     } else if (!old) {
       sw.runs.push(new Dataset(meta));
       // the run on screen started over: the reader stays on the rows they
-      // had (its rows arrive next, before the page draws again)
-      if (meta.archivedFrom && meta.archivedFrom === app.state.run) {
-        app.state = { ...app.state, run: meta.id };
-        try { history.replaceState(null, "", "#" + encodeState(app.state)); } catch (err) { /* host refused */ }
-      }
+      // had, once they are here (they come in the next message, and a
+      // draw can fall between the two)
+      if (meta.archivedFrom && meta.archivedFrom === app.state.run) app.stayOn = meta.id;
     } else {
       old.meta = meta;
     }
@@ -174,6 +181,7 @@ function applyMessage(msg) {
     if (!ds) { console.error("rows for an unknown run", msg.run); return; }
     ds.append(msg.lo, msg.hi, msg.columns, msg.arrivals);
     ds.meta = msg.meta;
+    if (app.stayOn === ds.id) settleStay();
   } else if (msg.type === "rounds") {
     const ds = sw.runs.find(r => r.id === msg.run);
     if (!ds) { console.error("rounds for an unknown run", msg.run); return; }
@@ -184,6 +192,18 @@ function applyMessage(msg) {
     sw.meta = { ...sw.meta, ...msg.meta };
   }
   scheduleUpdate();
+}
+
+// The reader stays on the rows kept when the run on screen started over,
+// once they are here; a run the reader chose in the meantime stands.
+function settleStay() {
+  const id = app.stayOn;
+  const ds = id && app.sweep.runs.find(r => r.id === id);
+  if (!ds || !ds.n) return;
+  app.stayOn = null;
+  if (app.state.run !== ds.meta.archivedFrom) return;
+  app.state = { ...app.state, run: id };
+  try { history.replaceState(null, "", "#" + encodeState(app.state)); } catch (err) { /* host refused */ }
 }
 
 function mergeLog(sw, logId, delta) {
@@ -225,6 +245,8 @@ function installSweep(pack, keepState) {
 // ---------------------------------------------------------------------------
 // The model the views read
 
+const NO_NEEDLE = { id: "none", label: "Needle", kind: "cont", unit: "", better: 0, digits: 2, values: new Float64Array(0) };
+
 function currentRun() {
   return app.sweep.runs.find(r => r.id === app.state.run) || app.sweep.runs[0];
 }
@@ -247,7 +269,9 @@ export function model() {
   if (c.gatedKey !== gatesKey) { c.gated = applyGates(c.schema, st.gates); c.gatedKey = gatesKey; }
   const schema = c.gated;
   let targetId = st.target && schema.targetById.has(st.target) ? st.target : schema.defaultTarget;
-  const target = schema.targetById.get(targetId);
+  // a run with no row yet (one that has just started over) has no needle
+  // to measure: a stand-in with no values, so every view can say so
+  const target = schema.targetById.get(targetId) || NO_NEEDLE;
   const edge = st.edge === null ? ds.n : Math.min(st.edge, ds.n);
   const ctx = (st.context || []).filter(cnd => schema.dimById.has(cnd.dim));
   // a gate's needle changes with its need: its revision is part of the question

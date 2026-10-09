@@ -40,7 +40,7 @@ test("a crash in the run's latest segment says so, until a progress line says it
 
 test("rows kept, recorded or of an earlier run are not called live", () => {
   const kept = st({ meta: { live: false, archivedFrom: "r0", archivedAt: 18 * 3600 + 24 * 60, archivedReason: "truncated" } });
-  assert.deepEqual(said(kept), ["kept", "Archived", "until 18:24"]);
+  assert.deepEqual(said(kept), ["archived", "Archived", "until 18:24"]);
   assert.match(kept.tip, /started over/);
   assert.equal(st({ meta: { live: false } }).label, "Earlier run");
   assert.equal(st({ mode: "recorded" }).label, "Recorded");
