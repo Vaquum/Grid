@@ -210,6 +210,12 @@ test("a card opens in the inspector and a value goes into the pocket", async () 
   assert.match(await page.locator(".strip .sc").first().innerText(), /%/);
   // a sweep without a manifest has no manifest at its foot
   assert.equal(await page.locator(".manifest").count(), 0);
+  // a pinned pocket is kept in the address, as every other choice is
+  await page.locator("button", { hasText: "Pin to compare" }).click();
+  await page.waitForSelector("#pin-title");
+  await page.reload();
+  await page.waitForSelector("#pin-title");
+  assert.match(await page.locator("#pin-title").innerText(), /pinned pocket/);
   assert.deepEqual(errors, []);
   await page.close();
 });

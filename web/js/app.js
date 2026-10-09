@@ -46,7 +46,7 @@ const app = {
 // only a bare #anchor.
 
 function encodeState(st) {
-  const o = { v: st.view, r: st.run, t: st.target, c: st.context, p: st.pocket, s: st.sel, e: st.edge, pr: st.pair, po: st.order, sh: st.show, fs: st.featSort, tc: st.trialCols, g: st.gates,
+  const o = { v: st.view, r: st.run, t: st.target, c: st.context, p: st.pocket, pb: st.pocketB, s: st.sel, e: st.edge, pr: st.pair, po: st.order, sh: st.show, fs: st.featSort, tc: st.trialCols, g: st.gates,
     cl: st.clusters, cm: st.compare, ck: st.clusterK };
   const json = JSON.stringify(o);
   const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(json)));
@@ -60,7 +60,7 @@ function decodeState(hash) {
     const b64 = m[1].replace(/-/g, "+").replace(/_/g, "/");
     const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
     const o = JSON.parse(new TextDecoder().decode(bytes));
-    return { ...DEFAULT_STATE, view: o.v, run: o.r, target: o.t, context: o.c || [], pocket: o.p || [], sel: o.s || null,
+    return { ...DEFAULT_STATE, view: o.v, run: o.r, target: o.t, context: o.c || [], pocket: o.p || [], pocketB: Array.isArray(o.pb) ? o.pb : null, sel: o.s || null,
       edge: o.e ?? null, pair: o.pr || null, order: o.po || 2, show: o.sh || DEFAULT_STATE.show, featSort: o.fs || "effect",
       trialCols: Array.isArray(o.tc) ? o.tc : DEFAULT_STATE.trialCols, gates: Array.isArray(o.g) ? o.g : [],
       clusters: Array.isArray(o.cl) ? o.cl : [], compare: !!o.cm, clusterK: Number.isInteger(o.ck) ? o.ck : null };
