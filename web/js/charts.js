@@ -319,7 +319,12 @@ export function distChart(groups, opts = {}) {
   const Y = x => Math.min(x, top) / top * plotH;
   const base = m.t + plotH;
   const svg = s("svg", { class: "chart dist", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": opts.label || "distribution" });
+  // a value on the outcome's scale (a bin's edges); a value the rows have
+  // (a discrete outcome's values, the quantiles), as the cards print it;
+  // and a discrete value on the axis
   const fmtV = opts.fmt || (v => fmtNum(v, opts.digits));
+  const fmtRow = opts.fmtValue || fmtV;
+  const fmtTick = opts.fmtTick || fmtRow;
   for (let b = 0; b < nb; b++) {
     if (!shown.some((_, gi) => share[gi][b] > 0)) continue;
     const g0 = m.l + b * bw + 1, inner = Math.max(1, bw - 2), each = inner / shown.length;
@@ -336,7 +341,7 @@ export function distChart(groups, opts = {}) {
       }
     });
     if (cut.length) svg.append(cutLabel(cut, g0 + inner / 2, m, W));
-    const range = discrete ? fmtV(distinct[b]) : `${fmtV(edges[b])} to ${fmtV(edges[b + 1])}`;
+    const range = discrete ? fmtRow(distinct[b]) : `${fmtV(edges[b])} to ${fmtV(edges[b + 1])}`;
     tip(bar, () => h("div", null, h("b", { text: range }),
       shown.map((g, gi) => h("div", { class: "k", text: `${g.label}: ${fmtPct(share[gi][b], share[gi][b] < 0.01 ? 2 : 1)} (${fmtInt(counts[gi][b])} of ${fmtInt(g.vals.length)})` }))));
     svg.append(bar);
@@ -349,7 +354,7 @@ export function distChart(groups, opts = {}) {
   const every = discrete ? Math.max(1, Math.ceil(nb / 10)) : 1;
   ticks.forEach((t, j) => {
     if (j % every) return;
-    svg.append(s("text", { class: "label", x: Math.min(W - m.r - 12, Math.max(m.l + 12, X(t))), y: base + 14, "text-anchor": "middle", text: discrete ? fmtV(t) : fmtNum(t, tickDigits) }));
+    svg.append(s("text", { class: "label", x: Math.min(W - m.r - 12, Math.max(m.l + 12, X(t))), y: base + 14, "text-anchor": "middle", text: discrete ? fmtTick(t) : fmtNum(t, tickDigits) }));
   });
   // each group's spread, on the same axis
   if (boxes) {
@@ -364,7 +369,7 @@ export function distChart(groups, opts = {}) {
       box.append(s("rect", { x: p25, y: y - 3.5, width: Math.max(1.5, p75 - p25), height: 7, rx: 1.5, fill: g.fill }));
       box.append(s("line", { x1: p50, x2: p50, y1: y - 5, y2: y + 5, stroke: "var(--ink)", "stroke-width": 2 }));
       tip(box, () => h("div", null, h("b", { text: g.label }),
-        h("div", { class: "k", text: `median ${fmtV(q(0.5))} · middle half ${fmtV(q(0.25))} to ${fmtV(q(0.75))} · 5th to 95th percentile ${fmtV(q(0.05))} to ${fmtV(q(0.95))}` })));
+        h("div", { class: "k", text: `median ${fmtRow(q(0.5))} · middle half ${fmtRow(q(0.25))} to ${fmtRow(q(0.75))} · 5th to 95th percentile ${fmtRow(q(0.05))} to ${fmtRow(q(0.95))}` })));
       svg.append(box);
     });
   }

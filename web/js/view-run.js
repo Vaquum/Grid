@@ -337,8 +337,10 @@ const KIND_OF = { activity: "activity", risk: "risk", skill: "model skill" };
 
 function distCard(m, t, groups, drawn, sel, test, q, res) {
   const vals = groups.map(g => sortedVals(t.values, g.rows));
-  const ch = distChart(groups.map((g, i) => ({ label: g.label, fill: g.fill, ink: g.ink, vals: vals[i] })),
-    { fmt: v => fmtT(t, v), label: `${t.label}: how the rows spread` });
+  // values the rows have read as the cards print them: a whole number
+  // whole, a 0/1 outcome no or yes
+  const ch = distChart(groups.map((g, i) => ({ label: g.label, fill: g.fill, ink: g.ink, text: g.text, vals: vals[i] })),
+    { fmt: v => fmtT(t, v), fmtValue: v => fmtRowValue(t, v), fmtTick: v => fmtRowValue(t, v, { unit: false }), label: `${t.label}: how the rows spread` });
   const isNeedle = t.id === m.target.id;
   const card = h("article", { class: "rn-card" + (isNeedle ? " needle" : ""), dataset: { outcome: t.id } });
   const tags = h("span", { class: "rn-tags" });

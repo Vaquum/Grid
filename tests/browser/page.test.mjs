@@ -365,6 +365,11 @@ test("run: a sweep with no groups gets its strip, every row's distributions and 
   const names = await page.locator(".rn-card .rn-name").allInnerTexts();
   assert.equal(names[0], "Tradeable");
   assert.ok(names.length >= 8, names.join(", "));
+  // the axes print values as the rows have them: a whole number whole, a 0/1 outcome no or yes
+  const ticks = id => page.locator(`.rn-card[data-outcome="${id}"] svg text.label:not(.ink)`).allTextContents();
+  const gates = await ticks("gates");
+  assert.ok(gates.length >= 3 && gates.every(t => /^\d+$/.test(t)), gates.join(" "));
+  assert.deepEqual(await ticks("tradeable"), ["no", "yes"]);
   assert.equal(await page.locator(".rn-legend").innerText(), "All rows · 6,000 rows");
   assert.equal(await page.locator(".rn-diff").count(), 0);
   for (const label of ["Best so far against luck", "Pace", "Problems", "The sampler"]) {
