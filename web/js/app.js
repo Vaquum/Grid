@@ -33,7 +33,7 @@ const VIEWS = [
 
 const DEFAULT_STATE = {
   run: null, view: "board", target: null, context: [], pocket: [], pocketB: null,
-  sel: null, edge: null, show: { hp: true, flat: true }, pair: null, order: 2, featSort: "effect",
+  sel: null, edge: null, show: { flat: true }, pair: null, order: 2, featSort: "effect",
   trialCols: ["movers"], gates: [], clusters: [], compare: false, clusterK: null,
 };
 

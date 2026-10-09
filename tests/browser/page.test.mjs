@@ -477,6 +477,28 @@ test("the needle changes target and the replay edge hides later rows", async () 
   await page.close();
 });
 
+test("the cards with no detectable effect fold to their names, and stay folded", async () => {
+  const { page, errors } = await open();
+  const quiet = page.locator(".board-sec", { has: page.locator(".sec-title", { hasText: "No detectable effect" }) });
+  const n = Number(await quiet.locator(".sec-title .count").innerText());
+  assert.ok(await quiet.locator(".pcard").count() === n && n > 0);
+  await quiet.locator("button", { hasText: "Fold to names" }).click();
+  await page.waitForSelector(".board-sec .chips button.chip");
+  assert.equal(await quiet.locator(".pcard").count(), 0);
+  assert.equal(await quiet.locator(".chips button.chip").count(), n);
+  // the address keeps it folded; a name opens its parameter
+  await page.reload();
+  await page.waitForSelector(".board-sec .chips button.chip");
+  await quiet.locator(".chips button.chip", { hasText: /^sizing$/ }).click();
+  await page.waitForSelector("#inspector .part");
+  assert.equal(await page.locator("#inspector h2").innerText(), "sizing");
+  await quiet.locator("button", { hasText: "Show the cards" }).click();
+  await page.waitForFunction(() => !document.querySelector(".board-sec .chips button.chip"));
+  assert.equal(await quiet.locator(".pcard").count(), n);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("the tab names the sweep and the view, under Grid's mark", async () => {
   const { page, errors } = await open();
   assert.equal(await page.title(), "Synthetic sweep · Board — Grid");
@@ -725,6 +747,11 @@ test("live: arriving rows leave the reader's controls alone", async () => {
     await moreRows(page);
     assert.equal(await select.evaluate(el => el.isConnected && document.activeElement === el), true, "the needle select was replaced or lost focus");
     assert.equal(await option.evaluate(el => el.isConnected), true, "the needle options were rebuilt");
+    // the cards keep their places while rows arrive
+    const places = () => page.$$eval(".pcard", cs => cs.map(c => c.dataset.focus).join(" "));
+    const before = await places();
+    await moreRows(page);
+    assert.equal(await places(), before, "the cards moved while rows arrived");
     // the board's blurb stays open, on the (i) the redraw made
     await page.locator(".strip [data-info]").click();
     await moreRows(page);

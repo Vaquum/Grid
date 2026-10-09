@@ -36,6 +36,26 @@ const sentence = t => t.charAt(0).toUpperCase() + t.slice(1);
 const nameOf = d => (d.kind === "scoped" ? d.name : d.label);
 const observed = new WeakSet();
 
+// While rows arrive the cards keep their places: the order and the
+// sections hold while the question stands (the run, the needle, the
+// context, the replay edge), and the reader re-sorts when they choose; a
+// new question sorts afresh.
+let held = null;   // { key, on: [card ids], off: [card ids] }
+
+// Where each card stands: in its held place, a card new since at the end
+// of the section the rows put it in; and how many would move if sorted.
+export function holdPlaces(live, hold) {
+  const ids = new Set([...live.on, ...live.off]);
+  const kept = new Set([...hold.on, ...hold.off]);
+  const on = [...hold.on.filter(id => ids.has(id)), ...live.on.filter(id => !kept.has(id))];
+  const off = [...hold.off.filter(id => ids.has(id)), ...live.off.filter(id => !kept.has(id))];
+  const at = (list, other) => new Map([...list.map((id, j) => [id, `on${j}`]), ...other.map((id, j) => [id, `off${j}`])]);
+  const now = at(on, off), sorted = at(live.on, live.off);
+  let moved = 0;
+  for (const id of ids) if (now.get(id) !== sorted.get(id)) moved++;
+  return { on, off, moved };
+}
+
 export function renderBoard(view, m, A) {
   const { schema, target, base, board } = m;
   const mods = ensureModerators(m, A.rerender);
@@ -49,15 +69,42 @@ export function renderBoard(view, m, A) {
   view.append(h("h1", { class: "sr", text: `What moves ${target.label}` }));
   view.append(summaryStrip(m, A, mods, sets));
 
-  const on = m.order.filter(e => e.detectable), off = m.order.filter(e => !e.detectable);
-  const setsOn = sets.filter(g => g.detectable), setsOff = sets.filter(g => !g.detectable);
-  if (on.length || setsOn.length) {
-    view.append(section("Moves the needle", on.length + setsOn.length, "strongest first",
-      [...on.map(e => card(m, A, schema.dimById.get(e.dim), e, ctx)), ...setsOn.map(g => setCard(m, A, g, ctx))]));
+  // each card by its id, in the order and sections the rows give now
+  const cards = new Map(), names = new Map(), live = { on: [], off: [] };
+  for (const e of m.order) {
+    const d = schema.dimById.get(e.dim), id = `dim:${e.dim}`;
+    cards.set(id, () => card(m, A, d, e, ctx));
+    names.set(id, { name: nameOf(d), open: () => A.select({ kind: "dim", id: d.id }), why: `${e.detectable ? "Moves the needle now" : "No detectable effect"} (${fmtP(e.q)}). Open it in the inspector.` });
+    live[e.detectable ? "on" : "off"].push(id);
   }
-  if ((off.length || setsOff.length) && m.state.show.flat !== false) {
-    view.append(section("No detectable effect", off.length + setsOff.length, "their spread is within noise",
-      [...off.map(e => card(m, A, schema.dimById.get(e.dim), e, ctx)), ...setsOff.map(g => setCard(m, A, g, ctx))]));
+  for (const g of sets) {
+    const id = `set:${g.column}`;
+    cards.set(id, () => setCard(m, A, g, ctx));
+    names.set(id, { name: g.column, open: () => A.set({ view: "features" }), why: "None of its members moves the needle detectably. Every member is in Features." });
+    live[g.detectable ? "on" : "off"].push(id);
+  }
+  // the places held while the question stands
+  const key = m.cache.akey;
+  if (!held || held.key !== key) held = { key, on: live.on, off: live.off };
+  const places = holdPlaces(live, held);
+  const resort = places.moved ? h("button", { class: "btn small sec-tool", type: "button",
+    onclick: () => { held = { key, on: live.on, off: live.off }; A.rerender(); } }, `Re-sort · ${fmtInt(places.moved)} would move`) : null;
+  if (resort) tip(resort, "The cards keep their places while rows arrive, so nothing moves under you. Re-sort to put them in order again.");
+  if (places.on.length) {
+    view.append(section("Moves the needle", places.on.length, "strongest first", places.on.map(id => cards.get(id)()), resort));
+  }
+  if (places.off.length) {
+    // the cards with no detectable effect fold to their names
+    const shown = m.state.show.flat !== false;
+    const fold = h("button", { class: "btn small sec-tool", type: "button", "aria-expanded": shown ? "true" : "false",
+      onclick: () => A.set({ show: { ...m.state.show, flat: !shown } }, { replace: true }) }, shown ? "Fold to names" : "Show the cards");
+    view.append(shown
+      ? section("No detectable effect", places.off.length, "their spread is within noise", places.off.map(id => cards.get(id)()), places.on.length ? null : resort, fold)
+      : section("No detectable effect", places.off.length, "their spread is within noise", null, places.on.length ? null : resort, fold,
+        h("div", { class: "chips" }, places.off.map(id => {
+          const x = names.get(id);
+          return tip(h("button", { class: "chip mono", type: "button", onclick: x.open, text: x.name }), x.why);
+        }))));
   }
   const quiet = notOnBoard(m);
   if (quiet) view.append(quiet);
@@ -127,11 +174,14 @@ function boardAbout(m) {
     `A parameter moves the needle when its effect is detectable after correcting for ${fmtInt(m.board.tests)} tests (Benjamini–Hochberg); the rest have no detectable effect. Choose a card to open it in the inspector.`);
 }
 
-function section(title, count, note, cards) {
-  const grid = h("div", { class: "pgrid", role: "list" }, cards);
-  grid.addEventListener("keydown", (ev) => gridKeys(ev, grid));
+// A section of cards (or, folded, `body` in their place) under its title,
+// with its tools at the title's end.
+function section(title, count, note, cards, ...rest) {
+  const tools = rest.slice(0, 2).filter(Boolean), body = rest[2] || null;
+  const grid = cards ? h("div", { class: "pgrid", role: "list" }, cards) : body;
+  if (cards) grid.addEventListener("keydown", (ev) => gridKeys(ev, grid));
   return h("section", { class: "board-sec" },
-    h("h2", { class: "sec-title" }, h("span", { text: title }), h("span", { class: "count num", text: fmtInt(count) }), h("span", { class: "note", text: note })),
+    h("h2", { class: "sec-title" }, h("span", { text: title }), h("span", { class: "count num", text: fmtInt(count) }), h("span", { class: "note", text: note }), tools),
     grid);
 }
 

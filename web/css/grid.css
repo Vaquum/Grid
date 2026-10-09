@@ -345,6 +345,8 @@ button.sc:hover { background: var(--hover); }
 .sec-title .count { color: var(--muted); font-weight: 500; }
 .sec-title .note { color: var(--muted); font-weight: 400; font-size: var(--fs-m); }
 .sec-title::after { content: ""; flex: 1 1 auto; align-self: center; height: 1px; margin-left: var(--sp-2); background: var(--line); }
+/* a section's tools stand past its rule */
+.sec-title .sec-tool { order: 1; align-self: center; }
 .pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--sp-3); }
 .pcard {
   position: relative; display: flex; flex-direction: column; min-width: 0; padding: 14px var(--sp-4) 12px;
