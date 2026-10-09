@@ -113,7 +113,35 @@ test("every view draws without an error", async () => {
     assert.equal(await page.locator("text=This view failed to draw").count(), 0, `view ${key}`);
   }
   await page.keyboard.press("3");
-  await page.waitForSelector("text=Strongest interactions", { timeout: 20000 });
+  await page.waitForSelector(".pr-map", { timeout: 20000 });
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("pairs: the strip, the ranked and linked pairs, and a chosen pair with its margins", async () => {
+  const { page, errors } = await open();
+  await page.keyboard.press("3");
+  await page.waitForSelector(".pr-map", { timeout: 20000 });
+  const strip = await page.locator(".strip").innerText();
+  assert.match(strip, /Interacting pairs\s+\d+\s+of 190/);
+  assert.match(strip, /Drawn together\s+1\b/);
+  // with no interaction, the pair the sampler linked opens by itself
+  assert.match(await page.locator(".pr-pair .isl-count").innerText(), /the most linked/);
+  assert.equal(await page.locator(".pr-pair .tag.crit").count(), 1);
+  assert.equal(await page.locator(".pr-row.linked").count(), 1);
+  // each value's margin and the base close the grid
+  assert.equal(await page.locator(".pr-heat th.margin-h").count(), 2);
+  assert.equal(await page.locator(".pr-heat td.base-cell").count(), 1);
+  // a cell of the map opens its pair, and the address keeps it
+  const names = (s) => s.split(" × ").map(x => x.trim()).sort().join(" ");
+  const cell = page.locator(".pr-map td.cell:not(.sel)").first();
+  const want = names(await cell.getAttribute("aria-label"));
+  await cell.click();
+  assert.equal(names(await page.locator("#pr-pair-title").innerText()), want);
+  assert.equal(await page.locator(".pr-map td.cell.sel").count() >= 1, true);
+  await page.reload();
+  await page.waitForSelector(".pr-map", { timeout: 20000 });
+  assert.equal(names(await page.locator("#pr-pair-title").innerText()), want);
   assert.deepEqual(errors, []);
   await page.close();
 });

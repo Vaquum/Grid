@@ -135,8 +135,10 @@ text. A sweep without a manifest has no such section.
 2. **Pocket**: a strip of the pocket's figures; the stack, read bottom up
    as a path from the rows in view, each block saying whether it earns its
    place; and the blocks to add, ranked and every one, under one search.
-3. **Pairs**: interaction strength for every pair; a pair opens as a
-   value-by-value grid.
+3. **Pairs**: a strip of the pairs' figures; the interactions ranked over
+   the map of every pair (interaction under the diagonal, the sampler's
+   dependence above), and beside them the chosen pair (the strongest, or
+   the most linked) as a value-by-value grid with each value's margin.
 4. **Features**: inclusion effects of every set member.
 5. **Trials**: the leaderboard and any row in full, with its replay command.
 6. **Gates**: pass rates, never-passed gates and what bounds them, and what

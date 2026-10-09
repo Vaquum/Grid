@@ -574,6 +574,60 @@ table.suggest th.iv, table.suggest td.iv { width: 34%; min-width: 96px; }
 .vchip:hover { background: var(--hover); border-color: var(--border); }
 .vchip[aria-pressed="true"] { background: var(--on); border-color: transparent; }
 
+/* pairs: the interactions beside the chosen pair; the map of every pair below */
+.pr-grid {
+  display: grid; grid-template-columns: minmax(0, max-content) minmax(360px, 1fr); grid-template-areas: "list pair" "map pair";
+  gap: var(--sp-3); align-items: start;
+}
+.pr-list { grid-area: list; }
+.pr-pair { grid-area: pair; position: sticky; top: var(--sp-3); }
+.pr-map-island { grid-area: map; }
+.island.pending { color: var(--muted); }
+.pr-rows { display: grid; gap: 2px; margin: 0 -8px; }
+.pr-list .isl-note + .isl-part, .pr-list .pr-rows + .isl-part { margin-top: var(--sp-5); }
+.pr-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 56px 52px 64px; align-items: center; gap: var(--sp-3);
+  min-height: 34px; padding: 6px 8px; border: 0; border-radius: var(--r-m); background: transparent; color: var(--ink); text-align: left;
+}
+.pr-row:hover { background: var(--hover); }
+.pr-row[aria-pressed="true"] { background: var(--on); }
+.pr-name { min-width: 0; font-family: var(--mono); font-size: var(--fs-m); overflow-wrap: anywhere; }
+.pr-meter { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.pr-meter i { display: block; height: 100%; border-radius: 2px; background: var(--ink); }
+.pr-row.linked .pr-meter i { background: var(--cat-4); }
+.pr-fig { font-size: var(--fs-m); text-align: right; white-space: nowrap; }
+.pr-q { font-size: var(--fs-s); color: var(--muted); text-align: right; white-space: nowrap; }
+.pr-row.linked { grid-template-columns: minmax(0, 1fr) 56px 64px; }
+.pr-figs { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px var(--sp-4); margin: -4px 0 6px; font-size: var(--fs-m); }
+.pr-figs .k { color: var(--muted); }
+.pr-figs b { font-weight: 600; }
+.pr-what { margin: 0 0 var(--sp-3); }
+.pr-heat th { font-weight: 400; }
+.pr-heat th.corner { padding: 0 10px 6px 0; color: var(--muted); font-family: var(--sans); text-align: left; white-space: nowrap; }
+.pr-heat th.col-h { padding: 0 4px 6px; font-family: var(--mono); color: var(--ink-2); }
+.pr-heat th.row-h { padding: 0 10px 0 0; font-family: var(--mono); color: var(--ink-2); text-align: right; }
+.pr-heat th.margin-h { font-family: var(--sans); font-style: italic; color: var(--muted); }
+.pr-heat td { min-width: 68px; height: 42px; padding: 3px 6px; }
+.pr-heat td .v { display: block; font-size: var(--fs-m); font-weight: 500; }
+/* the margins: each value over the other's every value, set apart */
+.pr-heat td.margin { box-shadow: inset 0 0 0 1px var(--line-2); }
+.pr-heat td.base-cell .v { font-weight: 700; }
+.pr-heat tr.margin-row th, .pr-heat tr.margin-row td { border-top: 6px solid transparent; background-clip: padding-box; }
+.pr-heat tr > :last-child:not(.corner) { border-left: 6px solid transparent; background-clip: padding-box; }
+.pr-map { border-collapse: separate; border-spacing: 2px; font-size: var(--fs-s); }
+.pr-map th { font-weight: 400; color: var(--muted); font-family: var(--mono); white-space: nowrap; }
+.pr-map th.col-h { height: 132px; padding: 0 0 6px; vertical-align: bottom; }
+.pr-map th.col-h span { display: inline-block; writing-mode: vertical-rl; transform: rotate(180deg); }
+.pr-map th.row-h { padding: 0 10px 0 0; text-align: right; }
+.pr-map th.hl { color: var(--ink); }
+.pr-map th.chosen { color: var(--ink); font-weight: 600; }
+.pr-map td { width: 18px; min-width: 18px; height: 18px; padding: 0; border-radius: 3px; }
+.pr-map td.cell { background: color-mix(in oklab, var(--ink) 5%, var(--surface)); cursor: pointer; }
+.pr-map td.cell:hover, .pr-map td.cell:focus-visible { outline: 2px solid var(--ink); outline-offset: 0; }
+.pr-map td.cell.sel { outline: 2px solid var(--ink); outline-offset: 1px; }
+.pr-map td.diag, .pr-map td.none { background: transparent; }
+.pr-legend { margin: 0 0 0 auto; }
+
 /* the manifest at the foot of every view */
 .manifest-sec { margin-top: 32px; }
 .manifest { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-l); }
@@ -650,11 +704,15 @@ kbd { border: 1px solid var(--line-2); border-radius: 4px; padding: 0 5px; backg
 tr.sel td { background: var(--on); }
 
 /* ---- narrow screens ----------------------------------------------------- */
-/* the pocket's two columns need room; with the inspector open they stack */
+/* the pocket's and the pairs' two columns need room; with the inspector open they stack */
 @media (max-width: 1100px) {
   .pk-grid { grid-template-columns: minmax(0, 1fr); }
+  .pr-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "list" "pair" "map"; }
+  .pr-pair { position: static; }
 }
 .app[data-insp="open"] .pk-grid { grid-template-columns: minmax(0, 1fr); }
+.app[data-insp="open"] .pr-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "list" "pair" "map"; }
+.app[data-insp="open"] .pr-pair { position: static; }
 @media (max-width: 1180px) {
   .shell { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
   .inspector { position: fixed; right: 0; top: var(--top-h); bottom: 0; width: min(420px, 100vw); z-index: 35; box-shadow: -8px 0 30px var(--shadow); }
