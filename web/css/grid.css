@@ -1,9 +1,9 @@
 /* Grid. One top bar; a rail of views; the view; an inspector on the
    right. Tokens first: every colour, size, space and radius comes from
-   them. The palette is Kanagawa: Wave (sumi ink, fuji white) in the dark,
-   Lotus (paper, indigo ink) in the light, tuned for reading all day: the
-   secondary text and the borders lifted to clear contrast, Lotus's yellow
-   eased, the orange pole set to the blue's lightness. Colour is kept for
+   them. The palette is Kanagawa: Wave's colours on neutral charcoal in the
+   dark, Lotus (paper, indigo ink) in the light, tuned for reading all day:
+   the secondary text and the borders lifted to clear contrast, Lotus's
+   yellow eased, the orange pole set to the blue's lightness. Colour is kept for
    data (crystal blue for what a parameter does, persimmon for the other
    pole) and for states. */
 :root {
@@ -79,75 +79,79 @@
   --insp-w: 400px;
   --plot-h: 112px;
 }
-/* Wave: sumiInk0..5 for the grounds and hairlines, fuji white for text,
-   waveBlue1 for what is chosen, crystal blue for data. */
+/* Dark: the cards take the grey of Terminal's Pro profile (#2f2f2f), the
+   page a step darker, neutral greys a step or two lighter for hairlines,
+   hover and panels; Kanagawa Wave for everything that carries meaning:
+   fuji white text, crystal blue data, waveBlue2 for what is chosen. The
+   muted, off, border and critical colours are lifted to keep their
+   contrast on the lighter cards. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #181820;
-    --surface: #1f1f28;
-    --surface-2: #1a1a22;
-    --surface-3: #2a2a37;
-    --panel: #252535;
+    --bg: #282828;
+    --surface: #2f2f2f;
+    --surface-2: #2c2c2c;
+    --surface-3: #393939;
+    --panel: #353535;
     --ink: #dcd7ba;
     --ink-2: #bcb8a3;
-    --muted: #978ead;
-    --line: #2a2a37;
-    --line-2: #363646;
-    --border: #72728c;
-    --hover: #252535;
-    --on: #223249;
-    --raised: #2a2a37;
-    --shadow: rgba(8, 8, 12, 0.5);
-    --scrim: rgba(13, 13, 18, 0.62);
+    --muted: #a89fbe;
+    --line: #393939;
+    --line-2: #444444;
+    --border: #83839e;
+    --hover: #353535;
+    --on: #2d4f67;
+    --raised: #393939;
+    --shadow: rgba(10, 10, 10, 0.5);
+    --scrim: rgba(16, 16, 16, 0.62);
     --data: #7e9cd8;
-    --off: #727169;
+    --off: #828178;
     --worse: #d38b60;
-    --mid: #363646;
-    --heat-cap: 38%;
+    --mid: #444444;
+    --heat-cap: 30%;
     --cat-1: #7e9cd8;
     --cat-2: #d38b60;
     --cat-3: #957fb8;
     --cat-4: #68ad99;
     --good: #98bb6c;
     --warning: #dca561;
-    --critical: #e46876;
+    --critical: #ee7884;
     --good-ink: #98bb6c;
-    --critical-ink: #e46876;
+    --critical-ink: #ee7884;
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #181820;
-  --surface: #1f1f28;
-  --surface-2: #1a1a22;
-  --surface-3: #2a2a37;
-  --panel: #252535;
+  --bg: #282828;
+  --surface: #2f2f2f;
+  --surface-2: #2c2c2c;
+  --surface-3: #393939;
+  --panel: #353535;
   --ink: #dcd7ba;
   --ink-2: #bcb8a3;
-  --muted: #978ead;
-  --line: #2a2a37;
-  --line-2: #363646;
-  --border: #72728c;
-  --hover: #252535;
-  --on: #223249;
-  --raised: #2a2a37;
-  --shadow: rgba(8, 8, 12, 0.5);
-  --scrim: rgba(13, 13, 18, 0.62);
+  --muted: #a89fbe;
+  --line: #393939;
+  --line-2: #444444;
+  --border: #83839e;
+  --hover: #353535;
+  --on: #2d4f67;
+  --raised: #393939;
+  --shadow: rgba(10, 10, 10, 0.5);
+  --scrim: rgba(16, 16, 16, 0.62);
   --data: #7e9cd8;
-  --off: #727169;
+  --off: #828178;
   --worse: #d38b60;
-  --mid: #363646;
-  --heat-cap: 38%;
+  --mid: #444444;
+  --heat-cap: 30%;
   --cat-1: #7e9cd8;
   --cat-2: #d38b60;
   --cat-3: #957fb8;
   --cat-4: #68ad99;
   --good: #98bb6c;
   --warning: #dca561;
-  --critical: #e46876;
+  --critical: #ee7884;
   --good-ink: #98bb6c;
-  --critical-ink: #e46876;
+  --critical-ink: #ee7884;
 }
 
 * { box-sizing: border-box; }
