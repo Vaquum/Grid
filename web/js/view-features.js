@@ -6,7 +6,7 @@
 // draws a random subset of a pool for every row (plate sweeps' feats)
 // shows each member's inclusion effect, compared inside each subset size.
 
-import { h, tip, fmtT, fmtInt, fmtPct, fmtP, fmtDelta, inText, runName } from "./ui.js";
+import { h, tip, fmtT, fmtInt, fmtPct, fmtP, fmtDelta, inText, rangeText, deltaRange, runName } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { memberEffects, dimEffect } from "./engine.js";
 import { memberDims } from "./model.js";
@@ -94,7 +94,7 @@ function featuresStrip(m, A, lf, sets) {
     // a best combination is only worth naming as best when they differ
     const fg = m.board.effects.find(e => e.dim === "feature_groups");
     cells.push(stripCell("Best groups", best ? fmtT(t, best.mean) : "–", best ? `${best.label}${fg && !fg.detectable ? " · they do not differ detectably" : ""}` : "no rows",
-      () => h("div", null, h("b", { text: "The drawn combination of feature groups with the best needle" }), best ? h("div", { class: "k", text: `${fmtInt(best.n)} rows; 95% ${fmtT(t, best.lo)} to ${fmtT(t, best.hi)}.` }) : null)));
+      () => h("div", null, h("b", { text: "The drawn combination of feature groups with the best needle" }), best ? h("div", { class: "k", text: `${fmtInt(best.n)} rows; 95% ${rangeText(t, best.lo, best.hi)}.` }) : null)));
     const ct = lf.groups.contrasts, det = ct.filter(c => c.detectable);
     const top = det.length ? det.reduce((a, b) => (Math.abs(b.delta) > Math.abs(a.delta) ? b : a)) : null;
     cells.push(stripCell("Adding a group", ct.length ? `${fmtInt(det.length)} of ${fmtInt(ct.length)}` : "–",
@@ -104,8 +104,8 @@ function featuresStrip(m, A, lf, sets) {
   if (lf && lf.columns && !lf.columns.missing) {
     const terms = lf.columns.fit.terms;
     const keep = terms.filter(x => verdictOf(t, x.keep, x.detectable) === "helps"), drop = terms.filter(x => verdictOf(t, x.keep, x.detectable) === "hurts");
-    cells.push(stripCell("Columns dropped", fmtInt(lf.columns.members.length), `in ${fmtInt(lf.columns.dropped)} of ${fmtInt(lf.columns.recorded)} rounds`,
-      () => h("div", null, h("b", { text: "Columns the ablation dropped" }), h("div", { class: "k", text: "Rounds the round log records, and how many dropped any column." }))));
+    cells.push(stripCell("Columns dropped", fmtInt(lf.columns.members.length), `in ${fmtInt(lf.columns.dropped)} of ${fmtInt(lf.columns.recorded)} rows`,
+      () => h("div", null, h("b", { text: "Columns the ablation dropped" }), h("div", { class: "k", text: "The rows the round log records, and how many of them dropped any column." }))));
     cells.push(stripCell("Worth keeping", fmtInt(keep.length), keep.length ? termName(keep[0]) : "none detectably",
       () => h("div", null, h("b", { text: "Columns whose drop detectably lowers the needle" }), h("div", { class: "k", text: "Keeping them helps (q < 0.05 across the columns)." }))));
     cells.push(stripCell("Better dropped", fmtInt(drop.length), drop.length ? termName(drop[0]) : "none detectably",
@@ -132,9 +132,9 @@ function featuresAbout(m, lf, sets) {
   const t = inText(m.target.label);
   const paras = [];
   if (lf) {
-    paras.push("On a Limen run the features come from its manifest and its round log. The manifest puts each feature function in a group; each round switches groups on (feature_groups), and its ablation then drops a few of the round's columns (feature_drop_count of them, chosen with feature_drop_seed), which the round log names.");
+    paras.push("On a Limen run the features come from its manifest and its round log. The manifest puts each feature function in a group; each row (a Limen round) switches groups on (feature_groups), and its ablation then drops a few of the row's columns (feature_drop_count of them, chosen with feature_drop_seed), which the round log names.");
     if (lf.groups) paras.push(`Feature groups: each drawn combination with its ${t}; where two differ by one group, their difference is what adding that group did, corrected across the pairs.`);
-    if (lf.design.ablation) paras.push(`Columns: with few seeds, columns dropped together come in fixed sets, so one model over every round gives each column the share its varied company allows: ${t} as the round's feature groups, the parameters its features take and the ones that move the needle, plus a term for each column it dropped. Keeping a column is minus its term; columns never dropped apart are one term.`);
+    if (lf.design.ablation) paras.push(`Columns: with few seeds, columns dropped together come in fixed sets, so one model over every row gives each column the share its varied company allows: ${t} as the row's feature groups, the parameters its features take and the ones that move the needle, plus a term for each column it dropped. Keeping a column is minus its term; columns never dropped apart are one term.`);
   }
   if (sets.length) paras.push(`Subsets: each row includes a random subset of a pool. For each member, the difference in ${t} between rows that included it and rows that left it out, compared inside each subset size and averaged (larger subsets include every member more often, so the size's own effect would leak into every member otherwise).`);
   if (!lf && !sets.length) paras.push("A sweep's features show here when its rows hold a subset of a pool, or when it is a Limen run whose manifest names feature groups or an ablation.");
@@ -157,7 +157,7 @@ function groupsIsland(m, lf) {
   const pad = (hi - lo) * 0.06 || 1e-6;
   const funcs = (name) => (d.groups.find(x => x.name === name) || { funcs: [] }).funcs;
   const drawn = h("table", { class: "vals ft-table" }, h("thead", null, h("tr", null,
-    h("th", { text: "combination" }), h("th", { text: "switches on" }), h("th", { class: "r", text: "rows" }), h("th", { class: "r", text: t.label }),
+    h("th", { text: "Combination" }), h("th", { text: "Switches on" }), h("th", { class: "r", text: "Rows" }), h("th", { class: "r", text: t.label }),
     h("th", { class: "iv", text: "95% interval (line: every row)" }))));
   const tb = h("tbody");
   for (const l of g.levels) {
@@ -168,7 +168,7 @@ function groupsIsland(m, lf) {
   }
   drawn.append(tb);
   isl.append(h("div", { class: "isl-part" }, h("h3", { class: "part-title" }, h("span", { text: "Drawn" }),
-    d.always.length ? h("span", { class: "note", text: `every round also has ${d.always.join(", ")}` }) : null),
+    d.always.length ? h("span", { class: "note", text: `every row also has ${d.always.join(", ")}` }) : null),
   h("div", { class: "table-wrap" }, drawn)));
   // adding one group
   const part = h("div", { class: "isl-part" }, h("h3", { class: "part-title" }, h("span", { text: "Adding one group" }),
@@ -179,7 +179,7 @@ function groupsIsland(m, lf) {
     for (const c of g.contrasts) m0 = Math.max(m0, Math.abs(c.lo), Math.abs(c.hi));
     const dom = [-m0 * 1.06 || -1e-6, m0 * 1.06 || 1e-6];
     const tbl = h("table", { class: "vals ft-table" }, h("thead", null, h("tr", null,
-      h("th", { text: "adding" }), h("th", { class: "r", text: "difference" }), h("th", { class: "iv", text: "95% interval (line: no difference)" }), h("th", { class: "r", text: "corrected" }), h("th", { text: "" }))));
+      h("th", { text: "Adding" }), h("th", { class: "r", text: "Difference" }), h("th", { class: "iv", text: "95% interval (line: no difference)" }), h("th", { class: "r", text: "Corrected" }), h("th", { text: "" }))));
     const b = h("tbody");
     for (const c of g.contrasts) {
       b.append(h("tr", null, h("td", null, h("b", { text: c.added }), h("span", { class: "muted", text: ` to ${c.from.label}` })),
@@ -201,13 +201,13 @@ function columnsIsland(m, A, lf) {
   const head = h("header", { class: "isl-head" }, h("h2", { class: "isl-title", id: "ft-cols", text: "Columns the ablation dropped" }));
   const isl = h("section", { class: "island ft-island", "aria-labelledby": "ft-cols" }, head);
   if (cl.missing) {
-    isl.append(h("p", { class: "isl-note", text: "This run's directory has no round_data.jsonl, Limen's round log, so the columns each round dropped are not known." }));
+    isl.append(h("p", { class: "isl-note", text: "This run's directory has no round_data.jsonl, Limen's round log, so the columns each row dropped are not known." }));
     return isl;
   }
-  head.append(h("span", { class: "isl-count num", text: `${fmtInt(cl.members.length)} columns · ${fmtInt(cl.dropped)} of ${fmtInt(cl.recorded)} rounds dropped some` }),
+  head.append(h("span", { class: "isl-count num", text: `${fmtInt(cl.members.length)} columns · ${fmtInt(cl.dropped)} of ${fmtInt(cl.recorded)} rows dropped some` }),
     sortPicker(m, A));
   if (!cl.fit.terms.length) {
-    isl.append(h("p", { class: "isl-note", text: cl.recorded ? "No round in view dropped a column." : "The round log has no record yet for the rounds in view." }));
+    isl.append(h("p", { class: "isl-note", text: cl.recorded ? "No row in view dropped a column." : "The round log has no record yet for the rows in view." }));
     return isl;
   }
   const est = cl.fit.terms.filter(x => !x.reason);
@@ -218,8 +218,8 @@ function columnsIsland(m, A, lf) {
   const order = [...cl.fit.terms].sort((a, b) => (byName ? termName(a).localeCompare(termName(b))
     : (!a.reason - !b.reason) * -1 || ((b.keep - a.keep) * betterSign(t)) || termName(a).localeCompare(termName(b))));
   const tbl = h("table", { class: "vals ft-table" }, h("thead", null, h("tr", null,
-    h("th", { text: "column" }), h("th", { class: "r", text: "rounds dropped" }), h("th", { class: "r", text: "keeping it" }),
-    h("th", { class: "iv", text: "95% interval (line: no difference)" }), h("th", { class: "r", text: "corrected" }), h("th", { text: "" }))));
+    h("th", { text: "Column" }), h("th", { class: "r", text: "Rows dropping it" }), h("th", { class: "r", text: "Keeping it" }),
+    h("th", { class: "iv", text: "95% interval (line: no difference)" }), h("th", { class: "r", text: "Corrected" }), h("th", { text: "" }))));
   const tb = h("tbody");
   for (const x of order) {
     const name = termName(x);
@@ -231,8 +231,8 @@ function columnsIsland(m, A, lf) {
       tr.append(h("td", { class: "r num", text: fmtDelta(t, x.keep) }), h("td", { class: "iv" }, intervalBar(x.keep, x.lo, x.hi, 0, dom)),
         h("td", { class: "r num", text: fmtP(x.q) }), h("td", null, verdictTag(verdictOf(t, x.keep, x.detectable))));
       tip(tr.children[3], () => h("div", null, h("b", { text: `Keeping ${name}` }),
-        h("div", { text: `${fmtDelta(t, x.keep)}, 95% ${fmtDelta(t, x.lo)} to ${fmtDelta(t, x.hi)}` }),
-        h("div", { class: "k", text: `dropped in ${fmtInt(x.drops)} rounds${x.members.length > 1 ? "; these columns were always dropped together, so they are one term" : ""}` })));
+        h("div", { text: `${fmtDelta(t, x.keep)}, 95% ${deltaRange(t, x.lo, x.hi)}` }),
+        h("div", { class: "k", text: `dropped in ${fmtInt(x.drops)} rows${x.members.length > 1 ? "; these columns were always dropped together, so they are one term" : ""}` })));
     }
     if (x.members.some(mm => mm.raw.size > 1 || [...mm.raw][0] !== mm.name)) {
       tip(tr.children[0], () => h("div", null, h("b", { text: name }), h("div", { class: "k", text: `the column named after its parameter's value: ${x.members.flatMap(mm => [...mm.raw]).sort().join(", ")}` })));
@@ -242,7 +242,7 @@ function columnsIsland(m, A, lf) {
   tbl.append(tb);
   isl.append(h("div", { class: "table-wrap" }, tbl));
   const held = cl.factors.map(f => f.label).join(", ");
-  isl.append(h("p", { class: "isl-note", text: `One model over ${fmtInt(cl.fit.rows)} rounds: ${inText(t.label)} as the round's ${held || "nothing else"}, and a term for each column it dropped; least squares, with errors robust to unequal spread (HC3). A column is kept out of the reckoning below ${MIN_DROPS} drops.` }));
+  isl.append(h("p", { class: "isl-note", text: `One model over ${fmtInt(cl.fit.rows)} rows: ${inText(t.label)} as the row's ${held || "nothing else"}, and a term for each column it dropped; least squares, with errors robust to unequal spread (HC3). A column is kept out of the reckoning below ${MIN_DROPS} drops.` }));
   return isl;
 }
 
@@ -268,8 +268,8 @@ function membersIsland(m, A, s) {
   for (const r of rs) if (Number.isFinite(r.lo)) { lo = Math.min(lo, r.lo); hi = Math.max(hi, r.hi); }
   const pad = (hi - lo) * 0.05 || 1e-3;
   const tbl = h("table", { class: "vals ft-table" }, h("thead", null, h("tr", null,
-    h("th", { text: "member" }), h("th", { class: "r", text: "included in" }), h("th", { class: "r", text: "difference" }),
-    h("th", { class: "iv", text: "95% interval (line: no difference)" }), h("th", { class: "r", text: "corrected" }), h("th", { text: "" }))));
+    h("th", { text: "Member" }), h("th", { class: "r", text: "Included in" }), h("th", { class: "r", text: "Difference" }),
+    h("th", { class: "iv", text: "95% interval (line: no difference)" }), h("th", { class: "r", text: "Corrected" }), h("th", { text: "" }))));
   const tb = h("tbody");
   for (const r of sorted) {
     const tr = h("tr", { class: "clickable", tabindex: "0", onclick: () => A.select({ kind: "dim", id: r.id }),
@@ -278,7 +278,7 @@ function membersIsland(m, A, s) {
       h("td", { class: "r num", text: fmtDelta(t, r.delta, { digits: t.kind === "binary" ? 1 : 3 }) }),
       h("td", { class: "iv" }, intervalBar(r.delta, r.lo, r.hi, 0, [lo - pad, hi + pad])),
       h("td", { class: "r num", text: fmtP(r.q) }), h("td", null, verdictTag(verdictOf(t, r.delta, r.detectable))));
-    tip(tr.children[3], `${fmtDelta(t, r.lo)} to ${fmtDelta(t, r.hi)} · included ${fmtInt(r.nIn)} rows (${fmtT(t, r.inMean)}), left out ${fmtInt(r.nOut)} (${fmtT(t, r.outMean)})`);
+    tip(tr.children[3], `95% ${deltaRange(t, r.lo, r.hi)} · included ${fmtInt(r.nIn)} rows (${fmtT(t, r.inMean)}), left out ${fmtInt(r.nOut)} (${fmtT(t, r.outMean)})`);
     tb.append(tr);
   }
   tbl.append(tb);
@@ -291,7 +291,7 @@ function membersIsland(m, A, s) {
     lineChart([{ label: t.label, color: "var(--ink)", points: ok.map(l => [l.value, l.mean]) },
       { label: "95% interval", group: "ci", color: "var(--muted)", points: ok.map(l => [l.value, l.lo]), width: 1, endDot: false },
       { label: "95% interval", group: "ci", color: "var(--muted)", points: ok.map(l => [l.value, l.hi]), width: 1, endDot: false }],
-    { height: 170, xLabel: "members", fmtX: v => String(v), fmtY: v => fmtT(t, v), label: "needle by subset size" })));
+    { height: 170, xLabel: "members", target: t, label: "needle by subset size" })));
   }
   return isl;
 }

@@ -1,6 +1,7 @@
 // What views compute from the model, cached on the model's key.
 
 import { moderatorTests, moderatorSummaries, summarize, cramersV, recordCurve, topRows, board, rankRows, rowsLikeIt } from "./engine.js";
+import { fmtNum } from "./ui.js";
 
 export function boardDims(schema) {
   return schema.dims.filter(d => d.role === "param" && d.kind !== "member");
@@ -66,6 +67,25 @@ function* moderatorJob(m) {
 
 export function ensureModerators(m, done) {
   return background(m, "mods", moderatorJob, done);
+}
+
+// Two or more parameters named in one order wherever they show together:
+// the board's, the strongest first (`ids` of dims; names joined by ×).
+export function setName(m, ids) {
+  const at = new Map(m.order.map((e, i) => [e.dim, i]));
+  return ids.slice().sort((a, b) => (at.get(a) ?? Infinity) - (at.get(b) ?? Infinity) || String(a).localeCompare(String(b)))
+    .map(id => (m.schema.dimById.get(id) || { label: id }).label).join(" × ");
+}
+
+// Two parameters the sampler did not draw independently: said one way
+// wherever it shows (the board's tag, the inspector, Pairs, the Run's
+// sampler), as "drawn together", in the warning colour.
+export const TOGETHER = "drawn together";
+export function together(p, V) {
+  return p < 1e-6 && V > 0.03;
+}
+export function togetherWhy(V) {
+  return `The sampler drew them together (Cramér's V ${fmtNum(V, 3)}), so each one's effect carries some of the other's: read one inside the other's values.`;
 }
 
 // Sampler independence: Cramér's V of every pair of sampled params.

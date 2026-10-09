@@ -9,11 +9,15 @@
 // under xgb_hp are different knobs), and only where it varies.
 
 import { matchProfile } from "./profiles.js";
+import { spanText } from "./ui.js";
 
 const MAX_LEVELS = 32;      // more distinct values than this: binned
 const BINS = 10;
 const CAT_MAX = 64;         // strings with more levels are text, not params
 
+// A parameter's value as the sweep wrote it, the way it would be typed into
+// its config (kline_size = 3600, a hyphen for a minus): it names a value,
+// it is not a measurement.
 export function fmtValue(v) {
   if (v === null) return "none";
   if (v === undefined) return "n/a";
@@ -88,7 +92,7 @@ function binnedDim(col, n, base, sv) {
   let lo = vals[0];
   for (let b = 0; b <= uniq.length; b++) {
     const hi = b < uniq.length ? uniq[b] : vals[vals.length - 1];
-    levels.push({ key: `bin${b}`, label: `${fmtValue(lo)}–${fmtValue(hi)}`, value: [lo, hi], sort: lo });
+    levels.push({ key: `bin${b}`, label: spanText(fmtValue(lo), fmtValue(hi)), value: [lo, hi], sort: lo });
     lo = hi;
   }
   let off = 0;

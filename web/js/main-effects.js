@@ -7,7 +7,7 @@
 // compare at a glance. Marks are placed in percent of the plot box, so dots
 // stay round and text keeps its size at any card width.
 
-import { h, s, tip, fmtT } from "./ui.js";
+import { h, s, tip, fmtT, tickText } from "./ui.js";
 import { levelTip } from "./charts.js";
 
 const PAD = 7;        // % of the width kept clear inside each edge
@@ -189,21 +189,6 @@ export function effectPlot(levels, opts) {
   });
   if (log) corner.append(h("span", { class: "xs", title: "The values are spaced by factors: a log axis", text: "log" }));
   return box;
-}
-
-// The decimals a step has (0.025 needs three; 5e-7, which String() writes
-// with an exponent, seven).
-function decimals(s) {
-  const m = /^-?\d+(?:\.(\d+))?(?:e([+-]\d+))?$/.exec(String(+s.toPrecision(12)));
-  return m ? Math.max(0, (m[1] ? m[1].length : 0) - (m[2] ? Number(m[2]) : 0)) : 0;
-}
-
-// A tick in as many decimals as its step has.
-export function tickText(target, t, step) {
-  if (target.kind === "binary") return `${(t * 100).toFixed(decimals(step * 100))}%`;
-  const digits = decimals(step);
-  if (target.unit === "$") return (t < 0 ? "−$" : "$") + Math.abs(t).toLocaleString("en-US", { maximumFractionDigits: digits });
-  return (t < 0 ? "−" : "") + Math.abs(t).toFixed(digits);
 }
 
 // After the cards are in the page: hide x labels that would collide

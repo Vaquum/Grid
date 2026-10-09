@@ -66,11 +66,31 @@ test("a gate that cannot be read is kept with its reason, never dropped", () => 
   assert.equal(sc.targetById.has("gates:all"), false, "no gate, no gates together");
 });
 
-test("a need is written as it was given, in its needle's unit", () => {
+test("a gate read from the address that holds odd JSON is told why, never thrown on", () => {
+  // the address can hold any JSON: an object whose toString is not a
+  // function throws when made into text or used as a key
+  const odd = { toString: null };
+  const defs = [
+    { id: "g1", target: "pnl", op: ">=", value: odd },
+    { id: "g2", target: "pnl", op: odd, value: 1 },
+    { id: "g3", target: odd, op: ">=", value: 1 },
+    { id: "g4", target: "pnl", op: "toString", value: 1 },
+    { id: odd, target: "pnl", op: ">=", value: 1 },
+    null, "g6", [1],
+  ];
+  const sc = applyGates(schemaOf(), defs);
+  assert.equal(sc.gatesSet.length, 0);
+  assert.deepEqual(sc.gateProblems.map(p => p.why), ["its need is not a number", 'no comparison {"toString":null}',
+    'this run has no needle {"toString":null}', "no comparison toString", "it has no name", "it is not a gate", "it is not a gate", "it is not a gate"]);
+});
+
+test("a need is written as it was given, in its needle's unit, as every number is", () => {
   const t = { label: "Drawdown p5", unit: "bps" };
-  assert.equal(needText(t, -1000), "-1000 bps");
+  assert.equal(needText(t, -1000), "−1,000 bps");
   assert.equal(needText(t, 0.55), "0.55 bps");
+  assert.equal(needText({ unit: "%" }, -0.5), "−0.5%");
   assert.equal(needText({ unit: "$" }, 3000), "$3,000");
+  assert.equal(needText({ unit: "$" }, -2500.5), "−$2,500.5");
   assert.equal(gateLabel({ label: "AUC", unit: "" }, { op: "<=", value: 0.5 }), "AUC ≤ 0.5");
 });
 

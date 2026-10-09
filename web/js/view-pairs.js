@@ -8,10 +8,10 @@
 // as that grid for each value of the third, more as their strongest and
 // weakest combinations.
 
-import { h, tip, fmtT, fmtInt, fmtP, fmtDelta, inText, runName } from "./ui.js";
+import { h, tip, fmtT, fmtInt, fmtNum, fmtP, fmtDelta, fmtOmega2, inText, rangeText, runName } from "./ui.js";
 import { pairEffect, cramersV, dimEffect, summarize, comboEffect, ALPHA } from "./engine.js";
 import { bhQ } from "./stats.js";
-import { moderatorParents, background } from "./model.js";
+import { moderatorParents, background, setName, TOGETHER, together, togetherWhy } from "./model.js";
 import { divergingFill, intervalBar } from "./charts.js";
 import { strip, stripCell, about } from "./strip.js";
 
@@ -95,12 +95,12 @@ function* pairsJob(m) {
     yield;
   }
   const q = bhQ(res.map(r => r.p));
-  res.forEach((r, k) => { r.q = q[k]; r.detectable = q[k] < ALPHA; r.linked = r.pV < 1e-6 && r.V > 0.03; });
+  res.forEach((r, k) => { r.q = q[k]; r.detectable = q[k] < ALPHA; r.linked = together(r.pV, r.V); });
   return { dims: dims.map(d => d.id), of: all.length, list: res, byKey: new Map(res.map(r => [`${r.a}|${r.b}`, r])), rows: m.rows.length };
 }
 
 export function renderPairs(view, m, A) {
-  view.append(h("h1", { class: "sr", text: "Parameters at once" }));
+  view.append(h("h1", { class: "sr", text: "Pairs" }));
   const size = SIZES.includes(m.state.order) ? m.state.order : 2;
   const pairs = background(m, "pairs", pairsJob, A.rerender);
   const plan = pairs && size > 2 ? comboPlan(m, size, pairs) : null;
@@ -122,15 +122,15 @@ export function renderPairs(view, m, A) {
 }
 
 // The set the reader chose, of this size; else the strongest; for pairs,
-// else the pair the sampler linked most, which matters as much: its
-// effects mix.
+// else the pair the sampler drew together the most, which matters as much:
+// its effects mix.
 function chosenSet(m, pairs, ranked, size, combos) {
   const pr = m.state.pair;
   if (Array.isArray(pr) && pr.length === size && new Set(pr).size === size && pr.every(id => m.schema.dimById.has(id))) return { dims: pr.slice(), why: null };
   if (size === 2) {
     if (ranked.length) return { dims: [ranked[0].a, ranked[0].b], why: "the strongest" };
     const linked = pairs.list.filter(r => r.linked).sort((a, b) => b.V - a.V);
-    return linked.length ? { dims: [linked[0].a, linked[0].b], why: "the most linked" } : null;
+    return linked.length ? { dims: [linked[0].a, linked[0].b], why: `${TOGETHER} the most` } : null;
   }
   const top = combos ? combos.list.filter(r => r.detectable).sort((a, b) => b.omega2 - a.omega2)[0] : null;
   return top ? { dims: top.dims.slice(), why: "the strongest" } : null;
@@ -139,17 +139,9 @@ function chosenSet(m, pairs, ranked, size, combos) {
 const pairOf = (pairs, a, b) => pairs.byKey.get(`${a}|${b}`) || pairs.byKey.get(`${b}|${a}`) || null;
 const sameSet = (x, y) => x.length === y.length && x.every(id => y.includes(id));
 const isChosen = (c, r) => !!c && c.dims.length === 2 && sameSet(c.dims, [r.a, r.b]);
-const setName = (m, ids) => ids.map(id => shortName(m.schema.dimById.get(id))).join(" × ");
+const pairName = (m, r) => setName(m, [r.a, r.b]);
 
-function shortName(d) {
-  return d.kind === "scoped" ? `${d.name}@${d.scope.label.split(" = ")[1]}` : d.label;
-}
-
-function pairName(m, r) {
-  return `${shortName(m.schema.dimById.get(r.a))} × ${shortName(m.schema.dimById.get(r.b))}`;
-}
-
-const omega = (r) => `${(Math.max(0, r.omega2) * 100).toFixed(1)}%`;
+const omega = (r) => fmtOmega2(r.omega2);
 
 // ---------------------------------------------------------------------------
 // The strip
@@ -167,7 +159,7 @@ function pairsStrip(m, A, pairs, size, plan, combos) {
         h("div", { class: "k", text: `What the ${size} explain of ${inText(t.label)} once ${beyond} is accounted for: ${t.kind === "binary" ? "a logistic likelihood-ratio test" : "an F test"} per ${one}, corrected across every ${one} tested (Benjamini–Hochberg, q < 0.05).` }))));
     cells.push(stripCell(`Strongest ${one}`, top ? setName(m, top.dims) : "–", top ? `ω² ${omega(top)}` : !combos ? "testing" : combos.tested ? `none detectable beyond ${size === 3 ? "its pairs" : "its smaller sets"}` : "none testable yet",
       () => h("div", null, h("b", { text: `The ${one} whose interaction explains the most` }), h("div", { class: "k", text: `ω²: the share of the needle's variance the ${size} explain together beyond ${beyond}.` })),
-      top ? () => A.set({ pair: top.dims }) : null));
+      top ? () => A.set({ pair: top.dims }) : null, top ? { valueClass: "mono" } : {}));
     cells.push(stripCell("Too sparse", combos ? fmtInt(combos.sparse) : "…", `of ${fmtInt(plan.sets)} ${many}`,
       () => h("div", null, h("b", { text: `${cap(many)} left untested` }), h("div", { class: "k", text: `A ${one} is tested only when every combination of its values holds ${MIN_CELL} rows or more, so its test has the degrees of freedom it claims. More rows open more of them.` }))));
     cells.push(stripCell("Parameters", fmtInt(plan.pool.length), `of ${fmtInt(plan.of)} · the strongest`,
@@ -175,7 +167,7 @@ function pairsStrip(m, A, pairs, size, plan, combos) {
         h("div", { class: "k", text: `The strongest by what each does alone or with one other (an interaction mostly involves parameters that act on their own or in a pair), as many as keep a search at ${fmtInt(SET_BUDGET)} ${many} or fewer.` }))));
     cells.push(stripCell("Rows", fmtInt(combos ? combos.rows : m.rows.length), combos && combos.rows < m.rows.length ? `of ${fmtInt(m.rows.length)} · refreshing` : null));
     return strip(`The ${many} in figures`, cells,
-      { key: "pairs", label: "About the interactions", content: () => pairsAbout(m, pairs) },
+      { key: "pairs", label: "About the pairs", content: () => pairsAbout(m, pairs) },
       combos ? { label: `Copy the ${many} as notes`, what: `Every interacting ${one} with its ω² and q.`, text: () => combosNotes(m, combos), done: `${cap(many)} copied.` } : null, A);
   }
   if (!pairs) {
@@ -192,10 +184,10 @@ function pairsStrip(m, A, pairs, size, plan, combos) {
         h("div", { class: "k", text: `Their combinations explain ${inText(t.label)} beyond their two separate effects: ${test} per pair, corrected across all ${fmtInt(total)} pairs (Benjamini–Hochberg, q < 0.05).` }))));
     cells.push(stripCell("Strongest", top ? pairName(m, top) : "–", top ? `ω² ${omega(top)}` : "no pair interacts",
       () => h("div", null, h("b", { text: "The pair whose interaction explains the most" }), h("div", { class: "k", text: "ω²: the share of the needle's variance the interaction explains beyond the two separate effects." })),
-      top ? () => A.set({ pair: [top.a, top.b] }) : null));
-    cells.push(stripCell("Drawn together", fmtInt(linked.length), linked.length ? `${pairName(m, linked[0])}${linked.length > 1 ? ` and ${linked.length - 1} more` : ""}` : "independent, as drawn",
+      top ? () => A.set({ pair: [top.a, top.b] }) : null, top ? { valueClass: "mono" } : {}));
+    cells.push(stripCell(cap(TOGETHER), fmtInt(linked.length), linked.length ? `${pairName(m, linked[0])}${linked.length > 1 ? ` and ${linked.length - 1} more` : ""}` : "independent, as drawn",
       () => h("div", null, h("b", { text: "Pairs the sampler did not draw independently" }),
-        h("div", { class: "k", text: "Cramér's V of the pair over every row, with p < 10⁻⁶ and V over 0.03. An independent sampler gives V near zero; a linked pair's effects cannot be told apart." })),
+        h("div", { class: "k", text: "Cramér's V of the pair over every row, with p < 10⁻⁶ and V over 0.03. An independent sampler gives V near zero; the effects of a pair drawn together cannot be told apart." })),
       linked.length ? () => A.set({ pair: [linked[0].a, linked[0].b] }) : null));
     const capped = pairs.of > pairs.dims.length;
     cells.push(stripCell("Parameters", fmtInt(pairs.dims.length), capped ? `of ${fmtInt(pairs.of)} · the strongest` : "every one",
@@ -211,7 +203,7 @@ function pairsStrip(m, A, pairs, size, plan, combos) {
 
 function pairsAbout(m, pairs) {
   const t = m.target;
-  return about("Parameters at once",
+  return about("Pairs",
     `Two parameters interact when one changes the other's effect on ${inText(t.label)}: their combinations explain more than their two separate effects add up to (${t.kind === "binary" ? "a logistic likelihood-ratio test" : "an F test"} per pair, corrected across ${pairs ? `all ${fmtInt(pairs.list.length)} pairs` : "every pair"}).`,
     `Choose 3 to 6 for larger sets: what they explain together beyond every smaller set within them. A set is tested only when every combination of its values holds ${MIN_CELL} rows, and a size combines only the strongest parameters, so the search stays sound and quick; when no set of a size acts, its smaller sets give the full picture.`,
     "A pair opens as the needle in every combination of their values with each value's own margin, three as that grid for each value of the third, more as their strongest and weakest combinations; a cell opens on the board.",
@@ -237,7 +229,7 @@ function pairsNotes(m, pairs) {
   for (const r of ranked) lines.push(`- ${pairName(m, r)}: ω² ${omega(r)}, ${fmtP(r.q)}`);
   if (linked.length) {
     lines.push("Drawn together by the sampler:");
-    for (const r of linked) lines.push(`- ${pairName(m, r)}: V ${r.V.toFixed(3)}`);
+    for (const r of linked) lines.push(`- ${pairName(m, r)}: V ${fmtNum(r.V, 3)}`);
   }
   return lines.join("\n");
 }
@@ -246,7 +238,7 @@ function pairsNotes(m, pairs) {
 // The interactions, strongest first
 
 function sizePicker(A, size) {
-  const seg = h("div", { class: "seg pr-size", role: "group", "aria-label": "Parameters at once" });
+  const seg = h("div", { class: "seg pr-size", role: "group", "aria-label": "Parameters in a set" });
   for (const k of SIZES) seg.append(h("button", { type: "button", "aria-pressed": k === size ? "true" : "false", "aria-label": `${k} parameters at once`, onclick: () => A.set({ order: k }) }, String(k)));
   return seg;
 }
@@ -256,8 +248,8 @@ function listIsland(m, A, pairs, ranked, chosen, size, plan, combos) {
   const linked = pairs.list.filter(r => r.linked).sort((a, b) => b.V - a.V);
   const strongest = ranked.length ? Math.max(1e-9, ranked[0].omega2) : 1;
   const isl = h("section", { class: "island pr-list", "aria-labelledby": "pr-list-title" },
-    h("header", { class: "isl-head" }, h("h2", { class: "isl-title", id: "pr-list-title", text: "Interactions" }),
-      h("span", { class: "isl-count num", text: `${fmtInt(ranked.length)} of ${fmtInt(pairs.list.length)} pairs` }), sizePicker(A, size)));
+    h("header", { class: "isl-head" }, h("h2", { class: "isl-title", id: "pr-list-title", text: "Interacting pairs" }),
+      h("span", { class: "isl-count num", text: `${fmtInt(ranked.length)} of ${fmtInt(pairs.list.length)}` }), sizePicker(A, size)));
   if (!ranked.length) isl.append(h("p", { class: "isl-note", text: "No pair changes each other's effect detectably." }));
   else {
     const list = h("div", { class: "pr-rows", role: "list" });
@@ -267,11 +259,11 @@ function listIsland(m, A, pairs, ranked, chosen, size, plan, combos) {
     if (quiet) isl.append(h("p", { class: "isl-note", text: `The other ${fmtInt(quiet)} pairs show no detectable interaction.` }));
   }
   if (linked.length) {
-    const part = h("div", { class: "isl-part" }, h("h3", { class: "part-title" }, h("span", { text: "Drawn together" }),
-      h("span", { class: "note", text: "the sampler linked them, so their effects mix" })));
+    const part = h("div", { class: "isl-part" }, h("h3", { class: "part-title" }, h("span", { text: cap(TOGETHER) }),
+      h("span", { class: "note", text: "by the sampler, so their effects mix" })));
     const list = h("div", { class: "pr-rows", role: "list" });
     const top = Math.max(1e-9, linked[0].V);
-    for (const r of linked) list.append(pairRow(m, A, r, isChosen(chosen, r), r.V / top, `V ${r.V.toFixed(3)}`, null, "linked"));
+    for (const r of linked) list.append(pairRow(m, A, r, isChosen(chosen, r), r.V / top, `V ${fmtNum(r.V, 3)}`, null, "together"));
     part.append(list);
     isl.append(part);
   }
@@ -281,8 +273,8 @@ function listIsland(m, A, pairs, ranked, chosen, size, plan, combos) {
 function comboList(m, A, chosen, size, plan, combos) {
   const [one, many] = SIZE_NAME[size];
   const isl = h("section", { class: "island pr-list", "aria-labelledby": "pr-list-title" },
-    h("header", { class: "isl-head" }, h("h2", { class: "isl-title", id: "pr-list-title", text: "Interactions" }),
-      h("span", { class: "isl-count num", text: combos ? `${fmtInt(combos.list.filter(r => r.detectable).length)} of ${fmtInt(combos.tested)} ${many}` : `${fmtInt(plan.sets)} ${many}` }), sizePicker(A, size)));
+    h("header", { class: "isl-head" }, h("h2", { class: "isl-title", id: "pr-list-title", text: `Interacting ${many}` }),
+      h("span", { class: "isl-count num", text: combos ? `${fmtInt(combos.list.filter(r => r.detectable).length)} of ${fmtInt(combos.tested)}` : `${fmtInt(plan.sets)} to test` }), sizePicker(A, size)));
   const coverage = `Every ${one} of the ${fmtInt(plan.pool.length)} strongest parameters: ${fmtInt(plan.sets)} ${many}`;
   if (!combos) { isl.append(h("p", { class: "isl-note", role: "status", text: `${coverage}, being tested…` })); return isl; }
   const ranked = combos.list.filter(r => r.detectable).sort((a, b) => b.omega2 - a.omega2);
@@ -345,18 +337,20 @@ function heatCell(ctx, c, conds, where, cls = "") {
   const td = h("td", { class: `click has-tip ${cls}`, style: divergingFill(span ? d / span : 0), tabindex: "0",
     onclick: look, onkeydown: (e) => { if (e.key === "Enter") look(); } },
     h("span", { class: "v", text: fmtT(t, c.mean, { unit: false, digits: t.kind === "binary" ? 0 : undefined }) }), h("span", { class: "n", text: fmtInt(c.n) }));
-  tip(td, () => h("div", null, h("b", { text: fmtT(t, c.mean) }), h("span", { class: "k", text: `  [${fmtT(t, c.lo)}, ${fmtT(t, c.hi)}]` }),
+  tip(td, () => h("div", null, h("b", { text: fmtT(t, c.mean) }), h("span", { class: "k", text: `  95% ${rangeText(t, c.lo, c.hi)}` }),
     h("div", { class: "mono", text: where }),
     h("div", { class: "k", text: `${fmtInt(c.n)} rows · ${fmtDelta(t, c.mean - base.mean)} against the base${Number.isFinite(c.fitted) ? ` · the two effects alone: ${fmtT(t, c.fitted)}` : ""}` }),
     h("div", { class: "k", text: "Click to look inside it on the board." })));
   return td;
 }
 
+// The poles say where a cell sits against the base; their colours say
+// which way is better.
 function heatLegend(t) {
   return h("div", { class: "legend" },
-    h("span", null, h("i", { class: "box", style: { background: "var(--better)" } }), t.better < 0 ? "lower (better)" : "higher than the base"),
+    h("span", null, h("i", { class: "box", style: { background: "var(--better)" } }), t.better < 0 ? "lower than the base" : "higher than the base"),
     h("span", null, h("i", { class: "box", style: { background: "var(--mid)", outline: "1px solid var(--line)" } }), "at the base"),
-    h("span", null, h("i", { class: "box", style: { background: "var(--worse)" } }), t.better < 0 ? "higher (worse)" : "lower than the base"));
+    h("span", null, h("i", { class: "box", style: { background: "var(--worse)" } }), t.better < 0 ? "higher than the base" : "lower than the base"));
 }
 
 function pairIsland(m, A, pairs, chosen) {
@@ -377,19 +371,19 @@ function pairIsland(m, A, pairs, chosen) {
   const cell = (c, conds, where, cls) => heatCell(ctx, c, conds, where, cls);
 
   const tbl = h("table", { class: "heat pr-heat" });
-  const head = h("tr", null, h("th", { class: "corner" }, h("span", { class: "mono", text: shortName(da) }), " ↓ ", h("span", { class: "mono", text: shortName(db) }), " →"));
+  const head = h("tr", null, h("th", { class: "corner" }, h("span", { class: "mono", text: da.label }), " ↓ ", h("span", { class: "mono", text: db.label }), " →"));
   db.levels.forEach(l => head.append(h("th", { class: "col-h", text: l.label })));
   head.append(h("th", { class: "col-h margin-h", text: "every" }));
   tbl.append(h("thead", null, head));
   const tb = h("tbody");
   da.levels.forEach((la, a) => {
     const tr = h("tr", null, h("th", { class: "row-h", text: la.label }));
-    db.levels.forEach((lb, b) => tr.append(cell(pe.table[a * db.levels.length + b], [{ dim: da.id, keys: [la.key] }, { dim: db.id, keys: [lb.key] }], `${shortName(da)} = ${la.label}, ${shortName(db)} = ${lb.label}`)));
-    tr.append(cell(ea.levels[a], [{ dim: da.id, keys: [la.key] }], `${shortName(da)} = ${la.label}, any ${shortName(db)}`, "margin"));
+    db.levels.forEach((lb, b) => tr.append(cell(pe.table[a * db.levels.length + b], [{ dim: da.id, keys: [la.key] }, { dim: db.id, keys: [lb.key] }], `${da.label} = ${la.label}, ${db.label} = ${lb.label}`)));
+    tr.append(cell(ea.levels[a], [{ dim: da.id, keys: [la.key] }], `${da.label} = ${la.label}, any ${db.label}`, "margin"));
     tb.append(tr);
   });
   const foot = h("tr", { class: "margin-row" }, h("th", { class: "row-h margin-h", text: "every" }));
-  db.levels.forEach((lb, b) => foot.append(cell(eb.levels[b], [{ dim: db.id, keys: [lb.key] }], `${shortName(db)} = ${lb.label}, any ${shortName(da)}`, "margin")));
+  db.levels.forEach((lb, b) => foot.append(cell(eb.levels[b], [{ dim: db.id, keys: [lb.key] }], `${db.label} = ${lb.label}, any ${da.label}`, "margin")));
   const baseTd = h("td", { class: "margin base-cell has-tip", style: divergingFill(0) }, h("span", { class: "v", text: fmtT(t, base.mean, { unit: false, digits: t.kind === "binary" ? 0 : undefined }) }), h("span", { class: "n", text: fmtInt(base.n) }));
   tip(baseTd, `The base: ${fmtT(t, base.mean)} over the ${fmtInt(base.n)} rows in view`);
   foot.append(baseTd);
@@ -399,12 +393,12 @@ function pairIsland(m, A, pairs, chosen) {
   const testLine = Number.isFinite(pe.p) ? `${pe.test === "LR" ? "Likelihood-ratio" : "F"} test ${fmtP(pe.p, "p")}${r ? `, ${fmtP(r.q)} across the pairs` : ""}` : "Too few rows to test";
   const isl = h("section", { class: "island pr-pair", "aria-labelledby": "pr-pair-title" },
     h("header", { class: "isl-head pr-pair-head" },
-      h("h2", { class: "isl-title mono", id: "pr-pair-title", text: `${shortName(da)} × ${shortName(db)}` }),
+      h("h2", { class: "isl-title mono", id: "pr-pair-title", text: setName(m, chosen.dims) }),
       h("span", { class: "isl-count" }, chosen.why ? `${chosen.why} · ` : "", r && r.detectable ? "they interact" : "no detectable interaction")),
     h("div", { class: "pr-figs" },
-      h("span", null, h("span", { class: "k", text: "Interaction " }), h("b", { class: "num", text: Number.isFinite(pe.omega2) ? `ω² ${(Math.max(0, pe.omega2) * 100).toFixed(1)}%` : "–" })),
+      h("span", null, h("span", { class: "k", text: "Interaction " }), h("b", { class: "num", text: `ω² ${fmtOmega2(pe.omega2)}` })),
       h("span", { class: "muted", text: testLine }),
-      r && r.linked ? h("span", { class: "tag crit", text: `drawn together, V ${r.V.toFixed(3)}` }) : null),
+      r && r.linked ? tip(h("span", { class: "tag warn has-tip", text: `${TOGETHER}, V ${fmtNum(r.V, 3)}` }), togetherWhy(r.V)) : null),
     h("p", { class: "isl-note pr-what", text: `${t.label} in every combination against the base ${fmtT(t, base.mean)}; "every" is a value over all of the other's.${pe.table.some(c => c.withheld) || [...ea.levels, ...eb.levels].some(l => l.withheld) ? " Hatched cells hold fewer than 30 rows." : ""}` }),
     h("div", { class: "table-wrap" }, tbl),
     heatLegend(t));
@@ -436,10 +430,10 @@ function comboIsland(m, A, combos, chosen) {
     : `${t.kind === "binary" ? "Likelihood-ratio" : "F"} test ${fmtP(r.p, "p")}${rec ? `, ${fmtP(rec.q)} across the ${fmtInt(combos.tested)} ${SIZE_NAME[k][1]} tested` : ""}`;
   return h("section", { class: "island pr-pair", "aria-labelledby": "pr-pair-title" },
     h("header", { class: "isl-head pr-pair-head" },
-      h("h2", { class: "isl-title mono", id: "pr-pair-title", text: dims.map(shortName).join(" × ") }),
+      h("h2", { class: "isl-title mono", id: "pr-pair-title", text: setName(m, chosen.dims) }),
       h("span", { class: "isl-count" }, chosen.why ? `${chosen.why} · ` : "", verdict)),
     h("div", { class: "pr-figs" },
-      h("span", null, h("span", { class: "k", text: `All ${k} together ` }), h("b", { class: "num", text: Number.isFinite(r.omega2) ? `ω² ${(Math.max(0, r.omega2) * 100).toFixed(1)}%` : "–" })),
+      h("span", null, h("span", { class: "k", text: `All ${k} together ` }), h("b", { class: "num", text: `ω² ${fmtOmega2(r.omega2)}` })),
       h("span", { class: "muted", text: testLine })),
     h("p", { class: "isl-note pr-what", text: `${t.label} in every combination against the base ${fmtT(t, base.mean)}. Their interaction is what is left once ${smaller} is accounted for.${r.table.some(c => c.withheld) ? " Hatched cells hold fewer than 30 rows." : ""}` }),
     k === 3 ? facets(ctx, dims, r) : combinations(ctx, dims, r),
@@ -456,7 +450,7 @@ function facets(ctx, dims, r) {
   const wrap = h("div", { class: "pr-facets" });
   dims[f].levels.forEach((lf, vf) => {
     const tbl = h("table", { class: "heat pr-heat" });
-    const head = h("tr", null, h("th", { class: "corner" }, vf === 0 ? [h("span", { class: "mono", text: shortName(dims[ra]) }), " ↓ ", h("span", { class: "mono", text: shortName(dims[cb]) }), " →"] : ""));
+    const head = h("tr", null, h("th", { class: "corner" }, vf === 0 ? [h("span", { class: "mono", text: dims[ra].label }), " ↓ ", h("span", { class: "mono", text: dims[cb].label }), " →"] : ""));
     dims[cb].levels.forEach(l => head.append(h("th", { class: "col-h", text: l.label })));
     tbl.append(h("thead", null, head));
     const tb = h("tbody");
@@ -466,12 +460,12 @@ function facets(ctx, dims, r) {
         const x = [0, 0, 0];
         x[f] = vf; x[ra] = va; x[cb] = vb;
         const conds = [{ dim: dims[f].id, keys: [lf.key] }, { dim: dims[ra].id, keys: [la.key] }, { dim: dims[cb].id, keys: [lb.key] }];
-        tr.append(heatCell(ctx, at(x), conds, `${shortName(dims[f])} = ${lf.label}, ${shortName(dims[ra])} = ${la.label}, ${shortName(dims[cb])} = ${lb.label}`));
+        tr.append(heatCell(ctx, at(x), conds, `${dims[f].label} = ${lf.label}, ${dims[ra].label} = ${la.label}, ${dims[cb].label} = ${lb.label}`));
       });
       tb.append(tr);
     });
     tbl.append(tb);
-    wrap.append(h("div", { class: "pr-facet" }, h("h3", { class: "facet-title" }, h("span", { class: "mono", text: shortName(dims[f]) }), " = ", h("b", { class: "mono", text: lf.label })), h("div", { class: "table-wrap" }, tbl)));
+    wrap.append(h("div", { class: "pr-facet" }, h("h3", { class: "facet-title" }, h("span", { class: "mono", text: dims[f].label }), " = ", h("b", { class: "mono", text: lf.label })), h("div", { class: "table-wrap" }, tbl)));
   });
   return wrap;
 }
@@ -487,11 +481,11 @@ function combinations(ctx, dims, r) {
   const pad = (hi - lo) * 0.08 || 1;
   const domain = [lo - pad, hi + pad];
   const part = (title, cells) => {
-    const tbl = h("table", { class: "vals pr-combos" }, h("thead", null, h("tr", null, h("th", { text: "combination" }), h("th", { class: "r", text: "rows" }), h("th", { class: "r", text: t.label }), h("th", { class: "iv", text: "95% interval" }))));
+    const tbl = h("table", { class: "vals pr-combos" }, h("thead", null, h("tr", null, h("th", { text: "Combination" }), h("th", { class: "r", text: "Rows" }), h("th", { class: "r", text: t.label }), h("th", { class: "iv", text: "95% interval" }))));
     const tb = h("tbody");
     for (const c of cells) {
       const conds = c.keys.map((key, i) => ({ dim: dims[i].id, keys: [key] }));
-      const what = c.at.map((x, i) => `${shortName(dims[i])} = ${dims[i].levels[x].label}`).join(" · ");
+      const what = c.at.map((x, i) => `${dims[i].label} = ${dims[i].levels[x].label}`).join(" · ");
       const look = () => ctx.A.set({ context: [...ctx.m.context.filter(x => !conds.some(k => k.dim === x.dim)), ...conds], view: "board" });
       tb.append(h("tr", { class: "clickable", tabindex: "0", onclick: look, onkeydown: (e) => { if (e.key === "Enter") look(); } },
         h("td", { class: "v", text: what }), h("td", { class: "r num", text: fmtInt(c.n) }), h("td", { class: "r num", text: fmtT(t, c.mean) }),
@@ -517,11 +511,11 @@ function mapIsland(m, A, pairs, chosen) {
   const maxV = Math.max(0.05, ...pairs.list.map(r => (Number.isFinite(r.V) ? r.V : 0)));
   const tbl = h("table", { class: "pr-map" });
   const head = h("tr", null, h("th", { class: "corner" }));
-  dims.forEach((d, j) => head.append(h("th", { class: "col-h", dataset: { j: String(j) } }, h("span", { text: shortName(d) }))));
+  dims.forEach((d, j) => head.append(h("th", { class: "col-h", dataset: { j: String(j) } }, h("span", { text: d.label }))));
   tbl.append(h("thead", null, head));
   const tb = h("tbody");
   dims.forEach((da, i) => {
-    const tr = h("tr", null, h("th", { class: "row-h", dataset: { i: String(i) }, text: shortName(da) }));
+    const tr = h("tr", null, h("th", { class: "row-h", dataset: { i: String(i) }, text: da.label }));
     dims.forEach((db, j) => {
       if (i === j) { tr.append(h("td", { class: "diag", "aria-hidden": "true" })); return; }
       const r = i > j ? pairs.byKey.get(`${da.id}|${db.id}`) : pairs.byKey.get(`${db.id}|${da.id}`);
@@ -532,7 +526,7 @@ function mapIsland(m, A, pairs, chosen) {
         if (t) { style = { background: `color-mix(in oklab, var(--better) ${Math.round(t * 85)}%, var(--surface-2))` }; cls = " on"; }
       } else if (r.linked) {
         const t = Number.isFinite(r.V) ? Math.min(1, r.V / maxV) : 0;
-        style = { background: `color-mix(in oklab, var(--cat-4) ${Math.round(20 + t * 70)}%, var(--surface-2))` }; cls = " on";
+        style = { background: `color-mix(in oklab, var(--warning) ${Math.round(20 + t * 70)}%, var(--surface-2))` }; cls = " on";
       }
       const inSet = !!chosen && chosen.dims.length > 2 && i > j && chosen.dims.includes(da.id) && chosen.dims.includes(db.id);
       const td = h("td", { class: `cell has-tip${cls}${isChosen(chosen, r) ? " sel" : ""}${inSet ? " in-set" : ""}`, style, tabindex: "0", dataset: { i: String(i), j: String(j) },
@@ -540,7 +534,7 @@ function mapIsland(m, A, pairs, chosen) {
         onclick: () => A.set({ pair: [r.a, r.b] }), onkeydown: (e) => { if (e.key === "Enter") A.set({ pair: [r.a, r.b] }); } });
       tip(td, () => h("div", null, h("b", { class: "mono", text: pairName(m, r) }),
         h("div", { text: r.detectable ? `They change each other's effect: ω² ${omega(r)}, ${fmtP(r.q)}` : `No detectable interaction (${fmtP(r.q)})` }),
-        h("div", { class: "k", text: `Drawn together: V ${Number.isFinite(r.V) ? r.V.toFixed(3) : "–"}${r.linked ? " (linked)" : " (independent)"}` })));
+        h("div", { class: "k", text: `${r.linked ? cap(TOGETHER) : "Drawn independently"}: V ${fmtNum(r.V, 3)}` })));
       tr.append(td);
     });
     tb.append(tr);
@@ -570,7 +564,7 @@ function mapIsland(m, A, pairs, chosen) {
       h("span", { class: "isl-count", text: capped ? `the ${fmtInt(pairs.dims.length)} strongest of ${fmtInt(pairs.of)} parameters` : `${fmtInt(pairs.dims.length)} parameters` }),
       h("div", { class: "legend pr-legend" },
         h("span", null, h("i", { class: "box", style: { background: "var(--better)" } }), "interact (below the diagonal)"),
-        h("span", null, h("i", { class: "box", style: { background: "var(--cat-4)" } }), "drawn together (above)"),
+        h("span", null, h("i", { class: "box", style: { background: "var(--warning)" } }), `${TOGETHER} (above)`),
         h("span", null, h("i", { class: "box", style: { background: "var(--surface-2)", outline: "1px solid var(--line-2)" } }), "nothing detectable"))),
     h("div", { class: "table-wrap", dataset: { scroll: "pairs-map" } }, tbl));
 }

@@ -7,12 +7,12 @@
 // there); the best row against luck; and the run's health: its pace and
 // segments, its problems and warnings, and the sampler.
 
-import { h, icon, tip, fmtT, fmtRowValue, fmtInt, fmtPct, fmtP, fmtNum, fmtDuration, fmtAgo, fmtClock, inText, rangeText, runName } from "./ui.js";
+import { h, icon, tip, fmtT, fmtRowValue, fmtInt, fmtPct, fmtP, fmtNum, fmtPace, fmtDuration, fmtAgo, fmtClock, inText, rangeText, spanText, runName } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { lineChart, distChart } from "./charts.js";
 import { invariantBreaks, recordCurve, uniformity, summarize, rowsIn, gTest, MIN_N } from "./engine.js";
 import { buildSchema } from "./schema.js";
-import { independence, moderatorParents, boardDims, background } from "./model.js";
+import { independence, moderatorParents, boardDims, background, setName, TOGETHER, together, togetherWhy } from "./model.js";
 import { clusterJob, clusterOutcomes, mannWhitney, composition, MIN_SILHOUETTE } from "./clusters.js";
 import { bhQ, rankAt } from "./stats.js";
 
@@ -71,7 +71,7 @@ export function runHealth(m) {
   if (total) parts.push(`${fmtPct(m.edge / total, m.edge / total < 0.1 ? 1 : 0)} of ${fmtInt(total)}`);
   const recorded = m.sweep.meta.mode !== "live";
   if (rate && ds.meta.live && m.state.edge === null) {
-    parts.push(`${rate.rowsPerSec.toFixed(1)} rows/s${recorded ? " when recorded" : ""}`);
+    parts.push(`${fmtPace(rate.rowsPerSec)}${recorded ? " when recorded" : ""}`);
     if (total && total > ds.n && !recorded) parts.push(`${fmtDuration((total - ds.n) / rate.rowsPerSec)} to go`);
   }
   const problems = problemList(m);
@@ -180,7 +180,7 @@ function swatchOf(sel, id) {
 function whyNone(res) {
   if (res.reason === "flat") return "The outcomes that say what a row did take one value each here: there is nothing to group by.";
   if (res.reason === "weak") {
-    return `The rows do not fall into groups: the best grouping (${res.k} clusters) has a silhouette of ${res.silhouette.toFixed(2)}, under ${MIN_SILHOUETTE}, which is no structure, so none is drawn.`;
+    return `The rows do not fall into groups: the best grouping (${res.k} clusters) has a silhouette of ${fmtNum(res.silhouette, 2)}, under ${MIN_SILHOUETTE}, which is no structure, so none is drawn.`;
   }
   return `Too few rows to group: a grouping needs ${fmtInt(2 * MIN_N)} rows and every cluster ${MIN_N}${res.rows ? `; there are ${fmtInt(res.rows)}` : ""}.`;
 }
@@ -207,7 +207,7 @@ function clusterIsland(m, A, res, sel) {
     isl.append(h("p", { class: "isl-note", text: whyNone(res) }));
     return isl;
   }
-  const count = h("span", { class: "isl-count num has-tip", text: `${res.k} · silhouette ${res.silhouette.toFixed(2)}, ${res.grade}` });
+  const count = h("span", { class: "isl-count num has-tip", text: `${res.k} · silhouette ${fmtNum(res.silhouette, 2)}, ${res.grade}` });
   tip(count, () => h("div", null, h("b", { text: "How clearly the rows group" }),
     h("div", { text: "The silhouette: how much nearer each row sits to its own cluster than to the next one, from −1 to 1. Over 0.7 is strong structure, 0.51 to 0.7 reasonable, 0.26 to 0.5 weak; under 0.26 no cluster is drawn." }),
     h("div", { class: "k", text: `Drawn on ${res.outcomes.map(o => o.t.label).join(", ")}.` })));
@@ -247,7 +247,7 @@ function kPicker(m, A, res) {
       dataset: { k: String(s.k), focus: `k-${s.k}` },
       onclick: () => { if (s.usable && s.k !== res.k) A.set({ clusterK: s.k === res.best ? null : s.k, clusters: [] }, { replace: true }); } }, String(s.k));
     tip(b, () => h("div", null, h("b", { text: `${s.k} clusters${s.k === res.best ? ", the best" : ""}` }),
-      h("div", { class: "k", text: !s.valid ? "A cluster would hold fewer than 30 rows." : `Silhouette ${s.silhouette.toFixed(2)}${s.usable ? "" : ": no structure"}.` })));
+      h("div", { class: "k", text: !s.valid ? "A cluster would hold fewer than 30 rows." : `Silhouette ${fmtNum(s.silhouette, 2)}${s.usable ? "" : ": no structure"}.` })));
     seg.append(b);
   }
   return seg;
@@ -342,7 +342,7 @@ function distCard(m, t, groups, drawn, sel, test, q, res) {
   // values the rows have read as the cards print them: a whole number
   // whole, a 0/1 outcome no or yes
   const ch = distChart(groups.map((g, i) => ({ label: g.label, fill: g.fill, ink: g.ink, text: g.text, vals: vals[i] })),
-    { fmt: v => fmtT(t, v), fmtValue: v => fmtRowValue(t, v), fmtTick: v => fmtRowValue(t, v, { unit: false }), label: `${t.label}: how the rows spread` });
+    { target: t, label: `${t.label}: how the rows spread` });
   const isNeedle = t.id === m.target.id;
   const card = h("article", { class: "rn-card" + (isNeedle ? " needle" : ""), dataset: { outcome: t.id } });
   const tags = h("span", { class: "rn-tags" });
@@ -371,7 +371,7 @@ function distCard(m, t, groups, drawn, sel, test, q, res) {
     } else {
       const q1 = rankAt(v, 0.25), q3 = rankAt(v, 0.75);
       line.append(h("span", null, groups.length > 1 ? h("b", { text: `${g.label} ` }) : null, `median ${fmtRowValue(t, rankAt(v, 0.5))}`,
-        h("span", { class: "muted", text: q1 === q3 ? ` · middle half at ${fmtRowValue(t, q1)}` : ` · middle half ${fmtRowValue(t, q1, { unit: false })} to ${fmtRowValue(t, q3)}` })));
+        h("span", { class: "muted", text: q1 === q3 ? ` · middle half at ${fmtRowValue(t, q1)}` : ` · middle half ${middleHalf(t, q1, q3)}` })));
       const heap = heapOf(v);
       if (heap) line.append(h("span", { class: "muted", text: ` · ${fmtPct(heap.share, 0)} at ${fmtRowValue(t, heap.v)}` }));
     }
@@ -386,7 +386,12 @@ function distCard(m, t, groups, drawn, sel, test, q, res) {
   return card;
 }
 
-// A value that holds a tenth of the rows or more (most rounds at exactly 0).
+// The middle half of the rows, as values they have: 0.2–0.5 bps.
+function middleHalf(t, q1, q3) {
+  return spanText(fmtRowValue(t, q1, { unit: false }), fmtRowValue(t, q3));
+}
+
+// A value that holds a tenth of the rows or more (most rows at exactly 0).
 function heapOf(v) {
   let best = null, i = 0;
   while (i < v.length) {
@@ -485,7 +490,7 @@ function paramRow(x, groups) {
   const top = Math.max(...x.levels.map(l => Math.max(l.inGroup || 0, l.inRef || 0)), 1e-9);
   const row = h("div", { class: "rn-param" },
     h("div", { class: "rn-pname" }, h("span", { class: "mono", text: x.dim.label }),
-      h("span", { class: "muted num", text: ` V ${x.V.toFixed(2)} · ${fmtP(x.q)}` })));
+      h("span", { class: "muted num", text: ` V ${fmtNum(x.V, 2)} · ${fmtP(x.q)}` })));
   const lv = h("div", { class: "rn-levels" });
   for (const l of x.levels) {
     if (!l.n) continue;
@@ -512,7 +517,7 @@ function runStrip(m, A, health, res, sel) {
     () => h("div", null, h("b", { text: "Rows in view" }), h("div", { class: "k", text: health.total ? "The rows so far, against the rows the run plans to evaluate." : "Every row of the run so far." }))));
   if (health.rate && m.ds.meta.live && m.state.edge === null) {
     const togo = health.total && health.total > m.ds.n && m.sweep.meta.mode === "live" ? `${fmtDuration((health.total - m.ds.n) / health.rate.rowsPerSec)} to go` : null;
-    cells.push(stripCell("Pace", `${health.rate.rowsPerSec.toFixed(2)} rows/s`, togo,
+    cells.push(stripCell("Pace", fmtPace(health.rate.rowsPerSec), togo,
       () => h("div", null, h("b", { text: "Rows per second now" }), h("div", { class: "k", text: health.rate.from === "log" ? "From the runner's last progress lines." : "From the rows' arrivals in the last five minutes." }))));
   }
   if (N) {
@@ -530,8 +535,8 @@ function runStrip(m, A, health, res, sel) {
       () => h("div", null, h("b", { text: `The best ${inText(rec.t.label)} so far, against luck` }),
         h("div", { class: "k", text: "The luck line is what the best of as many rows would reach if every configuration were equally good and all spread were noise." }))));
   }
-  cells.push(stripCell("Clusters", !res ? "…" : res.clusters.length ? String(res.k) : "none",
-    !res ? "being found" : res.clusters.length ? `silhouette ${res.silhouette.toFixed(2)}, ${res.grade}` : res.reason === "weak" ? "the rows do not group" : "too few rows",
+  cells.push(stripCell("Clusters", !res ? "…" : res.clusters.length ? String(res.k) : "0",
+    !res ? "being found" : res.clusters.length ? `silhouette ${fmtNum(res.silhouette, 2)}, ${res.grade}` : res.reason === "weak" ? "the rows do not group" : "too few rows",
     () => h("div", null, h("b", { text: "The rows grouped by what they did" }), h("div", { class: "k", text: res && !res.clusters.length ? whyNone(res) : "Their toggles are under the strip; the cards follow what is chosen." }))));
   const broken = health.problems.filter(p => p.sev === "crit");
   cells.push(stripCell("Problems", fmtInt(broken.length), broken.length ? [...new Set(broken.map(p => p.kind))].join(", ") : "nothing broken",
@@ -556,12 +561,12 @@ function runNotes(m, health, res) {
   lines.push(`Rows: ${fmtInt(m.rows.length)}${health.total ? ` of ${fmtInt(health.total)} planned` : ""}`);
   if (m.rows.length) {
     const s = summarize(t, m.rows), v = sortedVals(t.values, m.rows);
-    lines.push(`${t.label}: mean ${fmtT(t, s.mean)} (95% ${rangeText(t, s.lo, s.hi)})${t.kind === "binary" ? "" : `, median ${fmtRowValue(t, rankAt(v, 0.5))}, middle half ${fmtRowValue(t, rankAt(v, 0.25))} to ${fmtRowValue(t, rankAt(v, 0.75))}`}`);
+    lines.push(`${t.label}: mean ${fmtT(t, s.mean)} (95% ${rangeText(t, s.lo, s.hi)})${t.kind === "binary" ? "" : `, median ${fmtRowValue(t, rankAt(v, 0.5))}, middle half ${middleHalf(t, rankAt(v, 0.25), rankAt(v, 0.75))}`}`);
   }
   const rec = recordOf(m);
   if (rec) lines.push(`Best ${inText(rec.t.label)}: ${fmtRowValue(rec.t, rec.last.best)}; noise alone would give about ${fmtT(rec.t, rec.last.luck)}`);
   if (res && res.clusters.length) {
-    lines.push(`Clusters: ${res.k} (silhouette ${res.silhouette.toFixed(2)}, ${res.grade}), drawn on ${res.outcomes.map(o => o.t.label).join(", ")}`);
+    lines.push(`Clusters: ${res.k} (silhouette ${fmtNum(res.silhouette, 2)}, ${res.grade}), drawn on ${res.outcomes.map(o => o.t.label).join(", ")}`);
     const comp = apartOf(m, res, { mode: "whole", pick: [] });
     res.clusters.forEach((c, ci) => {
       const det = comp[ci].filter(x => x.q < 0.05).sort((a, b) => b.V - a.V).slice(0, 3)
@@ -570,7 +575,7 @@ function runNotes(m, health, res) {
     });
   } else if (res) lines.push(`Clusters: none. ${whyNone(res)}`);
   const broken = health.problems.filter(p => p.sev === "crit");
-  lines.push(`Problems: ${broken.length ? broken.map(p => p.kind).join(", ") : "none"}`);
+  lines.push(`Problems: ${broken.length ? `${fmtInt(broken.length)} (${[...new Set(broken.map(p => p.kind))].join(", ")})` : "none"}`);
   return lines.join("\n");
 }
 
@@ -598,7 +603,7 @@ function recordIsland(m) {
     { label: "best so far", color: "var(--ink)", points: rec.pts.map(p => [p.n, p.best]), step: true },
     { label: "expected best under noise", color: "var(--worse)", points: rec.pts.map(p => [p.n, p.luck]), dash: "5 4" },
     { label: "mean", color: "var(--muted)", points: rec.pts.map(p => [p.n, p.mean]), endDot: false },
-  ], { height: 190, xLabel: "rows", fmtY: v => fmtT(rec.t, v), label: "record against the luck line" }));
+  ], { height: 190, xLabel: "rows", target: rec.t, label: "record against the luck line" }));
   const above = (rec.last.best - rec.last.luck) * (rec.t.better < 0 ? -1 : 1) > 0;
   isl.append(h("p", { class: "isl-note" }, h("b", { text: above ? "Above the luck line" : "Inside the luck line" }),
     `: the best row reaches ${fmtRowValue(rec.t, rec.last.best)}; noise alone would give about ${fmtT(rec.t, rec.last.luck)} at ${fmtInt(rec.last.n)} rows. The dashed line is that expectation; a record that only tracks it is harvesting noise.`));
@@ -610,15 +615,18 @@ function recordIsland(m) {
 
 function paceIsland(m, health) {
   const ds = m.ds, log = runLog(m);
+  // the log by its file's name; its whole path in the tip
+  const path = log ? (m.sweep.meta.logSources || {})[ds.meta.logId] || null : null;
+  const source = h("span", { class: "isl-count", text: !log ? "no log for this run" : path ? `from ${path.split("/").pop()}` : "from the log in the pack" });
+  if (path) tip(source, path);
   const isl = h("section", { class: "island", "aria-label": "Pace" },
-    h("header", { class: "isl-head" }, h("h2", { class: "isl-title", text: "Pace" }),
-      h("span", { class: "isl-count", text: log ? `log ${(m.sweep.meta.logSources || {})[ds.meta.logId] || "embedded"}` : "no log for this run" })));
+    h("header", { class: "isl-head" }, h("h2", { class: "isl-title", text: "Pace" }), source));
   const stats = h("div", { class: "stat-row" });
   const stat = (k, v, d, tp) => { const el = h("div", { class: "stat" + (tp ? " has-tip" : "") }, h("div", { class: "k", text: k }), h("div", { class: "v num", text: v }), d ? h("div", { class: "d", text: d }) : null); if (tp) tip(el, tp); stats.append(el); };
   // a run kept after its results file started over has stopped: its pace
   // is the one it had, and nothing of it remains to run
   const kept = !!ds.meta.archivedFrom;
-  if (health.rate) stat("Pace", `${health.rate.rowsPerSec.toFixed(2)} rows/s`, kept ? "before it stopped" : health.rate.from === "log" ? "from the last progress lines" : "from row arrivals, last 5 min");
+  if (health.rate) stat("Pace", fmtPace(health.rate.rowsPerSec), kept ? "before it stopped" : health.rate.from === "log" ? "from the last progress lines" : "from row arrivals, last 5 min");
   if (health.rate && health.total > ds.n && !kept) stat("Remaining", fmtDuration((health.total - ds.n) / health.rate.rowsPerSec), m.sweep.meta.mode === "live" ? "at this pace" : "at the pace when recorded");
   const sec = m.schema.targets.find(x => x.cost);
   if (sec && m.allRows.length) {
@@ -631,15 +639,15 @@ function paceIsland(m, health) {
   if (stats.childNodes.length) isl.append(stats);
   if (log && log.segments.length) {
     const longest = Math.max(0, ...log.segments.map(s => (s.progress.length ? s.progress[s.progress.length - 1][2] || 0 : 0)));
-    const unit = longest > 3 * 3600 ? [3600, "h"] : longest > 600 ? [60, "min"] : [1, "s"];
+    const unit = longest > 3 * 3600 ? [3600, "h", "hours"] : longest > 600 ? [60, "min", "minutes"] : [1, "s", "seconds"];
     const series = log.segments.filter(s => s.progress.length > 1).map((s, i) => ({
       label: s.marker ? s.marker.label : "first run",
       color: ["var(--cat-1)", "var(--cat-2)", "var(--cat-3)", "var(--cat-4)"][i % 4],
       points: s.progress.filter(p => p[2] !== null).map(p => [p[2] / unit[0], p[1]]),
     }));
     if (series.length) {
-      isl.append(h("div", { class: "part-title", text: "Rows over time, each segment from its own start" }));
-      isl.append(lineChart(series, { height: 160, xLabel: unit[1], fmtX: v => `${fmtNum(v, unit[1] === "h" ? 1 : 0)} ${unit[1]}`, fmtY: v => fmtInt(v), label: "rows over time by segment" }));
+      isl.append(h("div", { class: "part-title", text: `Rows over time, in ${unit[2]} from each segment's start` }));
+      isl.append(lineChart(series, { height: 160, fmtX: v => `${fmtNum(v, unit[1] === "h" ? 1 : 0)} ${unit[1]}`, fmtY: v => `${fmtInt(v)} rows`, label: "rows over time by segment" }));
     }
     isl.append(h("div", { class: "part-title", text: "Segments in the log" }));
     const maxRows = Math.max(1, ...log.segments.map(s => (s.progress.length ? s.progress[s.progress.length - 1][1] : 0)));
@@ -654,7 +662,7 @@ function paceIsland(m, health) {
           h("div", { class: "muted mono", text: s.marker ? s.marker.stamp : `log line ${s.line}` })),
         h("div", { class: "seg-bar has-tip" }, fill),
         h("div", { class: "num" }, h("div", null, `${fmtInt(rows)} rows`, el ? h("span", { class: "muted", text: ` · ${fmtDuration(el)}` }) : null),
-          h("div", { class: "sev " + (s.status === "crashed" ? "crit" : s.status === "open" ? "ok" : "warn"), style: { display: "flex" }, text: s.status }))));
+          h("div", { class: "sev " + (s.status === "crashed" ? "crit" : s.status === "open" ? "ok" : s.status === "finished" ? "off" : "warn"), style: { display: "flex" }, text: s.status }))));
       tip(tl.lastChild.querySelector(".seg-bar"), `Segment ${s.index + 1}: from log line ${s.line}${s.endLine ? ` to ${s.endLine}` : ""}, ${fmtInt(rows)} of ${fmtInt(s.total)} rows${mine ? "; the rows on screen" : ""}`);
     }
     isl.append(tl);
@@ -727,13 +735,13 @@ function eventsIsland(A) {
 function warningsIsland(log) {
   const isl = h("section", { class: "island", "aria-label": "Warnings" },
     h("header", { class: "isl-head" }, h("h2", { class: "isl-title", text: "Warnings" }), h("span", { class: "isl-count", text: "counted once per kind" })));
-  const tbl = h("table", { class: "vals" }, h("thead", null, h("tr", null, h("th", { text: "warning" }), h("th", { text: "where" }), h("th", { class: "r", text: "times" }), h("th", { class: "r", text: "rows" }))));
+  const tbl = h("table", { class: "vals" }, h("thead", null, h("tr", null, h("th", { text: "Warning" }), h("th", { text: "Where" }), h("th", { class: "r", text: "Times" }), h("th", { class: "r", text: "Rows" }))));
   const tb = h("tbody");
   for (const w of log.warnings) {
     tb.append(h("tr", null, h("td", null, h("b", { text: w.category }), h("div", { class: "muted", text: w.message.length > 140 ? w.message.slice(0, 140) + "…" : w.message })),
       h("td", { class: "v", text: `${w.path.split("/").slice(-2).join("/")}:${w.line}` }),
       h("td", { class: "r num", text: fmtInt(w.count) }),
-      h("td", { class: "r num", text: `${fmtInt(w.first.row)} – ${fmtInt(w.last.row)}` })));
+      h("td", { class: "r num", text: w.first.row === w.last.row ? fmtInt(w.first.row) : spanText(fmtInt(w.first.row), fmtInt(w.last.row)) })));
   }
   tbl.append(tb);
   isl.append(h("div", { class: "table-wrap", dataset: { scroll: "warnings" } }, tbl));
@@ -747,7 +755,7 @@ function samplerIsland(m) {
   const params = moderatorParents(m.schema);
   const pairs = independence(m);
   const uneven = params.map(d => ({ d, u: uniformity(d, m.allRows) })).filter(x => x.u.p < 1e-6);
-  const dep = pairs.filter(p => p.p < 1e-6 && p.V > 0.03).sort((a, b) => b.V - a.V);
+  const dep = pairs.filter(p => together(p.p, p.V)).sort((a, b) => b.V - a.V);
   isl.append(h("p", { class: "isl-note", style: { marginTop: 0 }, text: `${params.length} sampled parameters checked for an even draw (χ² against uniform) and ${fmtInt(pairs.length)} pairs for independence (Cramér's V).` }));
   if (!uneven.length) isl.append(h("div", { class: "issue" }, h("span", { class: "sev ok" }, icon("check"), "even"), h("span", { text: "Every sampled parameter's values were drawn about equally often." })));
   for (const { d, u } of uneven) {
@@ -755,11 +763,11 @@ function samplerIsland(m) {
       h("div", { style: { minWidth: 0 } }, h("span", { class: "mono", text: d.label }),
         h("span", { class: "muted num", text: `  ${d.levels.map((l, j) => `${l.label} ${fmtPct(u.shares[j], 1)}`).join(" · ")}` }))));
   }
-  if (!dep.length) isl.append(h("div", { class: "issue" }, h("span", { class: "sev ok" }, icon("check"), "independent"), h("span", { text: "No pair of sampled parameters is drawn together." })));
+  if (!dep.length) isl.append(h("div", { class: "issue" }, h("span", { class: "sev ok" }, icon("check"), "independent"), h("span", { text: `No pair of sampled parameters is ${TOGETHER}.` })));
   for (const p of dep.slice(0, 8)) {
-    isl.append(h("div", { class: "issue" }, h("span", { class: "sev warn" }, icon("alert"), "linked"),
-      h("div", null, h("span", { class: "mono", text: `${p.a} × ${p.b}` }), h("span", { class: "muted num", text: `  V ${p.V.toFixed(3)} · ${fmtP(p.p, "p")}` }),
-        h("div", { class: "muted", text: "Their marginal effects carry some of each other's; read one inside the other's levels." }))));
+    isl.append(h("div", { class: "issue" }, h("span", { class: "sev warn" }, icon("alert"), TOGETHER),
+      h("div", null, h("span", { class: "mono", text: setName(m, [p.a, p.b]) }), h("span", { class: "muted num", text: `  V ${fmtNum(p.V, 3)} · ${fmtP(p.p, "p")}` }),
+        h("div", { class: "muted", text: togetherWhy(p.V) }))));
   }
   return isl;
 }
@@ -769,8 +777,8 @@ function runsIsland(m, A) {
   const t = m.target;
   const cache = m.cache.runSchemas || (m.cache.runSchemas = new Map());
   const tbl = h("table", { class: "vals" }, h("thead", null, h("tr", null,
-    h("th", { text: "run" }), h("th", { class: "r", text: "rows" }), h("th", { class: "r", text: t.label }),
-    h("th", { class: "r", text: "95% interval" }), h("th", { class: "r", text: "best gates" }), h("th", { class: "r", text: "best %/mo" }))));
+    h("th", { text: "Run" }), h("th", { class: "r", text: "Rows" }), h("th", { class: "r", text: t.label }),
+    h("th", { class: "r", text: "95% interval" }), h("th", { class: "r", text: "Best gates" }), h("th", { class: "r", text: "Best %/mo" }))));
   const tb = h("tbody");
   for (const ds of m.sweep.runs) {
     let entry = cache.get(ds.id);
@@ -795,8 +803,8 @@ function runsIsland(m, A) {
       onclick: () => A.set({ run: ds.id, sel: null, context: [], pocket: [], edge: null, clusters: [], clusterK: null }) },
     h("td", null, h("b", { text: runName(ds.meta) }), ds.meta.live ? h("span", { class: "muted", text: " · being written" }) : null),
     h("td", { class: "r num", text: fmtInt(ds.n) }),
-    h("td", { class: "r num", text: s ? fmtT(t, s.mean) : "no such target" }),
-    h("td", { class: "r num", text: s ? `${fmtT(t, s.lo)} – ${fmtT(t, s.hi)}` : "–" }),
+    h("td", { class: "r num", text: s ? fmtT(t, s.mean) : "no such needle" }),
+    h("td", { class: "r num", text: s ? rangeText(t, s.lo, s.hi) : "–" }),
     h("td", { class: "r num", text: best("gates", (x, v) => String(v)) }),
     h("td", { class: "r num", text: best("mean_mo", (x, v) => fmtT(x, v)) })));
   }

@@ -2,7 +2,7 @@
 // lines, dots with a 2px surface ring, intervals as thin bars, withheld
 // values hollow. Every mark answers hover and focus with its numbers.
 
-import { h, s, tip, fmtT, fmtDelta, fmtInt, fmtNum, fmtPct } from "./ui.js";
+import { h, s, tip, fmtT, fmtDelta, fmtInt, fmtNum, fmtPct, fmtFixed, fmtRowValue, rangeText, spanText, stepDecimals, tickText } from "./ui.js";
 import { rankAt } from "./stats.js";
 
 // A horizontal domain for interval bars (the inspector's table): every
@@ -22,7 +22,7 @@ export function needleDomain(effects, base) {
 export function levelTip(l, target, base, past) {
   return h("div", null,
     h("div", null, h("b", { text: l.withheld ? "withheld" : fmtT(target, l.mean) }),
-      l.withheld ? "" : h("span", { class: "k", text: `  [${fmtT(target, l.lo)}, ${fmtT(target, l.hi)}]` })),
+      l.withheld ? "" : h("span", { class: "k", text: `  95% ${rangeText(target, l.lo, l.hi)}` })),
     h("div", { class: "mono", text: l.label }),
     h("div", { class: "k", text: l.withheld
       ? `${fmtInt(l.n)} rows: fewer than 30, so no number is shown`
@@ -61,10 +61,15 @@ export function divergingFill(t) {
 
 // Line chart with a crosshair: series [{label, color, points: [[x, y]], dash,
 // group}], x numeric. Series that share a group read as one; a legend is
-// drawn for two or more.
+// drawn for two or more. Ticks are in the decimals of their step and carry
+// no unit: with a `target`, y is written as that needle's ticks are and its
+// unit is named once over the axis. The tip writes y with fmtY (the
+// target's values by default) and x with fmtX, or as a count of xLabel.
 export function lineChart(series, opts = {}) {
   const W = opts.width || 640, H = opts.height || 200;
-  const m = { l: 52, r: 14, t: 10, b: 26 };
+  const t0 = opts.target || null;
+  const unit = t0 && t0.kind !== "binary" && t0.unit && t0.unit !== "$" ? t0.unit : null;
+  const m = { l: 52, r: 14, t: unit ? 22 : 10, b: 26 };
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   for (const sr of series) for (const [x, y] of sr.points) {
     if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
@@ -78,14 +83,15 @@ export function lineChart(series, opts = {}) {
   const X = x => m.l + (x - x0) / (x1 - x0) * (W - m.l - m.r);
   const Y = y => H - m.b - (y - y0) / (y1 - y0) * (H - m.t - m.b);
   const svgEl = s("svg", { class: "chart", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": opts.label || "chart" });
-  const yt = niceTicks(y0, y1, 4);
+  const yt = niceTicks(y0, y1, 4), ystep = yt.length > 1 ? yt[1] - yt[0] : 1;
   for (const t of yt) {
     svgEl.append(s("line", { class: "grid", x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t) }));
-    svgEl.append(s("text", { class: "label", x: m.l - 6, y: Y(t) + 3.5, "text-anchor": "end", text: (opts.fmtY || fmtNum)(t) }));
+    svgEl.append(s("text", { class: "label", x: m.l - 6, y: Y(t) + 3.5, "text-anchor": "end", text: t0 ? tickText(t0, t, ystep) : fmtFixed(t, stepDecimals(ystep)) }));
   }
-  const xt = niceTicks(x0, x1, 5);
+  if (unit) svgEl.append(s("text", { class: "label", x: m.l - 6, y: m.t - 9, "text-anchor": "end", text: unit }));
+  const xt = niceTicks(x0, x1, 5), xstep = xt.length > 1 ? xt[1] - xt[0] : 1;
   for (const t of xt) {
-    svgEl.append(s("text", { class: "label", x: X(t), y: H - 8, "text-anchor": "middle", text: (opts.fmtX || fmtInt)(t) }));
+    svgEl.append(s("text", { class: "label", x: X(t), y: H - 8, "text-anchor": "middle", text: fmtFixed(t, stepDecimals(xstep)) }));
   }
   svgEl.append(s("line", { class: "axis", x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b }));
   for (const sr of series) {
@@ -122,7 +128,9 @@ export function lineChart(series, opts = {}) {
     if (e) e.members.push(sr);
     else entries.push({ group: sr.group, label: sr.label, color: sr.color, dash: sr.dash, members: [sr] });
   }
-  const fmtY = opts.fmtY || fmtNum;
+  const fmtY = opts.fmtY || (t0 ? (v => fmtT(t0, v)) : fmtNum);
+  const span = (lo, hi) => (t0 ? rangeText(t0, lo, hi) : spanText(fmtY(lo), fmtY(hi)));
+  const fmtX = opts.fmtX || (v => `${fmtInt(v)}${opts.xLabel ? ` ${opts.xLabel}` : ""}`);
   tip(overlay, () => {
     if (hoverX === null) return null;
     const rows = entries.map(e => {
@@ -130,10 +138,10 @@ export function lineChart(series, opts = {}) {
       if (!ys.length) return null;
       const lo = Math.min(...ys), hi = Math.max(...ys);
       return h("div", null, h("span", { style: { display: "inline-block", width: "12px", height: "2px", background: e.color, verticalAlign: "middle", marginRight: "6px" } }),
-        h("b", { text: hi > lo ? `${fmtY(lo)} to ${fmtY(hi)}` : fmtY(lo) }), h("span", { class: "k", text: "  " + e.label }));
+        h("b", { text: hi > lo ? span(lo, hi) : fmtY(lo) }), h("span", { class: "k", text: "  " + e.label }));
     });
     const p0 = nearest(series[0] ? series[0].points : [], hoverX);
-    return h("div", null, h("div", { class: "k", text: `${opts.xLabel || "x"} ${(opts.fmtX || fmtInt)(p0 ? p0[0] : hoverX)}` }), rows);
+    return h("div", null, h("div", { class: "k", text: fmtX(p0 ? p0[0] : hoverX) }), rows);
   });
   svgEl.append(overlay);
   const wrap = h("figure", { class: "fig", style: { margin: 0 } });
@@ -181,7 +189,10 @@ export function niceTicks(a, b, n) {
 // A bin edge sits on the need, so a bin holds rows from one side of it;
 // only rows at the need itself can share a bin with the others (a strict
 // need), and then the two are stacked. The 1st to 99th percentile is drawn
-// (with the need); `outside` counts the rows beyond.
+// (with the need); `outside` counts the rows beyond. The axis is written as
+// a needle's ticks are, in its `unit`; `labels` ([value, text] pairs) names
+// the values of a needle that takes only those (no and yes for 0 and 1) on
+// the axis and in the tips.
 export function passHistogram(values, passOf, rows, opts = {}) {
   const W = opts.width || 420, H = opts.height || 104;
   const m = { l: 6, r: 6, t: 16, b: 20 };
@@ -236,16 +247,17 @@ export function passHistogram(values, passOf, rows, opts = {}) {
       svgEl.append(s("text", { class: "label ink", x: left ? x - 3 : x + width + 3, y: m.t + 9, "text-anchor": left ? "end" : "start", text: fmtInt(c) }));
     }
     const a = start + b * w, z = a + w;
+    const named = opts.labels ? opts.labels.find(([v]) => v >= a && v < z) : null;
     tip(bar, () => h("div", null, h("b", { text: `${fmtInt(c)} row${c === 1 ? "" : "s"}` }),
-      h("span", { class: "k", text: ` from ${fmtNum(a, opts.digits)} to ${fmtNum(z, opts.digits)}` }),
+      h("span", { class: "k", text: `  ${named ? named[1] : spanText(fmtNum(a, opts.digits), fmtNum(z, opts.digits))}` }),
       h("div", { class: "k", text: pass[b] && fail[b] ? `${fmtInt(pass[b])} pass, ${fmtInt(fail[b])} fail` : pass[b] ? "every one passes" : "none passes" })));
     svgEl.append(bar);
   }
   svgEl.append(s("line", { class: "axis", x1: m.l, x2: W - m.r, y1: base, y2: base }));
   const ticks = niceTicks(lo, hi, 5);
   const step = ticks.length > 1 ? ticks[1] - ticks[0] : 1;
-  const tickDigits = Math.min(6, Math.max(0, Math.ceil(-Math.log10(step) - 1e-9)));
-  for (const t of ticks) svgEl.append(s("text", { class: "label", x: Math.min(W - m.r - 12, Math.max(m.l + 12, X(t))), y: H - 6, "text-anchor": "middle", text: fmtNum(t, tickDigits) }));
+  const marks = opts.labels || ticks.map(t => [t, tickText({ kind: "cont", unit: opts.unit || "" }, t, step)]);
+  for (const [t, text] of marks) svgEl.append(s("text", { class: "label", x: Math.min(W - m.r - 12, Math.max(m.l + 12, X(t))), y: H - 6, "text-anchor": "middle", text }));
   if (Number.isFinite(need)) {
     const x = X(need);
     svgEl.append(s("line", { x1: x, x2: x, y1: m.t - 4, y2: base, stroke: "var(--ink)", "stroke-width": 1.25, "stroke-dasharray": "3 2" }));
@@ -275,7 +287,9 @@ export function quantile(sorted, f) {
 //
 // groups: [{ label, fill, ink, text, vals }] with vals the group's values,
 // sorted; `ink` draws its spread, `text` writes its share over a broken
-// bin when two groups are drawn (default: its ink).
+// bin when two groups are drawn (default: its ink). `target` writes the
+// values: a bin's edges on its scale, a value the rows have as the cards
+// print it (a whole number whole, a 0/1 outcome no or yes).
 export function distChart(groups, opts = {}) {
   const W = opts.width || 420;
   const shown = groups.filter(g => g.vals.length);
@@ -331,12 +345,13 @@ export function distChart(groups, opts = {}) {
   const Y = x => Math.min(x, top) / top * plotH;
   const base = m.t + plotH;
   const svg = s("svg", { class: "chart dist", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": opts.label || "distribution" });
-  // a value on the outcome's scale (a bin's edges); a value the rows have
-  // (a discrete outcome's values, the quantiles), as the cards print it;
-  // and a discrete value on the axis
-  const fmtV = opts.fmt || (v => fmtNum(v, opts.digits));
-  const fmtRow = opts.fmtValue || fmtV;
-  const fmtTick = opts.fmtTick || fmtRow;
+  // a value on the outcome's scale (a bin's edges) and a value the rows
+  // have (a discrete outcome's values, the quantiles), each with its unit
+  // or, at a range's low end and on the axis, without
+  const t = opts.target || { kind: "cont", unit: "", digits: 2 };
+  const fmtRow = (v, o) => fmtRowValue(t, v, o);
+  const edges2 = (a, b) => spanText(fmtT(t, a, { unit: false }), fmtT(t, b));
+  const rows2 = (a, b) => spanText(fmtRow(a, { unit: false }), fmtRow(b));
   for (let b = 0; b < nb; b++) {
     if (!shown.some((_, gi) => share[gi][b] > 0)) continue;
     const g0 = m.l + b * bw + 1, inner = Math.max(1, bw - 2), each = inner / shown.length;
@@ -353,7 +368,7 @@ export function distChart(groups, opts = {}) {
       }
     });
     if (cut.length) svg.append(cutLabel(cut, g0 + inner / 2, m, W));
-    const range = discrete ? fmtRow(distinct[b]) : `${fmtV(edges[b])} to ${fmtV(edges[b + 1])}`;
+    const range = discrete ? fmtRow(distinct[b]) : edges2(edges[b], edges[b + 1]);
     tip(bar, () => h("div", null, h("b", { text: range }),
       shown.map((g, gi) => h("div", { class: "k", text: `${g.label}: ${fmtPct(share[gi][b], share[gi][b] < 0.01 ? 2 : 1)} (${fmtInt(counts[gi][b])} of ${fmtInt(g.vals.length)})` }))));
     svg.append(bar);
@@ -362,11 +377,10 @@ export function distChart(groups, opts = {}) {
   // the axis: each value of a discrete outcome, else round ticks
   const ticks = discrete ? distinct : niceTicks(lo, hi, 5);
   const step = !discrete && ticks.length > 1 ? ticks[1] - ticks[0] : 1;
-  const tickDigits = discrete ? 0 : Math.min(6, Math.max(0, Math.ceil(-Math.log10(step) - 1e-9)));
   const every = discrete ? Math.max(1, Math.ceil(nb / 10)) : 1;
-  ticks.forEach((t, j) => {
+  ticks.forEach((v, j) => {
     if (j % every) return;
-    svg.append(s("text", { class: "label", x: Math.min(W - m.r - 12, Math.max(m.l + 12, X(t))), y: base + 14, "text-anchor": "middle", text: discrete ? fmtTick(t) : fmtNum(t, tickDigits) }));
+    svg.append(s("text", { class: "label", x: Math.min(W - m.r - 12, Math.max(m.l + 12, X(v))), y: base + 14, "text-anchor": "middle", text: discrete ? fmtRow(v, { unit: false }) : tickText(t, v, step) }));
   });
   // each group's spread, on the same axis
   if (boxes) {
@@ -381,7 +395,7 @@ export function distChart(groups, opts = {}) {
       box.append(s("rect", { x: p25, y: y - 3.5, width: Math.max(1.5, p75 - p25), height: 7, rx: 1.5, fill: g.fill }));
       box.append(s("line", { x1: p50, x2: p50, y1: y - 5, y2: y + 5, stroke: "var(--ink)", "stroke-width": 2 }));
       tip(box, () => h("div", null, h("b", { text: g.label }),
-        h("div", { class: "k", text: `median ${fmtRow(q(0.5))} · middle half ${fmtRow(q(0.25))} to ${fmtRow(q(0.75))} · 5th to 95th percentile ${fmtRow(q(0.05))} to ${fmtRow(q(0.95))}` })));
+        h("div", { class: "k", text: `median ${fmtRow(q(0.5))} · middle half ${rows2(q(0.25), q(0.75))} · 5th to 95th percentile ${rows2(q(0.05), q(0.95))}` })));
       svg.append(box);
     });
   }

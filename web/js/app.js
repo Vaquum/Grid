@@ -24,7 +24,7 @@ import { renderReference } from "./reference.js";
 const VIEWS = [
   { id: "board", label: "Board", icon: "board", key: "1", title: "What moves the needle" },
   { id: "pocket", label: "Pocket", icon: "pocket", key: "2", title: "Compose a pocket" },
-  { id: "pairs", label: "Pairs", icon: "pairs", key: "3", title: "Two parameters at once" },
+  { id: "pairs", label: "Pairs", icon: "pairs", key: "3", title: "Which parameters change each other's effect" },
   { id: "features", label: "Features", icon: "features", key: "4", title: "Feature inclusion" },
   { id: "trials", label: "Trials", icon: "trials", key: "5", title: "The best rows" },
   { id: "gates", label: "Gates", icon: "gates", key: "6", title: "Set gates, see what they allow" },
@@ -410,7 +410,7 @@ function buildTop() {
   tip(els.pill, () => (app.top.status ? app.top.status.tip : null));
   els.progress = h("span", { class: "progress-text num" });
   t.append(h("div", { class: "sweep" }, h("div", { class: "sweep-line" }, els.name, els.runSel, els.runOne, els.pill), els.progress));
-  els.tsel = h("select", { id: "target-pick", "aria-label": "Target" });
+  els.tsel = h("select", { id: "target-pick", "aria-label": "Needle" });
   els.tsel.addEventListener("change", () => setState({ target: els.tsel.value }));
   const picker = h("label", { class: "picker" }, h("span", { class: "label", text: "Needle" }), els.tsel);
   tip(picker, () => {

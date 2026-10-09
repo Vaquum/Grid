@@ -5,7 +5,7 @@
 // parameters (in their own spelling, so 1.0 stays 1.0) and says what each
 // list was. What cannot be narrowed is said, in the page and in the text.
 
-import { h, icon, fmtInt, fmtT, copyText } from "./ui.js";
+import { h, icon, fmtInt, fmtT, rangeText, copyText } from "./ui.js";
 
 // ---------------------------------------------------------------------------
 // Reading YAML values, as far as a manifest's parameter lists need
@@ -261,5 +261,5 @@ export function manifestSection(m, conditions, scope, figure) {
 
 // A line for the narrowed manifest's head: what the rows say there.
 export function figureLine(m, n, s) {
-  return `${fmtInt(n)} rows here: ${m.target.label} ${fmtT(m.target, s.mean)} [${fmtT(m.target, s.lo)}, ${fmtT(m.target, s.hi)}], against ${fmtT(m.target, m.base.mean)} over the rows in view.`;
+  return `${fmtInt(n)} rows here: ${m.target.label} ${fmtT(m.target, s.mean)} (95% ${rangeText(m.target, s.lo, s.hi)}), against ${fmtT(m.target, m.base.mean)} over the rows in view.`;
 }
