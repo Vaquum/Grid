@@ -322,7 +322,7 @@ export function* clusterJob(schema, rows, opts = {}) {
   }
   const clusters = members.map((list, c) => {
     const rs = Uint32Array.from(list).sort();
-    const medians = P.used.map(o => median(o.t.values, rs));
+    const medians = P.used.map(o => medianOf(o.t.values, rs));
     return { id: CLUSTER_IDS[c], index: c, n: rs.length, share: rs.length / rows.length, rows: rs, medians,
       standsOut: standsOut(P, final.C, rank[c], j => seen[rank[c] * P.d + j] / size[rank[c]]) };
   });
@@ -337,7 +337,7 @@ export function clusterRows(schema, rows, opts) {
   return r.value;
 }
 
-function median(values, rows) {
+function medianOf(values, rows) {
   const v = [];
   for (let j = 0; j < rows.length; j++) { const x = values[rows[j]]; if (x === x) v.push(x); }
   if (!v.length) return NaN;

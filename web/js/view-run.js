@@ -157,7 +157,7 @@ function setCompare(m, A, on) {
 // The colours of what the cards show: the chosen rows in blue against
 // every row in grey; two clusters compared in the first two categorical
 // colours.
-function groupsOf(m, sel) {
+function shownGroups(m, sel) {
   if (sel.mode === "compare") {
     return [{ key: "a", label: sel.a.id, rows: sel.a.rows, fill: "var(--cat-1-bar)", ink: "var(--cat-1)" },
       { key: "b", label: sel.b.id, rows: sel.b.rows, fill: "var(--cat-2-bar)", ink: "var(--cat-2)" }];
@@ -310,7 +310,7 @@ function testOf(t, sel, m) {
 function distIsland(m, res, sel) {
   const outs = cardOutcomes(m, res);
   const drawn = new Set(res && res.clusters.length ? res.outcomes.map(o => o.t.id) : []);
-  const groups = groupsOf(m, sel);
+  const groups = shownGroups(m, sel);
   const tests = outs.map(t => (sel.mode === "whole" || drawn.has(t.id) ? null : testOf(t, sel, m)));
   const q = bhQ(tests.map(x => (x ? x.p : NaN)));
   const isl = h("section", { class: "island rn-dists", "aria-label": "Distributions" },
@@ -454,7 +454,7 @@ function apartIsland(m, A, res, sel) {
   const rest = comp.filter(x => !(x.q < 0.05));
   isl.append(h("header", { class: "isl-head" }, h("h2", { class: "isl-title", text: sel.mode === "compare" ? `What sets ${ga} and ${gb} apart` : `What sets ${ga} apart` }),
     h("span", { class: "isl-count num", text: `${fmtInt(det.length)} of ${fmtInt(comp.length)} parameters` })));
-  const groups = groupsOf(m, sel);
+  const groups = shownGroups(m, sel);
   if (!det.length) isl.append(h("p", { class: "isl-note", text: `No parameter is detectably more common in ${ga} than in ${gb} (q < 0.05 across the parameters).` }));
   const list = h("div", { class: "rn-params" });
   for (const x of det) list.append(paramRow(x, groups));
