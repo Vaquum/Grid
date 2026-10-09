@@ -404,11 +404,20 @@ test("gates: the factory sets a gate, the view comes alive, and each gate is a n
 
 test("gates: one that cannot be read says why, and goes on request", async () => {
   const { page, errors } = await limenPage();
-  const token = "s1." + Buffer.from(JSON.stringify({ v: "gates", g: [{ id: "g1", target: "nope", op: ">=", value: 1 }] })).toString("base64url");
+  // the address can hold any JSON; odd values are told, never thrown on
+  const odd = { toString: null };
+  const g = [{ id: "g1", target: "nope", op: ">=", value: 1 }, { id: "g2", target: "backtest_pnl_per_bar_bps", op: ">=", value: odd },
+    { id: "g3", target: "backtest_pnl_per_bar_bps", op: odd, value: 1 }, null];
+  const token = "s1." + Buffer.from(JSON.stringify({ v: "gates", g })).toString("base64url");
   await page.goto(`${base}limen#${token}`);
   await page.waitForSelector(".gt-problem");
-  assert.match(await page.locator(".gt-problem").innerText(), /this run has no needle nope/);
-  await page.locator(".gt-problem").getByRole("button", { name: "Remove" }).click();
+  assert.equal(await page.locator(".gt-problem").count(), 4);
+  assert.match(await page.locator(".gt-problem").first().innerText(), /It was set as nope ≥ 1, and this run has no needle nope\./);
+  assert.match(await page.locator(".gt-problem").nth(1).innerText(), /its need is not a number/);
+  for (let k = 4; k > 0; k--) {
+    await page.locator(".gt-problem").first().getByRole("button", { name: "Remove" }).click();
+    await page.waitForFunction(n => document.querySelectorAll(".gt-problem").length === n, k - 1);
+  }
   await page.waitForSelector(".gt-ghost");
   assert.deepEqual(errors, []);
   await page.close();

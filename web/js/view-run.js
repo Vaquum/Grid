@@ -575,7 +575,7 @@ function runNotes(m, health, res) {
     });
   } else if (res) lines.push(`Clusters: none. ${whyNone(res)}`);
   const broken = health.problems.filter(p => p.sev === "crit");
-  lines.push(`Problems: ${broken.length ? broken.map(p => p.kind).join(", ") : "none"}`);
+  lines.push(`Problems: ${broken.length ? `${fmtInt(broken.length)} (${[...new Set(broken.map(p => p.kind))].join(", ")})` : "none"}`);
   return lines.join("\n");
 }
 

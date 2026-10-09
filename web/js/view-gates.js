@@ -10,7 +10,7 @@ import { strip, stripCell, about } from "./strip.js";
 import { gateStats, coFailure, strongestCorrelate } from "./engine.js";
 import { passHistogram } from "./charts.js";
 import { wilson } from "./stats.js";
-import { OPS, gateable, needText, nextGateId } from "./gates.js";
+import { OPS, asSet, gateable, needText, nextGateId } from "./gates.js";
 import { bestRows } from "./model.js";
 
 // The gate being set or edited, kept across redraws (arriving rows redraw
@@ -205,8 +205,8 @@ function maker(m, A, gate) {
     const x = parseNeed(draft.text);
     if (!Number.isFinite(x)) return;
     const def = { id: draft.editing || nextGateId(defs, sc), target: draft.target, op: draft.op, value: x };
-    if (defs.some(g => g.id !== def.id && g.target === def.target && g.op === def.op && g.value === def.value)) return;
-    const next = draft.editing ? defs.map(g => (g.id === draft.editing ? def : g)) : [...defs, def];
+    if (defs.some(g => g && g.id !== def.id && g.target === def.target && g.op === def.op && g.value === def.value)) return;
+    const next = draft.editing ? defs.map(g => (g && g.id === draft.editing ? def : g)) : [...defs, def];
     draft = { ...draft, editing: null, text: String(x) };
     A.set({ gates: next });
   };
@@ -223,7 +223,7 @@ function maker(m, A, gate) {
     preview.append(chart.svg, h("div", { class: "gt-cap" }, valid
       ? h("span", null, h("b", { class: "num", text: n ? rate(k / n) : "–" }), ` of the rows pass · ${fmtInt(k)} of ${fmtInt(n)}`)
       : h("span", { text: draft.text === "" ? "Type the need." : "The need is not a number." })));
-    const dup = valid && defs.some(g => g.id !== draft.editing && g.target === draft.target && g.op === draft.op && g.value === x);
+    const dup = valid && defs.some(g => g && g.id !== draft.editing && g.target === draft.target && g.op === draft.op && g.value === x);
     clear(foot);
     foot.append(h("button", { class: "btn primary", type: "button", disabled: !valid || dup ? true : null, onclick: commit }, dup ? "Already set" : gate ? "Save" : "Add gate"));
     if (gate) {
@@ -239,7 +239,7 @@ function maker(m, A, gate) {
 }
 
 function removeGate(m, A, id) {
-  const next = m.state.gates.filter(g => g.id !== id);
+  const next = m.state.gates.filter(g => !(g && g.id === id));
   const target = m.state.target;
   // a needle that was this gate, or every gate together, goes with it
   const gone = target === `gate:${id}` || (!next.length && (target === "gates:all" || target === "gates:count"));
@@ -309,11 +309,11 @@ function gateCard(m, A, g, s) {
 // A gate set here that cannot be read: what it was set as, in words, and
 // why it cannot be read, with its way out.
 function problemCard(m, A, p) {
-  const d = p.def && typeof p.def === "object" ? p.def : null;
-  const op = d && OPS[d.op] ? OPS[d.op].sym : d && d.op !== undefined ? String(d.op) : "?";
-  const need = d && Number.isFinite(d.value) ? needText({ unit: "" }, d.value) : String(d && d.value !== undefined ? d.value : "?");
-  const what = d ? h("span", null, "It was set as ", h("span", { class: "mono", text: `${d.target ?? "?"} ${op} ${need}` }), `, and ${p.why}.`)
-    : `It is not a gate (${p.why}).`;
+  const d = p.def && typeof p.def === "object" && !Array.isArray(p.def) ? p.def : null;
+  const op = d && typeof d.op === "string" && Object.hasOwn(OPS, d.op) ? OPS[d.op].sym : d ? asSet(d.op) : "";
+  const need = d && typeof d.value === "number" && Number.isFinite(d.value) ? needText({ unit: "" }, d.value) : d ? asSet(d.value) : "";
+  const what = d ? h("span", null, "It was set as ", h("span", { class: "mono", text: `${asSet(d.target)} ${op} ${need}` }), `, and ${p.why}.`)
+    : `It was set as ${asSet(p.def)}, which is not a gate.`;
   return h("article", { class: "island gt-card gt-problem", role: "listitem" },
     h("header", { class: "gt-head" }, h("h3", { class: "gt-title", text: "A gate that cannot be read" })),
     h("p", { class: "gt-note" }, what),

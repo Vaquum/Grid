@@ -65,7 +65,10 @@ function dimDetail(box, m, A, d, levelKey) {
     fact("Sampler", `${tilt ? "uneven" : "even"} draw (χ² ${fmtP(uni.p, "p")})`,
       tilt ? "The values were not drawn equally often. That can be by design (pf_frac is drawn for 2% of rows) or a sampler problem; the shares are in the table below." : "Each value was drawn about equally often, as a uniform sampler does.");
   }
-  const indep = independence(m).filter(p => p.a === d.id || p.b === d.id).sort((a, b) => b.V - a.V)[0];
+  // the pair the board tags, when it is drawn together with any: the
+  // strongest of those drawn together; else the closest of all
+  const mine = independence(m).filter(p => p.a === d.id || p.b === d.id).sort((a, b) => b.V - a.V);
+  const indep = mine.find(p => together(p.p, p.V)) || mine[0];
   if (indep) {
     const o = m.schema.dimById.get(indep.a === d.id ? indep.b : indep.a);
     const bad = together(indep.p, indep.V);

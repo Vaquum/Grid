@@ -30,13 +30,23 @@ export function gateable(t) {
   return t.kind !== "binary" && !t.gateSet;
 }
 
+// A field of a gate as it was set. The page's address can hold any JSON
+// there (an object whose toString is not a function, say), so nothing is
+// assumed of it: anything but a plain value is written as its JSON.
+export function asSet(v) {
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean" || v === null) return String(v);
+  return v === undefined ? "nothing" : JSON.stringify(v);
+}
+
 // Why a gate's definition cannot be read against these targets, or null.
 function gateProblem(def, targetById) {
-  if (!def || typeof def !== "object") return "it is not a gate";
-  if (!OPS[def.op]) return `no comparison ${String(def.op)}`;
-  if (!Number.isFinite(def.value)) return "its need is not a number";
-  const t = targetById.get(def.target);
-  if (!t) return `this run has no needle ${String(def.target)}`;
+  if (!def || typeof def !== "object" || Array.isArray(def)) return "it is not a gate";
+  if (typeof def.id !== "string" || !def.id) return "it has no name";
+  if (typeof def.op !== "string" || !Object.hasOwn(OPS, def.op)) return `no comparison ${asSet(def.op)}`;
+  if (typeof def.value !== "number" || !Number.isFinite(def.value)) return "its need is not a number";
+  const t = typeof def.target === "string" ? targetById.get(def.target) : null;
+  if (!t) return `this run has no needle ${asSet(def.target)}`;
   if (!gateable(t)) return `${t.label} is ${t.kind === "binary" ? "a rate" : "a gate"}, not a value to set a need on`;
   return null;
 }
