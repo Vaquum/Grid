@@ -149,6 +149,30 @@ export function fmtAgo(sec) {
   return fmtDuration(sec) + " ago";
 }
 
+// A wall time (seconds since the epoch) on the reader's clock: 18:24, or
+// 18:24:11 with its seconds.
+const pad2 = (n) => String(n).padStart(2, "0");
+export function fmtClock(sec, seconds = false) {
+  if (!Number.isFinite(sec)) return "–";
+  const d = new Date(sec * 1000);
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}${seconds ? `:${pad2(d.getSeconds())}` : ""}`;
+}
+
+// A wall time in full: its date, the reader's clock and the reader's zone
+// (2026-10-09 18:24:11 GMT+3).
+export function fmtStamp(sec) {
+  if (!Number.isFinite(sec)) return "–";
+  const d = new Date(sec * 1000);
+  const zone = (new Intl.DateTimeFormat("en-US", { timeZoneName: "short" }).formatToParts(d).find(p => p.type === "timeZoneName") || {}).value;
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${fmtClock(sec, true)}${zone ? ` ${zone}` : ""}`;
+}
+
+// A run's name; a run kept after its results file started over says until
+// when, on the reader's clock.
+export function runName(meta) {
+  return meta.archivedFrom && Number.isFinite(meta.archivedAt) ? `${meta.label} · until ${fmtClock(meta.archivedAt)}` : meta.label;
+}
+
 // ---------------------------------------------------------------------------
 // Tooltips: data-tip holds plain text, or a function in tipFns. The first
 // shows after half a second; once one has shown, the next shows at once.

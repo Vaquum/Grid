@@ -7,7 +7,8 @@ import { buildSchema } from "./schema.js";
 import { limenProfile } from "./profiles.js";
 import { rowsIn, summarize, board, boardOrder } from "./engine.js";
 import { boardDims, objectiveTop, objectiveKeys } from "./model.js";
-import { h, clear, icon, installTips, hideTip, syncInfo, fmtInt, fmtAgo, fmtRowValue, tip } from "./ui.js";
+import { h, clear, icon, installTips, hideTip, syncInfo, fmtInt, fmtRowValue, runName, tip } from "./ui.js";
+import { runStatus } from "./status.js";
 import { manifestSection, figureLine } from "./manifest.js";
 import { applyGates } from "./gates.js";
 import { renderBoard } from "./view-board.js";
@@ -17,7 +18,7 @@ import { renderPairs } from "./view-pairs.js";
 import { renderFeatures } from "./view-features.js";
 import { renderTrials } from "./view-trials.js";
 import { renderGates } from "./view-gates.js";
-import { renderRun, runHealth } from "./view-run.js";
+import { renderRun, runHealth, runLog, segmentOf } from "./view-run.js";
 import { renderReference } from "./reference.js";
 
 const VIEWS = [
@@ -364,12 +365,13 @@ function buildTop() {
   els.name = h("span", { class: "sweep-name" });
   els.runSel = h("select", { class: "run-pick", id: "run-pick", "aria-label": "Run" });
   els.runSel.addEventListener("change", () => setState({ run: els.runSel.value, sel: null, context: [], pocket: [], edge: null, clusters: [], clusterK: null }));
+  els.runOne = h("span", { class: "run-one" });
   els.statusLabel = h("b");
   els.statusDetail = h("span", { class: "detail" });
   els.pill = h("span", { class: "status" }, els.statusLabel, els.statusDetail);
   tip(els.pill, () => (app.top.status ? app.top.status.tip : null));
   els.progress = h("span", { class: "progress-text num" });
-  t.append(h("div", { class: "sweep" }, h("div", { class: "sweep-line" }, els.name, els.runSel, els.pill), els.progress));
+  t.append(h("div", { class: "sweep" }, h("div", { class: "sweep-line" }, els.name, els.runSel, els.runOne, els.pill), els.progress));
   els.tsel = h("select", { id: "target-pick", "aria-label": "Target" });
   els.tsel.addEventListener("change", () => setState({ target: els.tsel.value }));
   const picker = h("label", { class: "picker" }, h("span", { class: "label", text: "Needle" }), els.tsel);
@@ -408,13 +410,17 @@ function updateTop(m0) {
   const top = app.top, els = top.els;
   const ds = m.ds, runs = app.sweep.runs;
   setText(els.name, app.sweep.meta.name || "sweep");
-  // runs: their options change only when a run is added or renamed
-  const runsKey = runs.map(r => `${r.id}\t${r.meta.label}`).join("\n");
+  // runs: their options change only when a run is added or renamed; a
+  // sweep of one run names it in the same place, unless the sweep's name
+  // already says it
+  const runsKey = runs.map(r => `${r.id}\t${runName(r.meta)}`).join("\n");
   if (runsKey !== top.runsKey) {
     top.runsKey = runsKey;
-    els.runSel.replaceChildren(...runs.map(r => h("option", { value: r.id, text: r.meta.label })));
+    els.runSel.replaceChildren(...runs.map(r => h("option", { value: r.id, text: runName(r.meta) })));
   }
   els.runSel.hidden = runs.length < 2;
+  els.runOne.hidden = runs.length > 1 || ds.meta.label === app.sweep.meta.name;
+  setText(els.runOne, runName(ds.meta));
   if (els.runSel.value !== ds.id) els.runSel.value = ds.id;
   const st = statusOf(m);
   top.status = st;
@@ -466,23 +472,13 @@ function btnIcon(name, label, key, fn) {
   return b;
 }
 
+// The pill says the run's own state (status.js): its replay edge, the link
+// to the server, and what its rows and its log say about it.
 function statusOf(m) {
-  const ds = m.ds;
-  const mode = app.config.mode;
-  if (app.state.edge !== null && app.state.edge < ds.n) {
-    const pb = app.playback;
-    return { kind: "replay", label: pb ? "Replaying" : "Replay", detail: `row ${fmtInt(app.state.edge)} of ${fmtInt(ds.n)}`,
-      tip: pb ? "Rows appear in the order the sweep wrote them. Every view shows only the rows up to the edge." : "Every view shows only the rows up to the replay edge. End returns to the latest row." };
-  }
-  if (mode === "live") {
-    if (!app.live || !app.live.connected) return { kind: "down", label: "Reconnecting", detail: null, tip: "The stream from the server stopped; the page reads the sweep again." };
-    const t = ds.arrivals;
-    const last = ds.n ? t[ds.n - 1] : NaN;
-    const ago = Number.isFinite(last) ? Date.now() / 1000 - last : NaN;
-    if (ds.meta.live && Number.isFinite(ago) && ago > 600) return { kind: "stale", label: "Live", detail: `last row ${fmtAgo(ago)}`, tip: "No row has arrived for over ten minutes. Check the Run view for a crash." };
-    return { kind: "live", label: "Live", detail: Number.isFinite(ago) ? `last row ${fmtAgo(ago)}` : null, tip: `Following ${ds.meta.source}` };
-  }
-  return { kind: "recorded", label: "Recorded", detail: mode === "demo" ? null : "file", tip: "A snapshot of the sweep's files. Press play to replay its rows as they arrived." };
+  const ds = m.ds, log = runLog(m);
+  return runStatus({ meta: ds.meta, n: ds.n, edge: app.state.edge, mode: app.config.mode, connected: !!(app.live && app.live.connected),
+    playing: !!app.playback, seg: segmentOf(m), writing: !!(log && log.openTraceback), lastRow: ds.n ? ds.arrivals[ds.n - 1] : NaN,
+    started: Number.isFinite(app.sweep.meta.started) ? app.sweep.meta.started : app.started / 1000, now: Date.now() / 1000 });
 }
 
 function updateRail(m) {

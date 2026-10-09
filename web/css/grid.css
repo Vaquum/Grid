@@ -205,10 +205,18 @@ button { cursor: pointer; }
   content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%;
   background: var(--good); vertical-align: 1px;
 }
-/* Anything but following live or a recording says so in ink. */
-.status:is([data-kind="replay"], [data-kind="stale"]) { border-color: var(--ink); color: var(--ink); }
+/* A replay says so in ink; a run being written that has gone quiet in the
+   warning colour, its dot hollow; a crash or a lost link in the critical
+   one. Rows kept (archived, recorded, an earlier run, finished) stay plain. */
+.status[data-kind="replay"] { border-color: var(--ink); color: var(--ink); }
+.status[data-kind="quiet"] { border-color: var(--warning); color: var(--ink); }
+.status[data-kind="quiet"] b::before {
+  content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--warning); vertical-align: 1px;
+}
 .status[data-kind="down"] { border-color: var(--critical); color: var(--critical-ink); }
 .status[data-kind="down"] b { color: var(--critical-ink); }
+.run-one { color: var(--ink-2); font-size: var(--fs-m); }
 .top-mid { display: flex; align-items: center; gap: var(--sp-2); flex: 1 1 auto; min-width: 0; flex-wrap: wrap; }
 .top-right { display: flex; align-items: center; gap: var(--sp-5); margin-left: auto; }
 .top-right .group { position: relative; display: flex; align-items: center; gap: 2px; }

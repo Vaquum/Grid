@@ -58,6 +58,8 @@ class Run:
         self.bad_count = 0
         self.arrivals = array("d")  # wall time a row arrived; NaN = history
         self.archived_from: str | None = None
+        self.archived_at: float | None = None    # wall time it was kept
+        self.archived_reason: str | None = None  # truncated or replaced
         self.resets: list[Json] = []
         self.rounds: list[list[Any]] = []   # [round index, dropped columns]
         self.rounds_generation = 0
@@ -72,7 +74,9 @@ class Run:
                 "generation": self.generation, "rows": self.store.rows,
                 "lines": self.lines, "badCount": self.bad_count,
                 "bad": self.bad, "schemaEvents": self.store.events,
-                "archivedFrom": self.archived_from, "resets": self.resets,
+                "archivedFrom": self.archived_from,
+                "archivedAt": self.archived_at,
+                "archivedReason": self.archived_reason, "resets": self.resets,
                 "format": self.fmt, "experiment": self.experiment,
                 "roundsBadCount": self.rounds_bad_count,
                 "roundsBad": self.rounds_bad}
@@ -173,13 +177,13 @@ class Sweep:
     def run_reset(self, run: Run, reason: str) -> None:
         with self.lock:
             if run.store.rows or run.bad_count:
-                # the rows kept keep their log, and the segment they came from
-                old = Run("%s.g%d" % (run.id, run.generation),
-                          "%s before %s at %s" % (
-                              run.label, reason,
-                              time.strftime("%H:%M:%S", time.gmtime())),
+                # the rows kept keep their log, and the segment they came
+                # from; when and why they were kept is the page's to say,
+                # on the reader's clock
+                old = Run("%s.g%d" % (run.id, run.generation), run.label,
                           run.source, self._segment_of(run), False,
                           run.log_id, run.fmt, run.experiment)
+                old.archived_at, old.archived_reason = time.time(), reason
                 old.store, old.lines = run.store, run.lines
                 old.bad, old.bad_count = run.bad, run.bad_count
                 old.arrivals, old.generation = run.arrivals, run.generation

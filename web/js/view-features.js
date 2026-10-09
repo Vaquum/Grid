@@ -6,7 +6,7 @@
 // draws a random subset of a pool for every row (plate sweeps' feats)
 // shows each member's inclusion effect, compared inside each subset size.
 
-import { h, tip, fmtT, fmtInt, fmtPct, fmtP, fmtDelta, inText } from "./ui.js";
+import { h, tip, fmtT, fmtInt, fmtPct, fmtP, fmtDelta, inText, runName } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { memberEffects, dimEffect } from "./engine.js";
 import { memberDims } from "./model.js";
@@ -301,7 +301,7 @@ function membersIsland(m, A, s) {
 
 function nextText(m, lf, sets) {
   const t = m.target;
-  const lines = [`# ${m.sweep.meta.name} · ${m.ds.meta.label}: features against ${inText(t.label)} (${fmtInt(m.rows.length)} rows)`];
+  const lines = [`# ${m.sweep.meta.name} · ${runName(m.ds.meta)}: features against ${inText(t.label)} (${fmtInt(m.rows.length)} rows)`];
   if (lf && lf.groups) {
     for (const l of lf.groups.levels) lines.push(`# ${l.label}: ${fmtT(t, l.mean)} over ${fmtInt(l.n)} rows`);
     for (const c of lf.groups.contrasts) lines.push(`# adding ${c.added} to ${c.from.label}: ${fmtDelta(t, c.delta)} (${fmtP(c.q)})`);

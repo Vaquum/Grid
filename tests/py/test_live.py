@@ -155,6 +155,11 @@ class SweepTest(unittest.TestCase):
         old = s.runs[0].meta()
         self.assertEqual((old["id"], old["logId"], old["segment"]),
                          ("r0.g0", "l0", 0))
+        # it keeps the run's name; when and why it was kept are its own,
+        # for the page to say on the reader's clock
+        self.assertEqual((old["label"], old["archivedReason"]),
+                         ("current", "truncated"))
+        self.assertIsInstance(old["archivedAt"], float)
         # rows of the relaunch, then the file starts over again before
         # any start line: those came from the second segment
         time.sleep(0.01)

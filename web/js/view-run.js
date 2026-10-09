@@ -7,7 +7,7 @@
 // there); the best row against luck; and the run's health: its pace and
 // segments, its problems and warnings, and the sampler.
 
-import { h, icon, tip, fmtT, fmtRowValue, fmtInt, fmtPct, fmtP, fmtNum, fmtDuration, fmtAgo, inText, rangeText } from "./ui.js";
+import { h, icon, tip, fmtT, fmtRowValue, fmtInt, fmtPct, fmtP, fmtNum, fmtDuration, fmtAgo, inText, rangeText, runName } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { lineChart, distChart } from "./charts.js";
 import { invariantBreaks, recordCurve, uniformity, summarize, rowsIn, gTest, MIN_N } from "./engine.js";
@@ -550,7 +550,7 @@ function runAbout() {
 
 function runNotes(m, health, res) {
   const t = m.target, lines = [];
-  lines.push(`Run: ${m.ds.meta.label} (${m.sweep.meta.name || "sweep"})`);
+  lines.push(`Run: ${runName(m.ds.meta)} (${m.sweep.meta.name || "sweep"})`);
   lines.push(`Rows: ${fmtInt(m.rows.length)}${health.total ? ` of ${fmtInt(health.total)} planned` : ""}`);
   if (m.rows.length) {
     const s = summarize(t, m.rows), v = sortedVals(t.values, m.rows);
@@ -771,7 +771,7 @@ function runsIsland(m, A) {
     const mine = ds.id === m.ds.id;
     tb.append(h("tr", { class: "clickable" + (mine ? " sel" : ""),
       onclick: () => A.set({ run: ds.id, sel: null, context: [], pocket: [], edge: null, clusters: [], clusterK: null }) },
-    h("td", null, h("b", { text: ds.meta.label }), ds.meta.live ? h("span", { class: "muted", text: " · being written" }) : null),
+    h("td", null, h("b", { text: runName(ds.meta) }), ds.meta.live ? h("span", { class: "muted", text: " · being written" }) : null),
     h("td", { class: "r num", text: fmtInt(ds.n) }),
     h("td", { class: "r num", text: s ? fmtT(t, s.mean) : "no such target" }),
     h("td", { class: "r num", text: s ? `${fmtT(t, s.lo)} – ${fmtT(t, s.hi)}` : "–" }),

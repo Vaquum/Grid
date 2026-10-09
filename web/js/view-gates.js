@@ -5,7 +5,7 @@
 // that never passed, what moves it). The strip reads the gates together,
 // and the foot says what stops the rows that pass the most.
 
-import { h, tip, icon, clear, fmtInt, fmtPct, fmtNum, fmtRowValue, inText } from "./ui.js";
+import { h, tip, icon, clear, fmtInt, fmtPct, fmtNum, fmtRowValue, inText, runName } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { gateStats, coFailure, strongestCorrelate } from "./engine.js";
 import { passHistogram } from "./charts.js";
@@ -123,7 +123,7 @@ function gatesAbout(m) {
 
 function gatesNotes(m, stats, tg) {
   const sc = m.schema;
-  const lines = [`${m.sweep.meta.name} · ${m.ds.meta.label} · ${fmtInt(m.rows.length)} rows: gates`];
+  const lines = [`${m.sweep.meta.name} · ${runName(m.ds.meta)} · ${fmtInt(m.rows.length)} rows: gates`];
   for (const g of sc.gates) {
     const s = stats.get(g.id);
     lines.push(`- ${g.label}${g.set ? "" : " (the runner's)"}: ${s.n ? `${rate(s.rate)} pass (${fmtInt(s.passed)} of ${fmtInt(s.n)}) [${fmtPct(s.lo, 2)}, ${fmtPct(s.hi, 2)}]` : "no row has a value"}${s.never ? `; never passed, under ${fmtPct(s.ruleOfThree, 3)} (95%)` : ""}`);

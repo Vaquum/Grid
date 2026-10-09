@@ -2,7 +2,7 @@
 // card per parameter, strongest first: how sure and how strong its effect
 // is, and the needle at each of its values on the board's shared scale.
 
-import { h, tip, fmtT, fmtP, fmtInt, fmtPct, rafThrottle, inText, rangeText } from "./ui.js";
+import { h, tip, fmtT, fmtP, fmtInt, fmtPct, rafThrottle, inText, rangeText, runName } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { effectPlot, plotDomain, fitPlots } from "./main-effects.js";
 import { ensureModerators, independence, memberBoard, memberDims } from "./model.js";
@@ -349,7 +349,7 @@ export function boardSummary(m, mods) {
     const d = m.schema.dimById.get(c.dim);
     return `${d.label} = ${c.keys.map(k => (d.levels.find(l => l.key === k) || { label: k }).label).join("/")}`;
   });
-  lines.push(`${m.sweep.meta.name} · ${m.ds.meta.label} · ${fmtInt(b.n)} rows${ctx.length ? ` inside ${ctx.join(", ")}` : ""}${m.state.edge !== null && m.state.edge < m.ds.n ? ` (up to row ${fmtInt(m.edge)})` : ""}`);
+  lines.push(`${m.sweep.meta.name} · ${runName(m.ds.meta)} · ${fmtInt(b.n)} rows${ctx.length ? ` inside ${ctx.join(", ")}` : ""}${m.state.edge !== null && m.state.edge < m.ds.n ? ` (up to row ${fmtInt(m.edge)})` : ""}`);
   lines.push(`${t.label}${t.definition ? ` (${t.definition})` : ""}: ${fmtT(t, b.mean)} [${fmtT(t, b.lo)}, ${fmtT(t, b.hi)}]`);
   const det = m.order.filter(e => e.detectable);
   lines.push(`Moves it (${det.length} of ${m.board.tests} parameters, q < 0.05):`);
