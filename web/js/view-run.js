@@ -262,10 +262,13 @@ function compareToggle(m, A, sel) {
 // Distributions
 
 // The outcomes that get a card: the needle, the ones the clusters are
-// drawn on, and what a row cost to compute.
-function cardOutcomes(m, res) {
+// drawn on, and what a row cost to compute. The clusters are found in the
+// background and stay on screen while rows arrive, so their outcomes are
+// taken by id from the schema of the rows on screen: an outcome of an
+// earlier schema holds the values of its own rows only.
+export function cardOutcomes(m, res) {
   const out = [m.target];
-  const drawn = res && res.outcomes ? res.outcomes.map(o => o.t) : clusterOutcomes(m.schema).map(o => o.t);
+  const drawn = res && res.outcomes ? res.outcomes.map(o => m.schema.targetById.get(o.t.id)) : clusterOutcomes(m.schema).map(o => o.t);
   for (const t of drawn) out.push(t);
   for (const t of m.schema.targets) if (t.cost) out.push(t);
   const seen = new Set();
