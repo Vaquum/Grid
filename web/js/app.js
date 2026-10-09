@@ -690,8 +690,9 @@ function onKey(e) {
     if (e.key === "Escape") e.target.blur();
     return;
   }
-  // Space on a control presses it, as a browser does; elsewhere it plays
-  if (e.key === " " && e.target.closest && e.target.closest("button, a, summary, [role=button]")) return;
+  // Space on a control presses it, as a browser does; elsewhere (a link
+  // too, which Space does not follow) it plays
+  if (e.key === " " && e.target.closest && e.target.closest("button, summary, [role=button]")) return;
   const v = VIEWS.find(x => x.key === e.key);
   if (v) { setState({ view: v.id }); e.preventDefault(); return; }
   switch (e.key) {
