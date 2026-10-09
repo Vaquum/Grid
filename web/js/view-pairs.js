@@ -71,7 +71,7 @@ export function renderPairs(view, m, A) {
   const grid = h("div", { style: { display: "flex", gap: "26px", flexWrap: "wrap", alignItems: "flex-start" } });
   grid.append(h("div", { class: "table-wrap" }, tbl,
     h("div", { class: "legend", style: { marginTop: "8px" } },
-      h("span", null, h("i", { class: "box", style: { background: "var(--better)" } }), "interaction (darker is stronger)"),
+      h("span", null, h("i", { class: "box", style: { background: "var(--better)" } }), "interaction (more colour is stronger)"),
       h("span", null, h("i", { class: "box", style: { background: "var(--cat-4)" } }), "drawn together"),
       h("span", null, h("i", { class: "box", style: { background: "var(--surface-2)", outline: "1px solid var(--line)" } }), "nothing detectable"))));
   const top = pairs.list.filter(r => r.detectable).sort((a, b) => b.omega2 - a.omega2).slice(0, 10);

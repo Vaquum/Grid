@@ -46,12 +46,14 @@ export function miniBar(l, domain, base) {
 
 // Diverging fill for a value against a base: `better` toward the target's
 // better direction, `worse` the other way, grey at the base. `t` in [-1, 1].
+// A pole's share runs up to the theme's --heat-cap, the most it can take
+// with the ink still 4.5:1 on the cell, so the text is the ink throughout.
 export function divergingFill(t) {
   const a = Math.min(1, Math.abs(t));
-  const pct = Math.round(12 + a * 78);
   if (!(a > 0.02)) return { background: "var(--mid)", color: "var(--ink)" };
   const pole = t > 0 ? "var(--better)" : "var(--worse)";
-  return { background: `color-mix(in oklab, ${pole} ${pct}%, var(--mid))`, color: a > 0.55 ? "#ffffff" : "var(--ink)" };
+  const share = (0.15 + 0.85 * a).toFixed(3);
+  return { background: `color-mix(in oklab, ${pole} calc(var(--heat-cap) * ${share}), var(--mid))`, color: "var(--ink)" };
 }
 
 // Line chart with a crosshair: series [{label, color, points: [[x, y]], dash}],

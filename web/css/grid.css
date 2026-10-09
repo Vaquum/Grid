@@ -1,47 +1,55 @@
 /* Grid. One top bar; a rail of views; the view; an inspector on the
    right. Tokens first: every colour, size, space and radius comes from
-   them. Neutrals are warm stone; colour is kept for data (lapis for what a
-   parameter does, terracotta for the other pole) and for states. */
+   them. The palette is Kanagawa: Wave (sumi ink, fuji white) in the dark,
+   Lotus (paper, indigo ink) in the light, tuned for reading all day: the
+   secondary text and the borders lifted to clear contrast, Lotus's yellow
+   eased, the orange pole set to the blue's lightness. Colour is kept for
+   data (crystal blue for what a parameter does, persimmon for the other
+   pole) and for states. */
 :root {
   color-scheme: light;
-  /* Surfaces and text */
-  --bg: #f4f3ef;
-  --surface: #ffffff;
-  --surface-2: #f7f6f2;
-  --surface-3: #ecebe5;
-  --panel: #efeee9;
-  --ink: #23211d;
-  --ink-2: #4b4842;
-  --muted: #6e6a62;
-  --line: #e6e4de;
-  --line-2: #d5d2ca;
-  --border: #8f8a80;
+  /* Surfaces and text: Lotus paper and ink */
+  --bg: #ede9d1;
+  --surface: #f6f3de;
+  --surface-2: #f1eed7;
+  --surface-3: #e5e0c7;
+  --panel: #ece7cf;
+  --ink: #32324c;
+  --ink-2: #545464;
+  --muted: #6d6286;
+  --line: #e1ddc7;
+  --line-2: #d0cbb4;
+  --border: #7e7e92;
   /* Interface: hover, chosen, raised; never data */
-  --hover: #f1f0eb;
-  --on: #e9e7e0;
-  --raised: #ffffff;
-  --shadow: rgba(35, 33, 29, 0.1);
-  --scrim: rgba(35, 33, 29, 0.28);
-  /* Data: lapis for a parameter that moves the needle; muted stone for one
-     that does not; terracotta the other pole of a diverging scale */
-  --data: #3550b3;
+  --hover: #f0ecd5;
+  --on: #cee1ef;
+  --raised: #faf7e7;
+  --shadow: rgba(50, 50, 76, 0.12);
+  --scrim: rgba(50, 50, 76, 0.3);
+  /* Data: blue for a parameter that moves the needle; the comment grey for
+     one that does not; persimmon the other pole of a diverging scale, at
+     the blue's lightness so neither pole outweighs the other */
+  --data: #4d699b;
   --data-bar: color-mix(in oklab, var(--data) 74%, var(--surface));
-  --off: #a8a398;
-  --off-bar: #e2dfd8;
+  --off: #8a8980;
+  --off-bar: color-mix(in oklab, var(--off) 35%, var(--surface));
   --better: var(--data);
-  --worse: #c35f36;
-  --mid: #ebe9e3;
-  /* Series identity, in this order (validated for colour vision) */
-  --cat-1: #3550b3;
-  --cat-2: #c35f36;
-  --cat-3: #059488;
-  --cat-4: #ad8522;
+  --worse: #ab5d2b;
+  --mid: #e1ded0;
+  /* The most of a pole a diverging cell takes, with the ink still 4.5:1 */
+  --heat-cap: 50%;
+  /* Series identity, in this order (adjacent pairs checked for colour
+     vision; a chart with two or more series always has a legend) */
+  --cat-1: #4d699b;
+  --cat-2: #ab5d2b;
+  --cat-3: #624c83;
+  --cat-4: #5e857a;
   /* States, never data: live, crashed, a dead value */
-  --good: #2e7d4f;
-  --warning: #a8741a;
-  --critical: #a52a3c;
-  --good-ink: #2e7d4f;
-  --critical-ink: #a52a3c;
+  --good: #6f894e;
+  --warning: #c38323;
+  --critical: #c84053;
+  --good-ink: #526d34;
+  --critical-ink: #b23547;
   /* Type: five sizes, nothing below the first */
   --fs-s: 11px;
   --fs-m: 12px;
@@ -71,73 +79,75 @@
   --insp-w: 400px;
   --plot-h: 112px;
 }
+/* Wave: sumiInk0..5 for the grounds and hairlines, fuji white for text,
+   waveBlue1 for what is chosen, crystal blue for data. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #121110;
-    --surface: #1a1917;
-    --surface-2: #201f1c;
-    --surface-3: #2a2825;
-    --panel: #221f1c;
-    --ink: #edebe6;
-    --ink-2: #c6c2b9;
-    --muted: #9b968c;
-    --line: #2c2a27;
-    --line-2: #3b3935;
-    --border: #6f6a61;
-    --hover: #24221f;
-    --on: #2f2d29;
-    --raised: #2a2825;
-    --shadow: rgba(0, 0, 0, 0.45);
-    --scrim: rgba(0, 0, 0, 0.6);
-    --data: #718ce8;
-    --off: #66625a;
-    --off-bar: #2e2c28;
-    --worse: #d2764a;
-    --mid: #33312d;
-    --cat-1: #718ce8;
-    --cat-2: #d2764a;
-    --cat-3: #179a8e;
-    --cat-4: #ad8f2a;
-    --good: #5fae7c;
-    --warning: #d1a24a;
-    --critical: #e0707f;
-    --good-ink: #5fae7c;
-    --critical-ink: #e0707f;
+    --bg: #181820;
+    --surface: #1f1f28;
+    --surface-2: #1a1a22;
+    --surface-3: #2a2a37;
+    --panel: #252535;
+    --ink: #dcd7ba;
+    --ink-2: #bcb8a3;
+    --muted: #978ead;
+    --line: #2a2a37;
+    --line-2: #363646;
+    --border: #72728c;
+    --hover: #252535;
+    --on: #223249;
+    --raised: #2a2a37;
+    --shadow: rgba(8, 8, 12, 0.5);
+    --scrim: rgba(13, 13, 18, 0.62);
+    --data: #7e9cd8;
+    --off: #727169;
+    --worse: #d38b60;
+    --mid: #363646;
+    --heat-cap: 38%;
+    --cat-1: #7e9cd8;
+    --cat-2: #d38b60;
+    --cat-3: #957fb8;
+    --cat-4: #68ad99;
+    --good: #98bb6c;
+    --warning: #dca561;
+    --critical: #e46876;
+    --good-ink: #98bb6c;
+    --critical-ink: #e46876;
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #121110;
-  --surface: #1a1917;
-  --surface-2: #201f1c;
-  --surface-3: #2a2825;
-  --panel: #221f1c;
-  --ink: #edebe6;
-  --ink-2: #c6c2b9;
-  --muted: #9b968c;
-  --line: #2c2a27;
-  --line-2: #3b3935;
-  --border: #6f6a61;
-  --hover: #24221f;
-  --on: #2f2d29;
-  --raised: #2a2825;
-  --shadow: rgba(0, 0, 0, 0.45);
-  --scrim: rgba(0, 0, 0, 0.6);
-  --data: #718ce8;
-  --off: #66625a;
-  --off-bar: #2e2c28;
-  --worse: #d2764a;
-  --mid: #33312d;
-  --cat-1: #718ce8;
-  --cat-2: #d2764a;
-  --cat-3: #179a8e;
-  --cat-4: #ad8f2a;
-  --good: #5fae7c;
-  --warning: #d1a24a;
-  --critical: #e0707f;
-  --good-ink: #5fae7c;
-  --critical-ink: #e0707f;
+  --bg: #181820;
+  --surface: #1f1f28;
+  --surface-2: #1a1a22;
+  --surface-3: #2a2a37;
+  --panel: #252535;
+  --ink: #dcd7ba;
+  --ink-2: #bcb8a3;
+  --muted: #978ead;
+  --line: #2a2a37;
+  --line-2: #363646;
+  --border: #72728c;
+  --hover: #252535;
+  --on: #223249;
+  --raised: #2a2a37;
+  --shadow: rgba(8, 8, 12, 0.5);
+  --scrim: rgba(13, 13, 18, 0.62);
+  --data: #7e9cd8;
+  --off: #727169;
+  --worse: #d38b60;
+  --mid: #363646;
+  --heat-cap: 38%;
+  --cat-1: #7e9cd8;
+  --cat-2: #d38b60;
+  --cat-3: #957fb8;
+  --cat-4: #68ad99;
+  --good: #98bb6c;
+  --warning: #dca561;
+  --critical: #e46876;
+  --good-ink: #98bb6c;
+  --critical-ink: #e46876;
 }
 
 * { box-sizing: border-box; }

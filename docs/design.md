@@ -22,8 +22,8 @@ scale target: one million rows must stay interactive.
   every control has a key and a label; a reference pane explains each
   surface with Purpose, Read and Use; replay hides everything after an edge.
   Its look too: restrained neutrals, colour kept for data and states, one
-  type scale, hairlines, small radii. Grid's neutrals are warm stone and
-  its data colour lapis, so the two read as different instruments.
+  type scale, hairlines, small radii. Grid's palette is Kanagawa (Wave in the
+  dark, Lotus in the light), so the two read as different instruments.
 - **Designed experiments**: a random search is one, so the board reads like
   a main-effects plot: the response at each level of each factor, every
   panel on one scale, against the grand mean.
@@ -143,7 +143,7 @@ an agent would have to supply for every new sweep.
    Every card shares the y scale, which always holds zero, and the
    reference (the base, or a nested param's own scope) is the dashed line.
    The best and worst value of a param that moves the needle carry their
-   number. Lapis marks a param that moves the needle, grey one that does
+   number. Blue marks a param that moves the needle, grey one that does
    not; a value under 30 rows is hollow.
 4. **Tags**: where it acts, dead values, not independent, withheld values,
    an inferred role.
