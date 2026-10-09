@@ -1,7 +1,7 @@
 // Features: what including each member of a sampled subset does to the
 // target, stratified by subset size.
 
-import { h, tip, fmtT, fmtInt, fmtPct, fmtP, fmtDelta, copyText, icon } from "./ui.js";
+import { h, tip, fmtT, fmtInt, fmtPct, fmtP, fmtDelta, copyText, icon, inText } from "./ui.js";
 import { memberEffects, dimEffect } from "./engine.js";
 import { memberDims } from "./model.js";
 import { lineChart, intervalBar } from "./charts.js";
@@ -27,7 +27,7 @@ function renderSet(view, m, A, col, members) {
   const sorted = [...res.members].sort((a, b) => (m.state.featSort === "name" ? a.name.localeCompare(b.name) : (b.delta - a.delta) * (t.better < 0 ? -1 : 1)));
   view.append(h("div", { class: "view-head" },
     h("div", null, h("h1", null, "Including each of ", h("span", { class: "mono", text: col })),
-      h("div", { class: "sub", text: `${members.length} members, drawn in random subsets. For each, the difference in ${t.label.toLowerCase()} between rows that included it and rows that left it out, compared inside each subset size and averaged (subset size is drawn too, and larger subsets include every member more often). Inclusion is randomised, so each difference reads as that member's average effect over the rest of the space.` })),
+      h("div", { class: "sub", text: `${members.length} members, drawn in random subsets. For each, the difference in ${inText(t.label)} between rows that included it and rows that left it out, compared inside each subset size and averaged (subset size is drawn too, and larger subsets include every member more often). Inclusion is randomised, so each difference reads as that member's average effect over the rest of the space.` })),
     h("div", { class: "tools" }, h("div", { class: "seg" },
       h("button", { "aria-pressed": m.state.featSort !== "name" ? "true" : "false", onclick: () => A.set({ featSort: "effect" }, { replace: true }), text: "by effect" }),
       h("button", { "aria-pressed": m.state.featSort === "name" ? "true" : "false", onclick: () => A.set({ featSort: "name" }, { replace: true }), text: "by name" })))));
@@ -59,7 +59,7 @@ function renderSet(view, m, A, col, members) {
   // keep / drop advice as a list the next sweep can use
   const helps = sorted.filter(r => r.detectable && r.delta * (t.better < 0 ? -1 : 1) > 0).map(r => r.name);
   const hurts = sorted.filter(r => r.detectable && r.delta * (t.better < 0 ? -1 : 1) < 0).map(r => r.name);
-  const text = `# ${col}: inclusion effects on ${t.label.toLowerCase()} (${m.ds.meta.label}, ${fmtInt(m.rows.length)} rows)\nalways_include: [${helps.join(", ")}]\ndrop_from_pool: [${hurts.join(", ")}]`;
+  const text = `# ${col}: inclusion effects on ${inText(t.label)} (${m.ds.meta.label}, ${fmtInt(m.rows.length)} rows)\nalways_include: [${helps.join(", ")}]\ndrop_from_pool: [${hurts.join(", ")}]`;
   const pre = h("pre", { class: "code", text });
   view.append(h("div", { class: "section-title", text: "For the next pool" }),
     h("p", { class: "note", text: `${helps.length} members help and ${hurts.length} hurt detectably (q < 0.05 across the ${members.length} members). The rest are indistinguishable from leaving them out.` }),

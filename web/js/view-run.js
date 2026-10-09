@@ -1,7 +1,7 @@
 // Run: the sweep as a process. Pace, segments, crashes, warnings, the
 // record against luck, invariants and the sampler's health.
 
-import { h, icon, tip, fmtT, fmtInt, fmtPct, fmtP, fmtNum, fmtDuration, fmtAgo } from "./ui.js";
+import { h, icon, tip, fmtT, fmtInt, fmtPct, fmtP, fmtNum, fmtDuration, fmtAgo, inText } from "./ui.js";
 import { lineChart } from "./charts.js";
 import { invariantBreaks, recordCurve, uniformity, summarize, rowsIn } from "./engine.js";
 import { buildSchema } from "./schema.js";
@@ -226,7 +226,7 @@ function recordCard(m) {
   if (!t) return h("div");
   const rc = recordCurve(t, m.allRows);
   const pts = rc.points;
-  const card = h("div", { class: "card" }, h("h3", { text: `Best ${t.label.toLowerCase()} so far, against luck` }),
+  const card = h("div", { class: "card" }, h("h3", { text: `Best ${inText(t.label)} so far, against luck` }),
     h("div", { class: "sub", text: "The dashed line is what the best of n rows would reach if every configuration were equally good and all spread were noise. A record line that only tracks it is harvesting noise." }));
   card.append(lineChart([
     { label: "best so far", color: "var(--ink)", points: pts.map(p => [p.n, p.best]), step: true },

@@ -11,7 +11,7 @@ import tempfile
 import unittest
 
 from grid.__main__ import main
-from grid.limen import CsvRecords, csv_value, read_experiment
+from grid.limen import CsvRecords, csv_value, manifest_copy, read_experiment
 from grid.sweep import Run
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "..", "fixtures",
@@ -68,18 +68,32 @@ class CsvRun(unittest.TestCase):
 
 
 class Experiment(unittest.TestCase):
-    def test_the_manifest_comes_from_metadata(self) -> None:
+    def test_the_manifest_comes_from_metadata_and_its_copy(self) -> None:
         with open(os.path.join(FIXTURE, "metadata.json"),
                   encoding="utf-8") as f:
-            exp = read_experiment(f.read(), "metadata.json")
+            meta = f.read()
+        exp = read_experiment(meta, "metadata.json", "run.yaml", "# as run\n")
         self.assertEqual(exp["kind"], "limen")
         self.assertEqual(exp["manifest"]["metadata"]["name"],
                          "lightgbm_binary_full")
         self.assertIn("take_profit_bps", exp["manifest"]["sfd"]["params"])
+        self.assertEqual((exp["manifestFile"], exp["manifestText"]),
+                         ("run.yaml", "# as run\n"))
 
     def test_other_json_is_not_an_experiment(self) -> None:
         with self.assertRaisesRegex(ValueError, "no yaml_reference"):
-            read_experiment('{"a": 1}', "metadata.json")
+            read_experiment('{"a": 1}', "metadata.json", "m.yaml", "")
+
+    def test_the_copy_is_the_only_yaml_file(self) -> None:
+        self.assertEqual(manifest_copy(["results.csv", "metadata.json",
+                                        "exp.yaml"], "d"), "exp.yaml")
+        self.assertEqual(manifest_copy(["manifest.yaml", "audit.jsonl"],
+                                       "d"), "manifest.yaml")
+        with self.assertRaisesRegex(ValueError, "d holds no YAML file"):
+            manifest_copy(["results.csv"], "d")
+        with self.assertRaisesRegex(ValueError, r"2 YAML files \(a.yaml, "
+                                                r"b.yml\)"):
+            manifest_copy(["b.yml", "a.yaml"], "d")
 
 
 class PackLimen(unittest.TestCase):
@@ -98,6 +112,10 @@ class PackLimen(unittest.TestCase):
         self.assertEqual(run["badCount"], 0)
         self.assertEqual(run["experiment"]["manifest"]["uel"]
                          ["n_permutations"], 500)
+        self.assertEqual(run["experiment"]["manifestFile"],
+                         "lightgbm_binary_full.yaml")
+        self.assertIn("n_permutations: 500",
+                      run["experiment"]["manifestText"])
         kinds = {c["name"]: c["kind"] for c in run["columns"]}
         self.assertEqual(kinds["stop_loss_bps"], "num")
         self.assertEqual(kinds["use_calibration"], "bool")
@@ -106,6 +124,16 @@ class PackLimen(unittest.TestCase):
     def test_a_directory_without_metadata_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(SystemExit, "not a Limen result"):
+                main(["pack", "--limen", tmp, "--out",
+                      os.path.join(tmp, "p.json")])
+
+    def test_a_directory_without_its_manifest_copy_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("metadata.json", "results.csv"):
+                with open(os.path.join(FIXTURE, name), "rb") as src, \
+                        open(os.path.join(tmp, name), "wb") as dst:
+                    dst.write(src.read())
+            with self.assertRaisesRegex(SystemExit, "holds no YAML file"):
                 main(["pack", "--limen", tmp, "--out",
                       os.path.join(tmp, "p.json")])
 

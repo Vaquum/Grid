@@ -582,6 +582,40 @@ export function pocketStats(schema, conditions, target, contextRows, edge) {
   };
 }
 
+// Does each block of a pocket earn its place? A block's rows to judge are
+// the ones it takes away: those that hold every other block (inside the
+// context) but not this one. The pocket's rows against them, a two-sample z
+// test, corrected across the pocket's blocks (Benjamini–Hochberg). Also
+// what the pocket would be without the block.
+export function blockTests(schema, conditions, target, contextRows, edge, pocketRows) {
+  const inside = summarize(target, pocketRows);
+  const inPocket = new Uint8Array(schema.n), inContext = new Uint8Array(schema.n);
+  for (let j = 0; j < pocketRows.length; j++) inPocket[pocketRows[j]] = 1;
+  for (let j = 0; j < contextRows.length; j++) inContext[contextRows[j]] = 1;
+  const out = conditions.map((c, k) => {
+    const rest = conditions.filter((_, j) => j !== k);
+    const held = rest.length ? rowsIn(schema, rest, edge) : contextRows;
+    const kept = [], away = [];
+    for (let j = 0; j < held.length; j++) {
+      const i = held[j];
+      if (!inContext[i]) continue;
+      kept.push(i);
+      if (!inPocket[i]) away.push(i);
+    }
+    const without = summarize(target, Uint32Array.from(kept));
+    const removed = summarize(target, Uint32Array.from(away));
+    let p = NaN;
+    if (inside.n >= MIN_N && removed.n >= MIN_N) {
+      const se = Math.sqrt(inside.sd * inside.sd / inside.n + removed.sd * removed.sd / removed.n);
+      p = se > 0 ? zP((inside.mean - removed.mean) / se) : inside.mean === removed.mean ? 1 : 0;
+    }
+    return { without, removed, p };
+  });
+  const q = bhQ(out.map(r => r.p));
+  out.forEach((r, k) => { r.q = q[k]; });
+  return out;
+}
+
 // Candidate next conditions: every level of every dim not in the pocket,
 // ranked by the lower end of its interval (better direction).
 export function suggestions(schema, dims, target, pocketRows, base, limit = 12) {

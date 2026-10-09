@@ -7,7 +7,8 @@ import { buildSchema } from "./schema.js";
 import { limenProfile } from "./profiles.js";
 import { rowsIn, summarize, board, boardOrder } from "./engine.js";
 import { boardDims, objectiveTop } from "./model.js";
-import { h, clear, icon, installTips, hideTip, fmtInt, fmtAgo, fmtT, tip } from "./ui.js";
+import { h, clear, icon, installTips, hideTip, syncInfo, fmtInt, fmtAgo, fmtT, tip } from "./ui.js";
+import { manifestSection, figureLine } from "./manifest.js";
 import { renderBoard } from "./view-board.js";
 import { renderInspector } from "./inspector.js";
 import { renderPocket } from "./view-pocket.js";
@@ -273,7 +274,15 @@ function update() {
   redraw(view, sameView, () => {
     try {
       if (!m.rows.length && app.state.view !== "run") renderNoRows(view, m);
-      else render(view, m, ACTIONS);
+      else {
+        // every view ends with the experiment's manifest, narrowed to what
+        // it looks at: the context, unless the view says otherwise
+        const drawn = render(view, m, ACTIONS);
+        const spec = (drawn && drawn.manifest) || { conditions: m.context, scope: "the context",
+          figure: m.context.length ? figureLine(m, m.base.n, m.base) : null };
+        const manifest = manifestSection(m, spec.conditions, spec.scope, spec.figure);
+        if (manifest) view.append(manifest);
+      }
     } catch (err) {
       console.error(err);
       view.append(h("div", { class: "empty" }, h("b", { text: "This view failed to draw. " }), String(err && err.message || err)));
@@ -285,6 +294,7 @@ function update() {
   const selKey = !sel ? null : sel.kind === "row" ? `row:${sel.i}` : `dim:${sel.kind === "dim" ? sel.id : sel.dim}`;
   redraw(app.els.insp, selKey !== null && app.lastSel === selKey, () => renderInspector(app.els.insp, m, ACTIONS));
   app.lastSel = selKey;
+  syncInfo();
   app.els.root.dataset.insp = app.state.sel ? "open" : "closed";
 }
 
@@ -607,7 +617,8 @@ export const ACTIONS = {
     if (i >= 0) { if (!p[i].keys.includes(key)) p[i] = { dim, keys: [...p[i].keys, key] }; }
     else p.push({ dim, keys: [key] });
     setState({ pocket: p });
-    toast(h("span", null, h("b", { text: "Added to the pocket. " }), "Open it with ", h("kbd", { text: "2" }), "."), null, () => setState({ view: "pocket" }));
+    // from another view, say where it went; in the pocket it is in sight
+    if (app.state.view !== "pocket") toast(h("span", null, h("b", { text: "Added to the pocket. " }), "Open it with ", h("kbd", { text: "2" }), "."), null, () => setState({ view: "pocket" }));
   },
   contextFromSelection() {
     const sel = app.state.sel;

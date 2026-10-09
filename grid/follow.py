@@ -209,6 +209,12 @@ def remote_size(host: str, path: str) -> int:
     return int(_ssh(host, "stat", "-c", "%s", _quote(path)).strip())
 
 
+def list_remote(host: str, directory: str) -> list[str]:
+    """The names in a remote directory (a Limen result directory's)."""
+    out = _ssh(host, "ls", "-1A", "--", _quote(directory))
+    return out.decode("utf-8", errors="replace").splitlines()
+
+
 def read_remote(host: str, path: str) -> str:
     """Read a whole remote text file once (a Limen run's metadata)."""
     return _ssh(host, "cat", _quote(path)).decode("utf-8", errors="replace")

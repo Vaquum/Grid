@@ -1,7 +1,7 @@
 // Trials: the best rows by the runner's own objective, each one a click
 // from its full record and its replay command.
 
-import { h, tip, fmtT, fmtInt } from "./ui.js";
+import { h, tip, fmtT, fmtInt, inText } from "./ui.js";
 import { objectiveTop, records } from "./model.js";
 
 export function renderTrials(view, m, A) {
@@ -52,6 +52,6 @@ export function renderTrials(view, m, A) {
   view.append(h("div", { class: "card table-wrap" }, tbl));
   if (rc.records.length) {
     const last = rc.records[rc.records.length - 1];
-    view.append(h("p", { class: "muted", text: `${rc.records.length} times a new best ${m.target.kind === "binary" ? objT[objT.length - 1].label.toLowerCase() : m.target.label.toLowerCase()} arrived; the last at row ${fmtInt(last.row)}.` }));
+    view.append(h("p", { class: "muted", text: `${rc.records.length} times a new best ${m.target.kind === "binary" ? inText(objT[objT.length - 1].label) : inText(m.target.label)} arrived; the last at row ${fmtInt(last.row)}.` }));
   }
 }

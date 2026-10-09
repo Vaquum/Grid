@@ -37,8 +37,15 @@ import webbrowser
 from typing import Any
 
 from . import __version__
-from .follow import FileFollower, LineFn, ResetFn, SSHFollower, read_remote
-from .limen import experiment_name, read_experiment
+from .follow import (
+    FileFollower,
+    LineFn,
+    ResetFn,
+    SSHFollower,
+    list_remote,
+    read_remote,
+)
+from .limen import experiment_name, manifest_copy, read_experiment
 from .server import serve
 from .sweep import Json, Run, Sweep
 
@@ -98,17 +105,28 @@ class Wiring:
         return a.results
 
     def read_experiment(self, directory: str) -> Json:
-        """A Limen result directory's experiment, from its metadata.json."""
+        """A Limen result directory's experiment, from its metadata.json
+        and the copy of its manifest."""
         a = self.args
-        if a.ssh:
-            path = posixpath.join(directory, "metadata.json")
-            return read_experiment(read_remote(a.ssh, path), self.shown(path))
-        path = os.path.join(directory, "metadata.json")
-        if not os.path.exists(path):
-            raise SystemExit("%s has no metadata.json: not a Limen result "
-                             "directory" % directory)
-        with open(path, encoding="utf-8") as f:
-            return read_experiment(f.read(), path)
+        try:
+            if a.ssh:
+                meta = posixpath.join(directory, "metadata.json")
+                name = manifest_copy(list_remote(a.ssh, directory),
+                                     self.shown(directory))
+                return read_experiment(
+                    read_remote(a.ssh, meta), self.shown(meta), name,
+                    read_remote(a.ssh, posixpath.join(directory, name)))
+            meta = os.path.join(directory, "metadata.json")
+            if not os.path.exists(meta):
+                raise SystemExit("%s has no metadata.json: not a Limen "
+                                 "result directory" % directory)
+            name = manifest_copy(os.listdir(directory), directory)
+            with open(meta, encoding="utf-8") as f:
+                meta_text = f.read()
+            with open(os.path.join(directory, name), encoding="utf-8") as f:
+                return read_experiment(meta_text, meta, name, f.read())
+        except ValueError as err:
+            raise SystemExit(str(err)) from err
 
     def shown(self, path: str) -> str:
         """The path as the page names it (``--as`` rewrites a prefix, for

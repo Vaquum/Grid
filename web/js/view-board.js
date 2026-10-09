@@ -2,7 +2,8 @@
 // card per parameter, strongest first: how sure and how strong its effect
 // is, and the needle at each of its values on the board's shared scale.
 
-import { h, icon, tip, fmtT, fmtP, fmtInt, fmtPct, copyText, rafThrottle } from "./ui.js";
+import { h, tip, fmtT, fmtP, fmtInt, fmtPct, rafThrottle, inText, rangeText } from "./ui.js";
+import { strip, stripCell, about } from "./strip.js";
 import { effectPlot, plotDomain, fitPlots } from "./main-effects.js";
 import { ensureModerators, independence, memberBoard, memberDims } from "./model.js";
 
@@ -87,17 +88,10 @@ function summaryStrip(m, A, mods, sets) {
   // that is merely stronger somewhere is common at many rows and is told on
   // its card. Members are counted on the Features view.
   const conditional = mods ? m.board.effects.filter(e => { const md = mods.byDim.get(e.dim); return md && md.acts && md.acts.kind === "only"; }).length : null;
-  const range = t.kind === "binary" ? `${(b.lo * 100).toFixed(1)}–${(b.hi * 100).toFixed(1)}%` : `${fmtT(t, b.lo, { unit: false })}–${fmtT(t, b.hi)}`;
+  const range = rangeText(t, b.lo, b.hi);
 
-  const cell = (label, value, suffix, tipFn, onPick, attrs = {}) => {
-    const el = h(onPick ? "button" : "div", { class: "sc" + (onPick ? " pick" : "") + " has-tip", type: onPick ? "button" : null, onclick: onPick || null, ...attrs },
-      h("span", { class: "sc-k", text: label }),
-      h("span", { class: "sc-v" }, h("b", { class: "num", title: value, text: value }), suffix ? h("small", { title: suffix, text: suffix }) : null));
-    tip(el, tipFn);
-    return el;
-  };
-  const strip = h("section", { class: "strip", "aria-label": "The board in figures" });
-  const cells = h("div", { class: "strip-cells" },
+  const cell = stripCell;
+  const cells = [
     cell(t.label, fmtT(t, b.mean), range, () => h("div", null, h("b", { text: `${t.label} over the rows in view` }),
       t.definition ? h("div", { text: t.definition }) : null,
       h("div", { class: "k", text: `${fmtT(t, b.mean)} with its 95% interval ${range}${t.kind === "binary" ? " (Wilson)" : ""}. This is the dashed line on every card.` }),
@@ -117,14 +111,20 @@ function summaryStrip(m, A, mods, sets) {
       dead.length ? () => A.select({ kind: "level", dim: dead[0].e.dim, key: dead[0].l.key }) : null),
     cell("Conditional", conditional === null ? "…" : String(conditional), conditional === null ? "checking" : `of ${fmtInt(m.board.tests)}`,
       () => h("div", null, h("b", { text: "Parameters that act only under a condition" }), h("div", { text: "Their effect is detectable inside some values of another parameter and nowhere else; the card names them." }), h("div", { class: "k", text: mods ? `${fmtInt(mods.tests)} interaction tests, corrected together.` : "Testing every pair in the background." })),
-      null, { dataset: { ready: mods ? "true" : "false" } }));
-  const copy = h("button", { class: "icon-btn strip-copy", "aria-label": "Copy the board as notes", onclick: async () => {
-    const ok = await copyText(boardSummary(m, mods), null);
-    A.toast(h("span", null, h("b", { text: ok ? "Board copied. " : "Copying was refused. " }), ok ? "Paste it into the research notes." : "The browser did not allow the clipboard."));
-  } }, icon("copy"));
-  tip(copy, () => h("div", null, h("b", { text: "Copy the board as notes" }), h("div", { class: "k", text: "Every parameter that moves the needle, with its values, strength and q." })));
-  strip.append(cells, copy);
-  return strip;
+      null, { dataset: { ready: mods ? "true" : "false" } })];
+  return strip("The board in figures", cells,
+    { key: "board", label: "About the board", content: () => boardAbout(m) },
+    { label: "Copy the board as notes", what: "Every parameter that moves the needle, with its values, strength and q.",
+      text: () => boardSummary(m, mods), done: "Board copied." }, A);
+}
+
+// What the board is, behind the strip's (i).
+function boardAbout(m) {
+  const t = m.target;
+  return about(`What moves ${t.label}`,
+    t.definition ? `${t.definition}.` : null,
+    `Each card is a parameter. Its plot puts ${t.kind === "binary" ? `the share of its rows that are ${inText(t.label)}` : `the mean ${inText(t.label)} of its rows`} at each of its values, with a 95% interval, on one scale every card shares; the dashed line is the base, ${fmtT(t, m.base.mean)} over the rows in view.`,
+    `A parameter moves the needle when its effect is detectable after correcting for ${fmtInt(m.board.tests)} tests (Benjamini–Hochberg); the rest have no detectable effect. Choose a card to open it in the inspector.`);
 }
 
 function section(title, count, note, cards) {
@@ -178,7 +178,7 @@ function evidence(m, d, e, strongest) {
   const top = h("span", { class: "pc-w2 has-tip" }, h("span", { class: "meter", "aria-hidden": "true" }, h("i", { style: { width: `${(w * 100).toFixed(1)}%` } })),
     h("span", { class: "k", text: "ω²" }), h("b", { class: "num", text: strengthText(e) }));
   const bottom = h("span", { class: "pc-q num has-tip", text: fmtP(e.q) });
-  const explain = () => h("div", null, h("b", { text: on ? `Moves ${m.target.label.toLowerCase()}: ω² ${strengthText(e)}` : "No detectable effect" }),
+  const explain = () => h("div", null, h("b", { text: on ? `Moves ${inText(m.target.label)}: ω² ${strengthText(e)}` : "No detectable effect" }),
     h("div", { text: `ω² is the share of the needle's variance this parameter explains on its own${d.scope ? ", inside its scope" : ""}; the bar compares it with the strongest on the board.` }),
     h("div", { class: "k", text: `${e.test === "G" ? `G-test, ${e.k - 1} df` : `F(${e.df1}, ${e.df2}) = ${Number.isFinite(e.F) ? e.F.toFixed(2) : "–"}`} · ${fmtP(e.p, "p")} · ${fmtP(e.q)} after correcting across the board` }));
   tip(top, explain);
@@ -232,7 +232,7 @@ function setCard(m, A, g, ctx) {
   const movers = g.members.filter(x => x.e.detectable).length;
   const top = g.best;
   const w = top && top.e.detectable ? Math.max(0.04, Math.min(1, top.e.omega2 / ctx.strongest)) : 0;
-  const explain = () => h("div", null, h("b", { text: `${movers} of ${g.members.length} members move ${t.label.toLowerCase()}` }),
+  const explain = () => h("div", null, h("b", { text: `${movers} of ${g.members.length} members move ${inText(t.label)}` }),
     h("div", { text: "Each member's inclusion is tested on its own and corrected across the members. The Features view has every member's effect inside each subset size." }));
   const ev = {
     top: tip(h("span", { class: "pc-w2 has-tip" }, h("span", { class: "meter", "aria-hidden": "true" }, h("i", { style: { width: `${(w * 100).toFixed(1)}%` } })),

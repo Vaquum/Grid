@@ -1,7 +1,7 @@
 // The inspector: a parameter (what it is, its attributes, where it acts,
 // its values and how their estimates settled), a value, or one row in full.
 
-import { h, icon, tip, clear, fmtT, fmtP, fmtInt, fmtPct, fmtDelta, copyText } from "./ui.js";
+import { h, icon, tip, clear, fmtT, fmtP, fmtInt, fmtPct, fmtDelta, copyText, inText } from "./ui.js";
 import { miniBar, lineChart, needleDomain } from "./charts.js";
 import { dimEffect, uniformity } from "./engine.js";
 import { rowObject } from "./pack.js";
@@ -135,12 +135,12 @@ function verdict(m, d, e) {
   if (!e.detectable) {
     const shown = e.levels.filter(l => !l.withheld && l.n > 0);
     const spread = shown.length > 1 ? Math.max(...shown.map(l => l.mean)) - Math.min(...shown.map(l => l.mean)) : NaN;
-    p.append(h("b", { text: "No detectable effect" }), ` on ${t.label.toLowerCase()} (${fmtP(e.q)}). `,
+    p.append(h("b", { text: "No detectable effect" }), ` on ${inText(t.label)} (${fmtP(e.q)}). `,
       Number.isFinite(spread) ? `Its values differ by at most ${fmtDelta(t, spread).replace(/^\+/, "")}, which the noise explains.` : "");
     return p;
   }
   const b = e.best, w = e.worst;
-  p.append("Moves ", t.label.toLowerCase(), " from ", h("b", { text: fmtT(t, w.mean) }), " (", h("span", { class: "mono", text: w.label }), ") to ",
+  p.append("Moves ", inText(t.label), " from ", h("b", { text: fmtT(t, w.mean) }), " (", h("span", { class: "mono", text: w.label }), ") to ",
     h("b", { text: fmtT(t, b.mean) }), " (", h("span", { class: "mono", text: b.label }), "). ",
     `It explains ${strengthText(e)} of the variance on its own, ${fmtP(e.q)}.`);
   if (e.dead.length) p.append(" ", h("b", { text: `Dead value${e.dead.length > 1 ? "s" : ""}: ${e.dead.map(k => (e.levels.find(l => l.key === k) || {}).label).join(", ")}.` }));

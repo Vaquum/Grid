@@ -132,8 +132,10 @@ test("a card opens in the inspector and a value goes into the pocket", async () 
   await page.keyboard.press("2");
   await page.waitForSelector(".stack .brick");
   assert.match(await page.locator(".stack .brick").first().innerText(), /model = xgb_def/);
-  assert.match(await page.locator(".card .big").first().innerText(), /%/);
-  assert.ok(await page.locator("text=def in_pocket(r):").count() === 1);
+  // the strip leads with the needle inside the pocket, a rate here
+  assert.match(await page.locator(".strip .sc").first().innerText(), /%/);
+  // a sweep without a manifest has no manifest at its foot
+  assert.equal(await page.locator(".manifest").count(), 0);
   assert.deepEqual(errors, []);
   await page.close();
 });
@@ -200,6 +202,68 @@ test("a Limen run reads with its manifest's parameters and Limen's metrics", asy
   await page.close();
 });
 
+test("on a Limen run, a pocket's blocks are judged and the manifest narrows to them", async () => {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const errors = [];
+  page.on("pageerror", e => errors.push(String(e)));
+  page.on("console", m => { if (m.type() === "error") errors.push(m.text()); });
+  await page.goto(base + "limen");
+  await page.waitForSelector(".pcard");
+  await page.keyboard.press("2");
+  await page.waitForSelector(".stack-island .drop");
+  assert.match(await page.locator(".strip").innerText(), /Best start/);
+  // a value from its chip: a block that says what it does
+  await page.locator(".pal-item", { hasText: "use_calibration" }).locator(".vchip", { hasText: /^true$/ }).click();
+  await page.waitForSelector(".stack .brick");
+  assert.match(await page.locator(".brick .vtag").innerText(), /^(Earns its place|Only narrows|Too few rows to tell|Holds the needle back)$/);
+  assert.equal(await page.locator(".vchip[aria-pressed=true]").count(), 1);
+  // inside the pocket, adding to it raises no toast pointing to it
+  assert.equal(await page.locator(".toast").count(), 0);
+  // the manifest at the foot: closed until opened, then narrowed
+  const details = page.locator("details.manifest");
+  assert.equal(await details.evaluate(d => d.open), false);
+  await page.locator("details.manifest > summary").click();
+  assert.match(await page.locator("details.manifest > summary").innerText(), /lightgbm_binary_full\.yaml[\s\S]*narrowed to the pocket · 1 parameter/);
+  assert.deepEqual((await page.locator(".mf-line.changed").allInnerTexts()).map(s => s.trim()), ["use_calibration: [true]  # was [true, false]"]);
+  // the chip takes the value out again; the manifest stays open, as run
+  await page.locator(".vchip[aria-pressed=true]").click();
+  await page.waitForSelector(".stack .drop");
+  assert.match(await page.locator("details.manifest > summary").innerText(), /as run/);
+  assert.equal(await details.evaluate(d => d.open), true, "the manifest closed on a redraw");
+  assert.equal(await page.locator(".mf-line.changed").count(), 0);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("a view's blurb opens on a click, or after five seconds on its (i)", async () => {
+  const { page, errors } = await open();
+  await page.clock.install();
+  const info = page.locator(".strip [data-info]");
+  const pop = page.locator("#info-pop");
+  await info.click();
+  assert.equal(await pop.isVisible(), true);
+  assert.match(await pop.innerText(), /^What moves/);
+  assert.equal(await info.getAttribute("aria-expanded"), "true");
+  await info.click();
+  assert.equal(await pop.isVisible(), false, "a second click closes it");
+  await info.click();
+  await page.keyboard.press("Escape");
+  assert.equal(await pop.isVisible(), false, "Escape closes it");
+  assert.equal(await page.locator(".pcard").count() > 0, true, "Escape closed only the blurb");
+  // resting on the (i): nothing at four seconds, the blurb at five
+  await info.hover();
+  await page.clock.runFor(4000);
+  assert.equal(await pop.isVisible(), false);
+  await page.clock.runFor(1200);
+  assert.equal(await pop.isVisible(), true);
+  // what the mouse opened closes when the mouse leaves
+  await page.mouse.move(700, 700);
+  await page.clock.runFor(500);
+  assert.equal(await pop.isVisible(), false);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 // A live sweep for the duration of one test: its page URL and a stop.
 async function liveSweep() {
   const live = mkdtempSync(join(tmpdir(), "grid-live-"));
@@ -238,6 +302,12 @@ test("live: arriving rows leave the reader's controls alone", async () => {
     await moreRows(page);
     assert.equal(await select.evaluate(el => el.isConnected && document.activeElement === el), true, "the needle select was replaced or lost focus");
     assert.equal(await option.evaluate(el => el.isConnected), true, "the needle options were rebuilt");
+    // the board's blurb stays open, on the (i) the redraw made
+    await page.locator(".strip [data-info]").click();
+    await moreRows(page);
+    assert.equal(await page.locator("#info-pop").isVisible(), true, "the blurb closed when rows arrived");
+    assert.equal(await page.locator(".strip [data-info]").getAttribute("aria-expanded"), "true");
+    await page.keyboard.press("Escape");
     // the inspector keeps its scroll while the same parameter is open
     await page.locator(".pcard .pc-name", { hasText: /^model$/ }).click();
     await page.waitForSelector("#inspector .part");

@@ -52,6 +52,20 @@ export function clear(el) {
 // ---------------------------------------------------------------------------
 // Numbers
 
+// A label inside a sentence: its first word lowercased when that word is
+// an ordinary capitalised one, so "Net PnL per bar" reads "net PnL per bar"
+// and "AUC" stays "AUC".
+export function inText(label) {
+  return /^[A-Z][a-z]/.test(label) ? label[0].toLowerCase() + label.slice(1) : label;
+}
+
+// A 95% interval as text: an en dash between positive ends, "to" when an
+// end is negative (−0.025 to −0.013 reads; −0.025–−0.013 does not).
+export function rangeText(target, lo, hi) {
+  if (target.kind === "binary") return `${(lo * 100).toFixed(1)}–${(hi * 100).toFixed(1)}%`;
+  return lo < 0 || hi < 0 ? `${fmtT(target, lo, { unit: false })} to ${fmtT(target, hi)}` : `${fmtT(target, lo, { unit: false })}–${fmtT(target, hi)}`;
+}
+
 export function fmtInt(n) {
   return Number.isFinite(n) ? Math.round(n).toLocaleString("en-US") : "–";
 }
@@ -189,6 +203,130 @@ export function hideTip() {
   if (tipEl) tipEl.hidden = true;
   clearTimeout(tipCool);
   tipCool = setTimeout(() => { tipWarm = false; }, 800);
+}
+
+// ---------------------------------------------------------------------------
+// A view's blurb behind an (i). A click opens and closes it; resting the
+// mouse on the (i) for five seconds opens it too, and what the mouse
+// opened closes once it leaves the (i) and the blurb. The blurb lives
+// outside the view, so rows arriving (which redraw the view) leave it
+// open: after each redraw syncInfo moves it to the new (i), or closes it
+// when the view has none.
+
+const INFO_DWELL = 5000;
+const infoContent = new Map();   // key -> () => Node, from the latest draw
+let infoPop = null, infoOpen = null, infoClose = null, dwell = null;
+
+export function infoButton(key, label, content) {
+  infoLayer();
+  infoContent.set(key, content);
+  const open = !!infoOpen && infoOpen.key === key;
+  const b = h("button", { class: "icon-btn info-btn", type: "button", "aria-label": label, "aria-expanded": open ? "true" : "false",
+    "aria-controls": "info-pop", dataset: { info: key } }, icon("info"));
+  b.addEventListener("click", () => {
+    stopDwell();
+    if (infoOpen && infoOpen.key === key && infoOpen.how === "click") closeInfo();
+    else openInfo(key, "click");
+  });
+  return b;
+}
+
+export function syncInfo() {
+  if (!infoOpen) return;
+  const t = infoTrigger(infoOpen.key);
+  const content = infoContent.get(infoOpen.key);
+  if (!t || !content) { closeInfo(); return; }
+  const next = content();
+  if (next.textContent !== infoPop.textContent) { clear(infoPop); infoPop.append(next); }
+  t.setAttribute("aria-expanded", "true");
+  placeInfo();
+}
+
+export function infoIsOpen() { return !!infoOpen; }
+
+export function closeInfo(refocus) {
+  stopDwell();
+  clearTimeout(infoClose); infoClose = null;
+  if (!infoOpen) return;
+  const t = infoTrigger(infoOpen.key);
+  infoOpen = null;
+  infoPop.hidden = true;
+  if (t) { t.setAttribute("aria-expanded", "false"); if (refocus) t.focus(); }
+}
+
+function openInfo(key, how) {
+  const t = infoTrigger(key), content = infoContent.get(key);
+  if (!t || !content) return;
+  clearTimeout(infoClose); infoClose = null;
+  if (infoOpen && infoOpen.key !== key) closeInfo();
+  infoOpen = { key, how };
+  clear(infoPop);
+  infoPop.append(content());
+  infoPop.hidden = false;
+  t.setAttribute("aria-expanded", "true");
+  placeInfo();
+}
+
+function infoTrigger(key) {
+  return document.querySelector(`[data-info="${CSS.escape(key)}"]`);
+}
+
+function stopDwell() {
+  if (dwell) clearTimeout(dwell.timer);
+  dwell = null;
+}
+
+// Under the (i), its right edge on the (i)'s, inside the window.
+function placeInfo() {
+  if (!infoOpen) return;
+  const t = infoTrigger(infoOpen.key);
+  if (!t) { closeInfo(); return; }
+  const r = t.getBoundingClientRect();
+  const w = infoPop.offsetWidth, ht = infoPop.offsetHeight;
+  const left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8));
+  let top = r.bottom + 8;
+  if (top + ht > window.innerHeight - 8) top = Math.max(8, r.top - ht - 8);
+  infoPop.style.left = `${left}px`;
+  infoPop.style.top = `${top}px`;
+}
+
+function infoLayer() {
+  if (infoPop) return;
+  infoPop = h("div", { class: "info-pop", id: "info-pop", role: "note", hidden: true });
+  document.body.append(infoPop);
+  document.addEventListener("pointermove", (e) => {
+    if (e.pointerType !== "mouse") return;
+    const t = e.target.closest ? e.target.closest("[data-info]") : null;
+    const key = t ? t.dataset.info : null;
+    // five seconds resting on one (i) opens its blurb
+    if (key && !(infoOpen && infoOpen.key === key)) {
+      if (!dwell || dwell.key !== key) {
+        stopDwell();
+        dwell = { key, timer: setTimeout(() => {
+          dwell = null;
+          const now = infoTrigger(key);
+          if (now && now.matches(":hover")) openInfo(key, "hover");
+        }, INFO_DWELL) };
+      }
+    } else if (dwell && dwell.key !== key) stopDwell();
+    // what the mouse opened closes when it leaves the (i) and the blurb
+    if (infoOpen && infoOpen.how === "hover") {
+      if (key === infoOpen.key || infoPop.contains(e.target)) { clearTimeout(infoClose); infoClose = null; }
+      else if (!infoClose) infoClose = setTimeout(() => { infoClose = null; if (infoOpen && infoOpen.how === "hover") closeInfo(); }, 300);
+    }
+  }, { passive: true });
+  document.addEventListener("pointerdown", (e) => {
+    if (!infoOpen || infoPop.contains(e.target) || (e.target.closest && e.target.closest("[data-info]"))) return;
+    closeInfo();
+  });
+  // before the app's own keys: Escape closes the blurb, and only the blurb
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !infoOpen) return;
+    e.stopPropagation();
+    closeInfo(true);
+  }, true);
+  document.addEventListener("scroll", () => placeInfo(), { capture: true, passive: true });
+  window.addEventListener("resize", () => placeInfo());
 }
 
 // ---------------------------------------------------------------------------

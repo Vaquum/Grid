@@ -1,7 +1,7 @@
 // Pairs: which two parameters change each other's effect, and how the
 // sampler drew them together; a pair opens as a value-by-value grid.
 
-import { h, tip, fmtT, fmtInt, fmtP, fmtDelta } from "./ui.js";
+import { h, tip, fmtT, fmtInt, fmtP, fmtDelta, inText } from "./ui.js";
 import { pairEffect, cramersV, summarize, ALPHA } from "./engine.js";
 import { bhQ } from "./stats.js";
 import { moderatorParents, background } from "./model.js";
@@ -32,7 +32,7 @@ function* pairsJob(m) {
 
 export function renderPairs(view, m, A) {
   view.append(h("div", { class: "view-head" }, h("div", null, h("h1", { text: "Two parameters at once" }),
-    h("div", { class: "sub", text: `Below the diagonal: how much a pair changes each other's effect on ${m.target.label.toLowerCase()} (the interaction beyond their separate effects; ${m.target.kind === "binary" ? "logistic likelihood-ratio test" : "F test"}, corrected across all pairs). Above it: how the sampler drew the pair together (Cramér's V; near zero is what an independent sampler gives). Choose a cell to open the pair.` }))));
+    h("div", { class: "sub", text: `Below the diagonal: how much a pair changes each other's effect on ${inText(m.target.label)} (the interaction beyond their separate effects; ${m.target.kind === "binary" ? "logistic likelihood-ratio test" : "F test"}, corrected across all pairs). Above it: how the sampler drew the pair together (Cramér's V; near zero is what an independent sampler gives). Choose a cell to open the pair.` }))));
   const pairs = background(m, "pairs", pairsJob, A.rerender);
   if (!pairs) { view.append(h("p", { class: "muted", text: "Testing every pair…" })); return; }
   const dims = pairs.dims.map(id => m.schema.dimById.get(id));

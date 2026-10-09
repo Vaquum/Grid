@@ -314,7 +314,17 @@ select {
 .sc-v b { flex: none; max-width: 100%; font-size: var(--fs-xl); font-weight: 500; letter-spacing: -0.01em; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; }
 .sc-v small { min-width: 0; font-size: var(--fs-m); color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
 button.sc:hover { background: var(--hover); }
-.strip-copy { align-self: center; flex: none; margin: 0 10px; }
+.strip-tools { align-self: center; flex: none; display: flex; align-items: center; gap: 2px; margin: 0 8px; }
+.info-btn[aria-expanded="true"] { background: var(--on); color: var(--ink); }
+
+/* a view's blurb, behind the strip's (i) */
+.info-pop {
+  position: fixed; z-index: 55; width: min(380px, calc(100vw - 16px)); padding: 12px 14px 2px; border-radius: var(--r-l);
+  background: var(--raised); color: var(--ink-2); border: 1px solid var(--line-2); box-shadow: 0 8px 28px var(--shadow);
+  font-size: var(--fs-b); line-height: 1.55;
+}
+.about > b { display: block; margin-bottom: 6px; color: var(--ink); font-weight: 600; }
+.about p { margin: 0 0 10px; }
 
 /* ---- board: sections and cards ----------------------------------------- */
 .board-sec + .board-sec { margin-top: 32px; }
@@ -492,21 +502,102 @@ pre.code .ln { color: var(--muted); user-select: none; }
 .pill { width: 9px; height: 14px; border-radius: var(--r-s); background: var(--surface-3); border: 1px solid var(--line-2); }
 .pill.pass { background: var(--ink); border-color: var(--ink); }
 
-/* pocket */
-.pocket-grid { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: 18px; align-items: start; }
-.stack { display: flex; flex-direction: column-reverse; gap: 0; padding: var(--sp-3); min-height: 120px; border-radius: var(--r-l); background: var(--surface-2); border: 1px dashed var(--line-2); }
-.stack .brick {
-  position: relative; display: flex; align-items: center; gap: var(--sp-2); padding: 9px 10px 9px 14px; margin-top: -1px;
-  background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r-m);
+/* islands: a card with its title inside, its parts, its actions at the foot */
+.island {
+  display: flex; flex-direction: column; min-width: 0; padding: 14px var(--sp-4) var(--sp-4);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-l);
 }
-.stack .brick + .brick { margin-bottom: 6px; }
-.stack .brick::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 3px; background: var(--ink-2); border-radius: var(--r-m) 0 0 var(--r-m); }
-.brick .what { font-family: var(--mono); font-size: var(--fs-m); min-width: 0; overflow-wrap: anywhere; }
-.brick .what b { font-weight: 600; }
-.brick .x { margin-left: auto; }
-.stack .floor { order: -1; text-align: center; color: var(--muted); font-size: var(--fs-s); padding-top: var(--sp-2); }
-.suggest td.v { cursor: pointer; }
+.isl-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px var(--sp-3); min-height: var(--h-m); margin-bottom: var(--sp-3); }
+.isl-title { margin: 0; font-size: var(--fs-l); font-weight: 600; line-height: 20px; }
+.isl-count { color: var(--muted); font-size: var(--fs-m); }
+.isl-head .search { flex: 1 1 200px; width: auto; max-width: 300px; margin-left: auto; }
+.isl-part + .isl-part { margin-top: var(--sp-5); }
+.part-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px var(--sp-2); margin: 0 0 var(--sp-2); font-size: var(--fs-m); font-weight: 600; }
+.part-title .note { font-weight: 400; color: var(--muted); }
+.isl-note { margin: var(--sp-2) 0 0; color: var(--muted); font-size: var(--fs-m); }
+.isl-foot { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--sp-4); padding-top: var(--sp-3); border-top: 1px solid var(--line); }
 .search { width: 100%; min-height: var(--h-m); padding: 0 9px; border: 1px solid var(--border); border-radius: var(--r-m); background: var(--surface); }
+
+/* pocket: the stack on the left, what to add on the right */
+.pk-grid { display: grid; grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); gap: var(--sp-3); align-items: start; }
+.pk-col { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
+
+/* the stack reads bottom up: the rows in view, then each block. Every bar
+   shares one x axis: the figures take a fixed column, and the floor's
+   sides match a block's border and padding, so the bars line up. */
+.stack { --fig-w: 168px; display: flex; flex-direction: column-reverse; gap: 6px; border-radius: var(--r-m); }
+.stack.over { outline: 2px dashed var(--data); outline-offset: 4px; }
+.floor {
+  display: grid; grid-template-columns: var(--fig-w) minmax(0, 1fr); align-items: center; gap: 2px var(--sp-3);
+  padding: 9px 9px 0 15px; border-top: 2px solid var(--line-2); font-size: var(--fs-m); color: var(--muted);
+}
+.fl-what { grid-column: 1 / -1; font-size: var(--fs-s); }
+.fl-fig, .bk-fig { display: inline-flex; align-items: baseline; gap: var(--sp-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fl-fig b, .bk-fig b { color: var(--ink); font-weight: 600; }
+.drop {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 26px var(--sp-4); text-align: center;
+  border: 1px dashed var(--line-2); border-radius: var(--r-m); color: var(--muted); font-size: var(--fs-m);
+}
+.drop b { color: var(--ink-2); font-weight: 600; }
+.brick {
+  position: relative; display: grid; gap: 6px; padding: 9px 8px 10px 14px; cursor: grab;
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-m);
+}
+/* the edge says what the block does: blue when it earns its place */
+.brick::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 3px; border-radius: var(--r-m) 0 0 var(--r-m); background: var(--line-2); }
+.brick.v-earns::before, .brick.v-changes::before { background: var(--data); }
+.brick.v-hurts::before { background: var(--critical); }
+.bk-top { display: flex; align-items: flex-start; gap: var(--sp-2); }
+.bk-what { flex: 1 1 auto; min-width: 0; padding-top: 3px; font-family: var(--mono); font-size: var(--fs-m); line-height: 1.4; overflow-wrap: anywhere; }
+.bk-name { font-weight: 600; }
+.bk-eq { color: var(--muted); }
+.bk-x { flex: none; width: var(--h-s); height: var(--h-s); margin: -1px 0 0; }
+.bk-path { display: grid; grid-template-columns: var(--fig-w) minmax(0, 1fr); align-items: center; gap: var(--sp-3); font-size: var(--fs-m); color: var(--muted); }
+.bk-verdict { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px var(--sp-2); font-size: var(--fs-s); color: var(--muted); }
+.vtag { font-weight: 600; color: var(--ink-2); }
+.v-earns .vtag, .v-changes .vtag { color: var(--ink); }
+.v-hurts .vtag { color: var(--critical-ink); }
+.ibar-dot.base { background: var(--ink-2); }
+
+/* what to add: the suggestions, then every value */
+table.suggest td.v { font-family: var(--mono); white-space: normal; overflow-wrap: anywhere; }
+table.suggest th.iv, table.suggest td.iv { width: 34%; min-width: 96px; }
+.palette { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 14px var(--sp-5); align-items: start; }
+.pal-item { display: grid; gap: 5px; min-width: 0; }
+.pal-name { font-family: var(--mono); font-size: var(--fs-s); color: var(--muted); overflow-wrap: anywhere; }
+.pal-item.in .pal-name { color: var(--ink); }
+.pal-vals { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.vchip {
+  max-width: 100%; min-height: var(--h-s); padding: 0 8px; border: 1px solid var(--line-2); border-radius: var(--r-m); background: transparent;
+  font-family: var(--mono); font-size: var(--fs-m); color: var(--ink); cursor: grab; overflow-wrap: anywhere; text-align: left;
+}
+.vchip:hover { background: var(--hover); border-color: var(--border); }
+.vchip[aria-pressed="true"] { background: var(--on); border-color: transparent; }
+
+/* the manifest at the foot of every view */
+.manifest-sec { margin-top: 32px; }
+.manifest { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-l); }
+.manifest > summary {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px var(--sp-2); padding: 11px var(--sp-4); cursor: pointer;
+  list-style: none; border-radius: var(--r-l);
+}
+.manifest > summary::-webkit-details-marker { display: none; }
+.manifest > summary:hover { background: var(--hover); }
+.mf-chev { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.75; color: var(--muted); transition: transform 0.15s; }
+.manifest[open] .mf-chev { transform: rotate(90deg); }
+.mf-title { font-size: var(--fs-b); font-weight: 600; }
+.mf-file { color: var(--ink-2); font-size: var(--fs-m); }
+.mf-note { margin-left: auto; color: var(--muted); font-size: var(--fs-m); }
+.mf-body { padding: 0 var(--sp-4) var(--sp-4); }
+.mf-tools { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); margin-bottom: var(--sp-2); font-size: var(--fs-m); }
+.mf-code { max-height: 520px; overflow: auto; margin: 0; }
+.mf-line { display: block; min-height: 1.55em; }
+.mf-line.note { color: var(--muted); }
+.mf-line.changed { margin: 0 -12px; padding: 0 12px; background: color-mix(in oklab, var(--data) 16%, transparent); }
+.mf-problems { display: grid; gap: 4px; margin: 0 0 var(--sp-2); padding: 0; list-style: none; color: var(--critical-ink); font-size: var(--fs-m); }
+.mf-problems li { display: flex; align-items: flex-start; gap: 6px; }
+.mf-problems svg { width: 14px; height: 14px; flex: none; margin-top: 2px; fill: none; stroke: currentColor; stroke-width: 2; }
+@media (prefers-reduced-motion: reduce) { .mf-chev { transition: none; } }
 
 /* reference pane */
 .reference {
@@ -559,6 +650,11 @@ kbd { border: 1px solid var(--line-2); border-radius: 4px; padding: 0 5px; backg
 tr.sel td { background: var(--on); }
 
 /* ---- narrow screens ----------------------------------------------------- */
+/* the pocket's two columns need room; with the inspector open they stack */
+@media (max-width: 1100px) {
+  .pk-grid { grid-template-columns: minmax(0, 1fr); }
+}
+.app[data-insp="open"] .pk-grid { grid-template-columns: minmax(0, 1fr); }
 @media (max-width: 1180px) {
   .shell { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
   .inspector { position: fixed; right: 0; top: var(--top-h); bottom: 0; width: min(420px, 100vw); z-index: 35; box-shadow: -8px 0 30px var(--shadow); }
@@ -580,7 +676,7 @@ tr.sel td { background: var(--on); }
   .top-right { gap: var(--sp-3); }
   .top-right .group + .group::before { left: calc(var(--sp-3) / -2); }
   .progress-text { white-space: normal; }
-  .pocket-grid { grid-template-columns: minmax(0, 1fr); }
+  .palette { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .seg-row { grid-template-columns: minmax(0, 1fr); }
   .inspector { top: 0; width: 100vw; }
   .strip-cells { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-radius: var(--r-l); }
@@ -589,5 +685,5 @@ tr.sel td { background: var(--on); }
   .sc-v b { font-size: 18px; }
   .sc-v small { flex-basis: 100%; }
   .sc:last-child:nth-child(odd) { grid-column: span 2; }
-  .strip-copy { position: absolute; top: 6px; right: 6px; margin: 0; }
+  .strip-tools { position: absolute; top: 6px; right: 6px; margin: 0; }
 }

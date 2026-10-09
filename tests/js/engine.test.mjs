@@ -8,6 +8,7 @@ import { gunzipSync } from "node:zlib";
 import { decodePack } from "../../web/js/pack.js";
 import { buildSchema } from "../../web/js/schema.js";
 import * as E from "../../web/js/engine.js";
+import { bhQ } from "../../web/js/stats.js";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 const G = JSON.parse(readFileSync(new URL("../golden/engine.json", import.meta.url)));
@@ -170,6 +171,27 @@ test("planted truths are recovered", () => {
   // pf_frac is not independent of model
   const v = E.cramersV(schema.dimById.get("pf_frac"), schema.dimById.get("model"), all);
   assert.ok(v.p < 1e-6);
+});
+
+test("a block earns its place when its rows differ from the ones it takes away", () => {
+  const trade = schema.targetById.get("tradeable");
+  const model = schema.dimById.get("model"), sizing = schema.dimById.get("sizing");
+  const best = E.dimEffect(model, trade, all, E.summarize(trade, all)).best.key;
+  const pocket = [{ dim: "model", keys: [best] }, { dim: "sizing", keys: [sizing.levels[0].key] }];
+  const ps = E.pocketStats(schema, pocket, trade, all, ds.n);
+  const r = E.blockTests(schema, pocket, trade, all, ds.n, ps.rows);
+  // model is planted, sizing is inert
+  assert.ok(r[0].q < 0.05 && ps.mean > r[0].removed.mean, `model: q ${r[0].q}`);
+  assert.ok(r[1].q >= 0.05, `sizing: q ${r[1].q}`);
+  // without a block, the pocket is the other one; it takes away the difference
+  for (const [k, rest] of [[0, [pocket[1]]], [1, [pocket[0]]]]) {
+    const other = E.pocketStats(schema, rest, trade, all, ds.n);
+    assert.equal(r[k].without.n, other.n);
+    assert.equal(r[k].removed.n, other.n - ps.n);
+    close(r[k].without.mean, other.mean, 1e-12, "without the block");
+  }
+  // corrected across the pocket's blocks
+  assert.deepEqual(r.map(x => x.q), bhQ(r.map(x => x.p)));
 });
 
 test("a board-wide moderator scan keeps only real conditional effects", () => {

@@ -105,18 +105,34 @@ pocket, see below) and up to the replay edge.
   good and all spread were noise (the false strategy theorem, de Prado):
   mean + s·((1−γ)Φ⁻¹(1−1/n) + γΦ⁻¹(1−1/(n·e))). The record curve is drawn
   against it.
-- **Pockets**: a conjunction of value sets. n, hit rate with Wilson interval,
-  lift, recall (share of all hits inside), and split-half agreement (first
-  half of arrivals against the second). Because every param is sampled
-  independently and uniformly, a pocket's observed hit rate is an unbiased
-  estimate of the hit rate of a new sweep that samples uniformly inside it.
+- **Pockets**: a conjunction of value sets. n, the needle with its interval
+  (Wilson for a rate), lift, recall (share of all hits inside), and
+  split-half agreement (first half of arrivals against the second). Because
+  every param is sampled independently and uniformly, a pocket's observed
+  needle is an unbiased estimate of a new sweep's that samples uniformly
+  inside it. A block earns its place when the pocket's rows differ from
+  the rows it takes away (those holding every other block but not this
+  one): a two-sample z test, Benjamini–Hochberg across the blocks.
+- **Shown digits**: a target is printed with its profile's digits, or more
+  when a tenth of its rows' standard deviation would not show (Limen's net
+  PnL per bar moves in thousandths of a bps).
 
 ## Views
 
+The Board and the Pocket open with a strip of their figures and their
+blurb behind an (i) (a click opens it, and so do five seconds resting on
+the (i)); the other views follow in their own passes. Every view ends with
+the experiment's manifest, folded: the copy `limen run` kept, shown as
+written, narrowed to what the view looks at (the pocket, or the context)
+by rewriting only the narrowed parameters' lists, in their own spelling,
+with what each was. What cannot be narrowed is said in the page and in the
+text. A sweep without a manifest has no such section.
+
 1. **Board**: a strip that sums the board up, then one card per param,
    sorted by effect strength on the target.
-2. **Pocket**: compose a pocket by stacking value blocks; read its numbers;
-   copy the predicate and the narrowed space for the next sweep.
+2. **Pocket**: a strip of the pocket's figures; the stack, read bottom up
+   as a path from the rows in view, each block saying whether it earns its
+   place; and the blocks to add, ranked and every one, under one search.
 3. **Pairs**: interaction strength for every pair; a pair opens as a
    value-by-value grid.
 4. **Features**: inclusion effects of every set member.

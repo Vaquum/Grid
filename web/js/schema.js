@@ -228,6 +228,23 @@ function inferRole(col, n) {
   return { role: "metric", sv };
 }
 
+// The digits a target is shown with: the profile's, or more when its rows
+// spread so little that those would round different means together (a
+// tenth of the rows' standard deviation always shows). A rate is shown in
+// percent whatever its digits.
+export function shownDigits(values, digits, kind) {
+  if (kind === "binary") return digits;
+  let n = 0, s = 0;
+  for (let i = 0; i < values.length; i++) { const v = values[i]; if (v === v) { n++; s += v; } }
+  if (n < 2) return digits;
+  const mean = s / n;
+  let ss = 0;
+  for (let i = 0; i < values.length; i++) { const v = values[i]; if (v === v) ss += (v - mean) * (v - mean); }
+  const sd = Math.sqrt(ss / (n - 1));
+  if (!(sd > 0)) return digits;
+  return Math.min(6, Math.max(digits, -Math.floor(Math.log10(sd / 10))));
+}
+
 export function buildSchema(ds, opts = {}) {
   const profile = opts.profile !== undefined ? opts.profile : matchProfile(ds.cols);
   const n = opts.n !== undefined ? opts.n : ds.n;
@@ -324,7 +341,7 @@ export function buildSchema(ds, opts = {}) {
       values[i] = args.some(Number.isNaN) ? NaN : d.fn(...args);
     }
     targets.push({ id: d.id, label: d.label, unit: d.unit, kind: d.kind, better: d.better,
-      definition: d.definition, note: d.note, values, digits: 1, source: "profile" });
+      definition: d.definition, note: d.note, values, digits: shownDigits(values, 1, d.kind), source: "profile" });
   }
   for (const f of fields) {
     if (!(f.role === "metric" || f.role === "diagnostic")) continue;
@@ -334,7 +351,8 @@ export function buildSchema(ds, opts = {}) {
     const values = new Float64Array(n);
     for (let i = 0; i < n; i++) values[i] = get(i);
     targets.push({ id: f.name, label: m.label, unit: m.unit, kind: m.kind || "cont", better: m.better,
-      digits: m.digits, cost: !!m.cost, values, source: P.metrics[f.name] ? "profile" : "inferred",
+      digits: shownDigits(values, m.digits, m.kind || "cont"), cost: !!m.cost, values,
+      source: P.metrics[f.name] ? "profile" : "inferred",
       diagnostic: f.role === "diagnostic" });
   }
 

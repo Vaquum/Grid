@@ -1,7 +1,7 @@
 // Gates: how often each gate passes, which never do and what bounds them,
 // how far the rows are from each need, and which gates fail together.
 
-import { h, icon, tip, fmtInt, fmtPct, fmtNum } from "./ui.js";
+import { h, icon, tip, fmtInt, fmtPct, fmtNum, inText } from "./ui.js";
 import { gateStats, coFailure, strongestCorrelate } from "./engine.js";
 import { histogram } from "./charts.js";
 
@@ -45,7 +45,7 @@ export function renderGates(view, m, A) {
       const corr = strongestCorrelate(sc, g.value, m.rows, aliasesOf(sc, g.value, m.rows));
       const p = h("p", { class: "note" }, h("b", { text: "Never passed" }), ` in ${fmtInt(s.n)} rows: the true pass rate is under ${fmtPct(s.ruleOfThree, 3)} (95%, rule of three).`);
       if (Number.isFinite(s.quantiles.max)) p.append(` The best value seen is ${fmtNum(s.quantiles.max, 2)} ${g.unit || ""}.`);
-      if (corr && Math.abs(corr.r) > 0.8) p.append(" ", h("b", { text: `It moves with ${corr.label.toLowerCase()} (r = ${corr.r.toFixed(3)})` }), ", so it is bounded by it: no parameter in this space can pass it while that stays where it is.");
+      if (corr && Math.abs(corr.r) > 0.8) p.append(" ", h("b", { text: `It moves with ${inText(corr.label)} (r = ${corr.r.toFixed(3)})` }), ", so it is bounded by it: no parameter in this space can pass it while that stays where it is.");
       card.append(p);
     }
     if (s.values > 0 && (g.margin || Number.isFinite(s.quantiles.p50))) {

@@ -1,72 +1,176 @@
 // Pocket: stack value blocks into a pocket (a conjunction), read what it
-// holds, and take its code to the next sweep.
+// holds and whether each block earns its place, and take it to the next
+// sweep as the experiment's manifest narrowed to it.
+//
+// The page: the strip (the pocket in figures); the stack, which reads from
+// the rows in view at the bottom up through each block as a path; a pinned
+// pocket to compare, when there is one; the blocks to add, suggested and
+// every one; and, at the foot, the manifest (drawn by the app).
 
-import { h, icon, tip, fmtT, fmtInt, fmtPct, fmtDelta, fmtP, copyText } from "./ui.js";
-import { pocketStats, rowsIn, suggestions, summarize, MIN_N } from "./engine.js";
+import { h, icon, tip, fmtT, fmtInt, fmtPct, fmtDelta, fmtP, inText, rangeText } from "./ui.js";
+import { ALPHA, MIN_N, blockTests, pocketStats, rowsIn, suggestions, summarize } from "./engine.js";
 import { boardDims, memberDims } from "./model.js";
-import { runRate } from "./view-run.js";
+import { intervalBar } from "./charts.js";
+import { strip, stripCell, about } from "./strip.js";
+import { mergeConditions, figureLine } from "./manifest.js";
 
 export function renderPocket(view, m, A) {
-  const { schema, target } = m;
+  const { schema, target: t } = m;
   const pocket = (m.state.pocket || []).filter(c => schema.dimById.has(c.dim));
-  view.append(h("div", { class: "view-head" },
-    h("div", null, h("h1", { text: "Compose a pocket" }),
-      h("div", { class: "sub" }, "Stack blocks to narrow the sweep to the rows that hold every one of them. A block holds one or more values of a parameter; values in one block are alternatives, blocks on top of each other must all hold. ",
-        "Because the sweep draws every parameter independently and uniformly, the rate inside a pocket estimates what a new sweep drawn only inside it would hit."))));
-  const grid = h("div", { class: "pocket-grid" });
-  view.append(grid);
-  const left = h("div"), right = h("div", { style: { minWidth: 0 } });
-  grid.append(left, right);
+  const ps = pocket.length ? pocketStats(schema, pocket, t, m.rows, m.edge) : null;
+  const verdicts = ps ? blockTests(schema, pocket, t, m.rows, m.edge, ps.rows).map(r => ({ ...r, kind: blockVerdict(t, ps, r) })) : [];
+  const sug = suggest(m, pocket, ps ? ps.rows : m.rows);
 
-  // ---- the stack (first block at the bottom)
-  const steps = cumulative(m, pocket);
-  const stack = h("div", { class: "stack", "aria-label": "The pocket's blocks, first at the bottom" });
-  stack.append(h("div", { class: "floor", text: pocket.length ? `All ${fmtInt(m.rows.length)} rows · ${fmtT(target, m.base.mean)}` : "Drop or add a block to start" }));
-  pocket.forEach((c, k) => stack.append(brick(m, A, pocket, c, k, steps[k])));
-  stack.addEventListener("dragover", (e) => { e.preventDefault(); stack.style.borderColor = "var(--ink)"; });
-  stack.addEventListener("dragleave", () => { stack.style.borderColor = ""; });
-  stack.addEventListener("drop", (e) => {
-    e.preventDefault();
-    stack.style.borderColor = "";
-    const raw = e.dataTransfer.getData("text/plain");
-    try { const { dim, key } = JSON.parse(raw); if (dim && key !== undefined) A.addPocket(dim, key); }
-    catch (err) { console.warn("ignored a drop that is not a value block", err); }
-  });
-  left.append(h("div", { class: "section-title", style: { marginTop: 0 }, text: "The stack" }), stack);
-  if (pocket.length) {
-    left.append(h("div", { class: "actions" },
-      h("button", { class: "btn", onclick: () => A.set({ pocket: [] }) }, "Clear"),
-      h("button", { class: "btn", onclick: () => A.set({ pocketB: pocket.map(c => ({ ...c })) }) }, "Pin as A to compare"),
-      h("button", { class: "btn", onclick: () => A.set({ context: pocket.map(c => ({ ...c })), view: "board" }) }, "Look inside it on the board")));
-  }
-  left.append(palette(m, A, pocket));
-
-  // ---- readout
-  if (!pocket.length) {
-    right.append(h("div", { class: "empty" }, h("p", { text: "No blocks yet." }),
-      h("p", null, "Choose a value in the inspector and press ", h("kbd", { text: "P" }), ", drag a value from the list on the left, or take a suggestion below.")));
-    right.append(suggestBlock(m, A, [], m.rows));
-    return;
-  }
-  const ps = pocketStats(schema, pocket, target, m.rows, m.edge);
-  right.append(readout(m, ps, "This pocket"));
-  if (m.state.pocketB && m.state.pocketB.length) {
-    const pb = m.state.pocketB.filter(c => schema.dimById.has(c.dim));
-    const psB = pocketStats(schema, pb, target, m.rows, m.edge);
-    right.append(h("div", { class: "section-title", text: "Against the pinned pocket" }), compare(m, pb, psB, ps, A));
-  }
-  right.append(h("div", { class: "section-title", text: "Does each block earn its place?" }), withoutEach(m, pocket, ps));
-  right.append(suggestBlock(m, A, pocket, ps.rows));
-  right.append(h("div", { class: "section-title", text: "Take it to the next sweep" }), codeBlock(m, pocket, ps));
+  view.append(h("h1", { class: "sr", text: "The pocket" }));
+  view.append(pocketStrip(m, A, pocket, ps, verdicts, sug));
+  const left = h("div", { class: "pk-col" }), right = h("div", { class: "pk-col" });
+  view.append(h("div", { class: "pk-grid" }, left, right));
+  left.append(stackIsland(m, A, pocket, ps, verdicts));
+  const pinned = (m.state.pocketB || []).filter(c => schema.dimById.has(c.dim));
+  if (pinned.length && ps) left.append(compareIsland(m, A, pinned, ps));
+  right.append(addIsland(m, A, pocket, sug));
+  return { manifest: { conditions: mergeConditions(m.context, pocket), scope: "the pocket", figure: ps ? figureLine(m, ps.n, ps) : null } };
 }
 
-// Rows and rate after each block, bottom up.
+// what a dragged value chip carries
+const VALUE = "application/x-grid-value";
+
+const name = (d) => (d.kind === "scoped" ? `${d.name} (${d.scope.label})` : d.label);
+const labels = (d, keys) => keys.map(key => (d.levels.find(l => l.key === key) || { label: key }).label);
+
+// What a block does: its rows against the rows it takes away.
+function blockVerdict(t, ps, r) {
+  if (!Number.isFinite(r.q)) return "few";
+  if (!(r.q < ALPHA)) return "narrows";
+  if (!t.better) return "changes";
+  return (ps.mean - r.removed.mean) * t.better > 0 ? "earns" : "hurts";
+}
+
+const VERDICT = {
+  earns: "Earns its place",
+  hurts: "Holds the needle back",
+  changes: "Changes the needle",
+  narrows: "Only narrows",
+  few: "Too few rows to tell",
+};
+
+// ---------------------------------------------------------------------------
+// The strip
+
+function pocketStrip(m, A, pocket, ps, verdicts, sug) {
+  const t = m.target, b = m.base, binary = t.kind === "binary";
+  const range = (s) => rangeText(t, s.lo, s.hi);
+  const inView = m.context.length ? "the rows in view" : "every row";
+  const cells = [];
+  if (!ps) {
+    cells.push(stripCell(t.label, fmtT(t, b.mean), range(b), () => h("div", null, h("b", { text: `${t.label} over ${inView}` }),
+      h("div", { class: "k", text: "With its 95% interval: where the stack starts, and the line every block is read against." }))));
+    cells.push(stripCell("Rows", fmtInt(m.rows.length), m.rows.length < m.ds.n ? `of ${fmtInt(m.ds.n)}` : null));
+    cells.push(stripCell("Blocks", "0", "add one to start"));
+    const top = sug[0];
+    const d = top && m.schema.dimById.get(top.dim);
+    cells.push(stripCell("Best start", top ? fmtT(t, top.mean) : "–", top ? `${top.dimLabel} = ${top.label}` : "nothing ranked yet",
+      () => h("div", null, h("b", { text: "The value to start from" }), h("div", { class: "k", text: `Ranked by the ${t.better < 0 ? "upper" : "lower"} end of its 95% interval: the conservative estimate, not the luckiest.` })),
+      top ? () => A.addPocket(top.dim, top.key) : null, top ? { "aria-label": `Start the pocket with ${name(d)} = ${top.label}` } : {}));
+  } else {
+    const earn = verdicts.filter(r => r.kind === "earns" || r.kind === "changes").length;
+    const idle = pocket.filter((_, k) => verdicts[k].kind === "narrows").map(c => m.schema.dimById.get(c.dim).label);
+    const few = verdicts.every(r => r.kind === "few");
+    const agree = Number.isFinite(ps.halvesP) ? ps.halvesP >= ALPHA : null;
+    const [h1, h2] = ps.halves;
+    cells.push(stripCell(t.label, fmtT(t, ps.mean), range(ps), () => h("div", null, h("b", { text: `${t.label} inside the pocket` }),
+      h("div", { class: "k", text: `Over its ${fmtInt(ps.n)} rows, with the 95% interval${binary ? " (Wilson)" : ""}. A sweep drawn only inside the pocket should land here, since the sweep draws every parameter independently and uniformly.` }))));
+    cells.push(stripCell("Against the base", binary ? (Number.isFinite(ps.lift) ? `${ps.lift.toFixed(2)}×` : "–") : fmtDelta(t, ps.mean - b.mean), `base ${fmtT(t, b.mean)}`,
+      () => h("div", null, h("b", { text: binary ? "The pocket's rate over the base rate" : "The pocket against the base" }), h("div", { class: "k", text: `The base is ${inText(t.label)} over ${inView}.` }))));
+    cells.push(stripCell("Rows", fmtInt(ps.n), `${fmtPct(ps.share, 1)} of ${fmtInt(m.rows.length)}`,
+      () => h("div", null, h("b", { text: "Rows that hold every block" }), h("div", { class: "k", text: m.context.length ? "Inside the context." : "Of every row so far." }))));
+    cells.push(stripCell("Earn their place", `${earn} of ${pocket.length}`, few ? "too few rows to tell" : idle.length ? `${idle.join(", ")} only ${idle.length === 1 ? "narrows" : "narrow"}` : "every block",
+      () => h("div", null, h("b", { text: "Blocks that change the needle" }), h("div", { class: "k", text: `Each block's rows against the rows it takes away (those that hold every other block but not this one), a two-sample test, corrected across the ${fmtInt(pocket.length)} blocks. A block that only narrows costs rows without changing the needle.` }))));
+    cells.push(stripCell("Halves", agree === null ? "–" : agree ? "agree" : "differ",
+      agree === null ? `fewer than ${MIN_N} rows in a half` : `${fmtT(t, h1.mean)}, then ${fmtT(t, h2.mean)}`,
+      () => h("div", null, h("b", { text: "The first and second half of the arrivals" }),
+        h("div", { class: "k", text: `${agree === null ? "Each half needs" : `${fmtP(ps.halvesP, "p")}. Each half has`} at least ${MIN_N} rows. A pocket that holds in both halves is less likely to be noise; one that holds in only one is suspect.` }))));
+    if (binary) cells.push(stripCell("Hits", fmtInt(ps.hits), `${fmtPct(ps.recall, 0)} of all hits`,
+      () => h("div", null, h("b", { text: "Hits inside the pocket" }), h("div", { class: "k", text: "Its share of every hit in view: the recall." }))));
+  }
+  return strip("The pocket in figures", cells,
+    { key: "pocket", label: "About the pocket", content: () => pocketAbout(m) },
+    ps ? { label: "Copy the pocket as notes", what: "Its blocks with what each does, its rows and needle against the base, and the halves.", text: () => pocketNotes(m, pocket, ps, verdicts), done: "Pocket copied." } : null, A);
+}
+
+function pocketAbout(m) {
+  const t = m.target, binary = t.kind === "binary";
+  const exp = m.ds.meta.experiment;
+  return about("The pocket",
+    "Stack blocks to narrow the sweep to the rows that hold every one of them. A block holds one or more values of a parameter; values in one block are alternatives, blocks on top of each other must all hold.",
+    `Because the sweep draws every parameter independently and uniformly, ${binary ? "the rate" : inText(t.label)} inside a pocket estimates what a new sweep drawn only inside it would ${binary ? "hit" : "get"}.`,
+    "The stack reads from the bottom: the rows in view, then each block with the rows and the needle once it is added. Each block says whether it earns its place.",
+    exp && exp.kind === "limen" ? "The manifest at the foot of the page is the experiment's, narrowed to the pocket, for the next sweep." : null);
+}
+
+function pocketNotes(m, pocket, ps, verdicts) {
+  const t = m.target;
+  const lines = [`Pocket on ${m.ds.meta.label}: ${t.label}`];
+  pocket.forEach((c, k) => {
+    const d = m.schema.dimById.get(c.dim), v = verdicts[k];
+    lines.push(`- ${name(d)} = ${labels(d, c.keys).join(" or ")}: ${VERDICT[v.kind].toLowerCase()}${Number.isFinite(v.q) ? ` (${fmtP(v.q)})` : ""}; without it ${fmtT(t, v.without.mean)} on ${fmtInt(v.without.n)} rows`);
+  });
+  lines.push(`${fmtInt(ps.n)} rows (${fmtPct(ps.share, 1)} of ${fmtInt(m.rows.length)}): ${fmtT(t, ps.mean)} [${fmtT(t, ps.lo)}, ${fmtT(t, ps.hi)}], base ${fmtT(t, m.base.mean)}.`);
+  if (Number.isFinite(ps.halvesP)) lines.push(`Halves of the arrivals: ${fmtT(t, ps.halves[0].mean)}, then ${fmtT(t, ps.halves[1].mean)} (${fmtP(ps.halvesP, "p")}).`);
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// The stack: the rows in view at the bottom, each block on top
+
+function stackIsland(m, A, pocket, ps, verdicts) {
+  const steps = cumulative(m, pocket);
+  const all = [m.base, ...steps];
+  const lo = Math.min(...all.map(s => s.lo).filter(Number.isFinite)), hi = Math.max(...all.map(s => s.hi).filter(Number.isFinite));
+  const pad = (hi - lo) * 0.08 || Math.abs(hi) * 0.1 || 1;
+  const domain = [lo - pad, hi + pad];
+
+  const stack = h("div", { class: "stack", "aria-label": "The pocket's blocks, the first at the bottom" });
+  stack.append(floor(m, domain));
+  if (!pocket.length) {
+    stack.append(h("div", { class: "drop" }, h("b", { text: "Drop a value here" }),
+      h("span", null, "or take one from the right, or press ", h("kbd", { text: "P" }), " on a value in the inspector")));
+  }
+  pocket.forEach((c, k) => stack.append(brick(m, A, pocket, c, k, steps[k], verdicts[k], domain, ps)));
+  // only Grid's own value chips are taken; anything else is refused
+  stack.addEventListener("dragover", (e) => {
+    if (!e.dataTransfer.types.includes(VALUE)) return;
+    e.preventDefault();
+    stack.classList.add("over");
+  });
+  stack.addEventListener("dragleave", (e) => { if (!stack.contains(e.relatedTarget)) stack.classList.remove("over"); });
+  stack.addEventListener("drop", (e) => {
+    stack.classList.remove("over");
+    if (!e.dataTransfer.types.includes(VALUE)) return;
+    e.preventDefault();
+    const v = JSON.parse(e.dataTransfer.getData(VALUE));
+    A.addPocket(v.dim, v.key);
+  });
+
+  const isl = h("section", { class: "island stack-island", "aria-labelledby": "stack-title" },
+    h("header", { class: "isl-head" }, h("h2", { class: "isl-title", id: "stack-title", text: "Stack" }),
+      h("span", { class: "isl-count num", text: pocket.length === 1 ? "1 block" : `${fmtInt(pocket.length)} blocks` })),
+    stack);
+  if (pocket.length) {
+    isl.append(h("footer", { class: "isl-foot" },
+      h("button", { class: "btn small", type: "button", onclick: () => A.set({ context: pocket.map(c => ({ ...c })), view: "board" }) }, "Open on the board"),
+      h("button", { class: "btn small", type: "button", onclick: () => A.set({ pocketB: pocket.map(c => ({ ...c })) }) }, "Pin to compare"),
+      h("button", { class: "btn small", type: "button", onclick: () => A.set({ pocket: [] }) }, "Clear")));
+  }
+  return isl;
+}
+
+// Rows and the needle after each block, bottom up.
 function cumulative(m, pocket) {
   const out = [];
   for (let k = 1; k <= pocket.length; k++) {
-    const rows = rowsIn(m.schema, pocket.slice(0, k), m.edge);
-    const inCtx = intersect(rows, m.rows);
-    out.push({ rows: inCtx, s: summarize(m.target, inCtx) });
+    const rows = intersect(rowsIn(m.schema, pocket.slice(0, k), m.edge), m.rows);
+    out.push(summarize(m.target, rows));
   }
   return out;
 }
@@ -79,17 +183,37 @@ function intersect(a, b) {
   return Uint32Array.from(out);
 }
 
-function brick(m, A, pocket, c, k, step) {
+function floor(m, domain) {
+  const t = m.target, b = m.base;
+  const el = h("div", { class: "floor has-tip" },
+    h("span", { class: "fl-what", text: m.context.length ? "Rows in view" : "Every row" }),
+    h("span", { class: "fl-fig num" }, h("span", { text: `${fmtInt(m.rows.length)} rows` }), h("b", { text: fmtT(t, b.mean) })),
+    intervalBar(b.mean, b.lo, b.hi, b.mean, domain, { tone: "base" }));
+  tip(el, () => h("div", null, h("b", { text: "Where the stack starts" }), h("div", { text: `${fmtT(t, b.mean)} [${fmtT(t, b.lo)}, ${fmtT(t, b.hi)}] over ${fmtInt(m.rows.length)} rows: the base, the dashed line on every bar.` })));
+  return el;
+}
+
+function brick(m, A, pocket, c, k, step, v, domain, ps) {
+  const t = m.target;
   const d = m.schema.dimById.get(c.dim);
-  const labels = c.keys.map(key => (d.levels.find(l => l.key === key) || { label: key }).label);
-  const name = d.kind === "scoped" ? `${d.name} (${d.scope.label})` : d.label;
-  const el = h("div", { class: "brick", draggable: "true" },
-    h("div", { class: "what" }, h("b", { text: name }), " = ", labels.join(" or "),
-      h("div", { class: "muted num", text: `${fmtInt(step.s.n)} rows · ${fmtT(m.target, step.s.mean)}` })),
-    h("button", { class: "icon-btn x", "aria-label": `Remove ${name}`, onclick: () => A.set({ pocket: pocket.filter((_, j) => j !== k) }) }, icon("close")));
-  tip(el.querySelector(".what"), () => h("div", null, h("b", { text: `After block ${k + 1}` }),
-    h("div", { text: `${fmtInt(step.s.n)} rows, ${fmtT(m.target, step.s.mean)} [${fmtT(m.target, step.s.lo)}, ${fmtT(m.target, step.s.hi)}]` }),
-    h("div", { class: "k", text: "Drag a block to reorder the path; the pocket itself does not change." })));
+  const vals = labels(d, c.keys);
+  const el = h("div", { class: `brick v-${v.kind}`, draggable: "true", dataset: { dim: c.dim } },
+    h("div", { class: "bk-top" },
+      h("span", { class: "bk-what" }, h("span", { class: "bk-name", text: name(d) }), h("span", { class: "bk-eq", text: " = " }), h("span", { class: "bk-vals", text: vals.join(" or ") })),
+      h("button", { class: "icon-btn bk-x", type: "button", "aria-label": `Remove ${name(d)}`, onclick: () => A.set({ pocket: pocket.filter((_, j) => j !== k) }) }, icon("close"))),
+    h("div", { class: "bk-path has-tip" },
+      h("span", { class: "bk-fig num" }, h("span", { text: `${fmtInt(step.n)} rows` }), h("b", { text: fmtT(t, step.mean) })),
+      intervalBar(step.mean, step.lo, step.hi, m.base.mean, domain)),
+    h("div", { class: "bk-verdict has-tip" },
+      h("span", { class: "vtag", text: VERDICT[v.kind] }),
+      h("span", { class: "bk-without num", text: `without it ${fmtT(t, v.without.mean)} on ${fmtInt(v.without.n)} rows` })));
+  tip(el.querySelector(".bk-path"), () => h("div", null, h("b", { text: k === pocket.length - 1 ? "The whole pocket" : `After block ${k + 1}` }),
+    h("div", { text: `${fmtInt(step.n)} rows, ${fmtT(t, step.mean)} [${fmtT(t, step.lo)}, ${fmtT(t, step.hi)}]` }),
+    h("div", { class: "k", text: "The blocks below and this one. Drag a block to reorder the path; the pocket itself does not change." })));
+  tip(el.querySelector(".bk-verdict"), () => h("div", null, h("b", { text: VERDICT[v.kind] }),
+    h("div", { text: v.kind === "few" ? `Its rows or the ${fmtInt(v.removed.n)} it takes away are under ${MIN_N}, so no test is made.`
+      : `The pocket's ${fmtInt(ps.n)} rows (${fmtT(t, ps.mean)}) against the ${fmtInt(v.removed.n)} this block takes away (${fmtT(t, v.removed.mean)}): ${fmtP(v.p, "p")}, ${fmtP(v.q)} across the blocks.` }),
+    h("div", { class: "k", text: `Without it the pocket holds ${fmtInt(v.without.n)} rows at ${fmtT(t, v.without.mean)} (${fmtDelta(t, v.without.mean - ps.mean)}).` })));
   el.addEventListener("dragstart", (e) => { e.dataTransfer.setData("application/x-grid-brick", String(k)); e.dataTransfer.effectAllowed = "move"; });
   el.addEventListener("dragover", (e) => { if (e.dataTransfer.types.includes("application/x-grid-brick")) { e.preventDefault(); e.stopPropagation(); } });
   el.addEventListener("drop", (e) => {
@@ -104,226 +228,121 @@ function brick(m, A, pocket, c, k, step) {
   return el;
 }
 
-// What the reader typed into the palette, kept across redraws.
-let paletteQuery = "";
+// ---------------------------------------------------------------------------
+// A pinned pocket against this one
 
-function palette(m, A, pocket) {
-  const box = h("div");
-  const input = h("input", { class: "search", type: "search", placeholder: "Find a parameter or value", "data-search": "1",
-    "aria-label": "Find a parameter or value", dataset: { focus: "pocket-search" } });
-  input.value = paletteQuery;
-  const list = h("div", { dataset: { scroll: "pocket-palette" }, style: { marginTop: "8px", display: "flex", flexDirection: "column", gap: "8px", maxHeight: "460px", overflowY: "auto" } });
-  const dims = boardDims(m.schema).concat(memberDims(m.schema));
-  const draw = () => {
-    list.replaceChildren();
-    const q = input.value.trim().toLowerCase();
-    let shown = 0;
-    for (const d of dims) {
-      const name = d.kind === "scoped" ? `${d.name} ${d.scope.label}` : d.label;
-      const levels = d.levels.filter(l => !q || name.toLowerCase().includes(q) || String(l.label).toLowerCase().includes(q));
-      if (!levels.length) continue;
-      if (++shown > 40) break;
-      const row = h("div", null, h("div", { class: "mono", style: { fontSize: "11px", color: "var(--ink-2)", marginBottom: "4px" }, text: name }));
-      const chips = h("div", { class: "chips" });
-      for (const l of (d.kind === "member" ? levels.filter(x => x.key === "in") : levels)) {
-        const inPocket = pocket.some(c => c.dim === d.id && c.keys.includes(l.key));
-        const chip = h("button", { class: "chip", draggable: "true", disabled: inPocket ? "disabled" : null,
-          style: { paddingRight: "8px", opacity: inPocket ? "0.45" : "1" },
-          onclick: () => A.addPocket(d.id, l.key) }, d.kind === "member" ? "included" : l.label);
-        chip.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/plain", JSON.stringify({ dim: d.id, key: l.key })));
-        chips.append(chip);
-      }
-      row.append(chips);
-      list.append(row);
-    }
-    if (!shown) list.append(h("p", { class: "muted", text: "Nothing matches." }));
-  };
-  input.addEventListener("input", () => { paletteQuery = input.value; draw(); });
-  draw();
-  box.append(h("div", { class: "section-title", text: "Blocks" }), input, list);
-  return box;
-}
-
-function readout(m, ps, title) {
+function compareIsland(m, A, pinned, ps) {
   const t = m.target;
-  const binary = t.kind === "binary";
-  const card = h("div", { class: "card" });
-  card.append(h("h3", { text: title }));
-  const hero = h("div", { class: "hero", style: { margin: "6px 0 10px" } },
-    h("span", { class: "big num", text: fmtT(t, ps.mean) }),
-    h("span", { class: "ci num", text: `[${fmtT(t, ps.lo)}, ${fmtT(t, ps.hi)}] · base ${fmtT(t, ps.base.mean)}` }));
-  card.append(hero);
-  const stats = h("div", { class: "stat-row" });
-  const stat = (k, v, d, tipText) => { const el = h("div", { class: "stat has-tip" }, h("div", { class: "k", text: k }), h("div", { class: "v num", text: v }), d ? h("div", { class: "d", text: d }) : null); if (tipText) tip(el, tipText); stats.append(el); };
-  stat("Rows", fmtInt(ps.n), `${fmtPct(ps.share, 1)} of the sweep`, "Rows that hold every block (inside the context).");
-  if (binary) {
-    stat("Lift", Number.isFinite(ps.lift) ? `${ps.lift.toFixed(2)}×` : "–", "rate over the base", "The pocket's rate divided by the base rate.");
-    stat("Hits", fmtInt(ps.hits), `${fmtPct(ps.recall, 0)} of all hits`, "Recall: the share of every hit in the sweep that falls inside the pocket.");
-  } else {
-    stat("Against the base", fmtDelta(t, ps.mean - ps.base.mean), null);
-  }
-  const sec = m.schema.targetById.get("sec");
-  if (sec && binary && ps.hits > 0) {
-    let total = 0;
-    for (let j = 0; j < ps.rows.length; j++) { const v = sec.values[ps.rows[j]]; if (v === v) total += v; }
-    stat("Compute per hit", `${(total / ps.hits).toFixed(1)} s`, "worker seconds per hit", "Sum of the rows' seconds inside the pocket, divided by its hits: what a hit costs if a sweep ran only here.");
-    const rate = runRate(m);
-    if (rate && rate.rowsPerSec > 0) stat("At the run's pace", `${fmtInt(rate.rowsPerSec * ps.mean * 3600)} hits/h`, `${rate.rowsPerSec.toFixed(1)} rows/s`, "Hits per hour a sweep drawn only inside this pocket would find at the current run's row rate (the pocket's rows cost about what the run's rows cost).");
-  }
-  card.append(stats);
-  // split-half
-  const [a, b] = ps.halves;
-  const agree = Number.isFinite(ps.halvesP) ? ps.halvesP >= 0.05 : null;
-  const half = h("p", { class: "note" },
-    h("span", { class: "sev " + (agree === null ? "warn" : agree ? "ok" : "crit") }, icon(agree === false ? "alert" : "check"),
-      agree === null ? "Too few rows to compare halves" : agree ? "No detectable difference between the halves" : "The halves differ"),
-    agree === null ? "" : `: ${fmtT(t, a.mean)} in the first half of the arrivals, ${fmtT(t, b.mean)} in the second (${fmtP(ps.halvesP, "p")}).`);
-  tip(half, "The context's rows split at their median arrival. A pocket mined on one half and confirmed on the other is less likely to be noise; one that only holds in one half is suspect.");
-  card.append(half);
-  card.append(gatesInside(m, ps.rows));
-  return card;
-}
-
-function gatesInside(m, rows) {
-  const g = m.schema.targetById.get("gates");
-  if (!g) return null;
-  const inside = new Float64Array(10), all = new Float64Array(10);
-  for (let j = 0; j < rows.length; j++) { const v = g.values[rows[j]]; if (v >= 0 && v <= 9) inside[v]++; }
-  for (let j = 0; j < m.rows.length; j++) { const v = g.values[m.rows[j]]; if (v >= 0 && v <= 9) all[v]++; }
-  const ni = inside.reduce((a, b) => a + b, 0), na = all.reduce((a, b) => a + b, 0);
-  const wrap = h("div", { style: { marginTop: "10px" } }, h("div", { class: "muted", style: { fontSize: "11.5px", marginBottom: "4px" }, text: "Gates passed: share of the pocket's rows (dark) and of all rows (light)" }));
-  const row = h("div", { style: { display: "flex", alignItems: "flex-end", gap: "6px", height: "70px" } });
-  const top = Math.max(...inside.map(x => x / Math.max(1, ni)), ...all.map(x => x / Math.max(1, na)), 0.01);
-  for (let k = 0; k <= 9; k++) {
-    if (!inside[k] && !all[k]) continue;
-    const pi = inside[k] / Math.max(1, ni), pa = all[k] / Math.max(1, na);
-    const col = h("div", { class: "has-tip", style: { display: "flex", flexDirection: "column", alignItems: "center", gap: "2px" } },
-      h("div", { style: { display: "flex", alignItems: "flex-end", gap: "2px", height: "52px" } },
-        h("div", { style: { width: "9px", height: `${Math.max(1, 52 * pi / top)}px`, background: "var(--ink)", borderRadius: "2px 2px 0 0" } }),
-        h("div", { style: { width: "9px", height: `${Math.max(1, 52 * pa / top)}px`, background: "var(--line-2)", borderRadius: "2px 2px 0 0" } })),
-      h("div", { class: "muted num", style: { fontSize: "10.5px" }, text: String(k) }));
-    tip(col, `${k} gates: ${fmtPct(pi, 1)} of the pocket (${fmtInt(inside[k])} rows), ${fmtPct(pa, 1)} of all rows`);
-    row.append(col);
-  }
-  wrap.append(row);
-  return wrap;
-}
-
-function compare(m, pb, psB, ps, A) {
-  const t = m.target;
-  const tbl = h("table", { class: "vals" }, h("thead", null, h("tr", null, h("th", { text: "" }), h("th", { class: "r", text: "pinned A" }), h("th", { class: "r", text: "this pocket" }))));
+  const pb = pocketStats(m.schema, pinned, t, m.rows, m.edge);
+  const tbl = h("table", { class: "vals" }, h("thead", null, h("tr", null, h("th", { text: "" }), h("th", { class: "r", text: "pinned" }), h("th", { class: "r", text: "this pocket" }))));
   const tb = h("tbody");
   const row = (k, a, b) => tb.append(h("tr", null, h("td", { text: k }), h("td", { class: "r num", text: a }), h("td", { class: "r num", text: b })));
-  row("blocks", String(pb.length), String((m.state.pocket || []).length));
-  row("rows", fmtInt(psB.n), fmtInt(ps.n));
-  row(t.label, `${fmtT(t, psB.mean)} [${fmtT(t, psB.lo)}, ${fmtT(t, psB.hi)}]`, `${fmtT(t, ps.mean)} [${fmtT(t, ps.lo)}, ${fmtT(t, ps.hi)}]`);
-  if (t.kind === "binary") row("hits", fmtInt(psB.hits), fmtInt(ps.hits));
+  row("blocks", fmtInt(pinned.length), fmtInt((m.state.pocket || []).length));
+  row("rows", fmtInt(pb.n), fmtInt(ps.n));
+  row(t.label, fmtT(t, pb.mean), fmtT(t, ps.mean));
+  row("95% interval", rangeText(t, pb.lo, pb.hi), rangeText(t, ps.lo, ps.hi));
+  if (t.kind === "binary") row("hits", fmtInt(pb.hits), fmtInt(ps.hits));
   tbl.append(tb);
-  const overlap = !(psB.hi < ps.lo || ps.hi < psB.lo);
-  return h("div", { class: "card" }, h("div", { class: "table-wrap" }, tbl),
-    h("p", { class: "note", text: overlap ? "Their intervals overlap: these rows do not tell the two pockets apart." : "Their intervals do not overlap." }),
-    h("div", { class: "actions" }, h("button", { class: "btn", onclick: () => A.set({ pocket: pb.map(c => ({ ...c })) }) }, "Bring A back"),
-      h("button", { class: "btn", onclick: () => A.set({ pocketB: null }) }, "Unpin")));
+  const overlap = !(pb.hi < ps.lo || ps.hi < pb.lo);
+  return h("section", { class: "island", "aria-labelledby": "pin-title" },
+    h("header", { class: "isl-head" }, h("h2", { class: "isl-title", id: "pin-title", text: "Against the pinned pocket" })),
+    h("div", { class: "table-wrap" }, tbl),
+    h("p", { class: "isl-note", text: overlap ? "Their intervals overlap: these rows do not tell the two pockets apart." : "Their intervals do not overlap." }),
+    h("footer", { class: "isl-foot" },
+      h("button", { class: "btn small", type: "button", onclick: () => A.set({ pocket: pinned.map(c => ({ ...c })) }) }, "Bring the pinned one back"),
+      h("button", { class: "btn small", type: "button", onclick: () => A.set({ pocketB: null }) }, "Unpin")));
 }
 
-function withoutEach(m, pocket, ps) {
-  const t = m.target;
-  const tbl = h("table", { class: "vals" }, h("thead", null, h("tr", null, h("th", { text: "without" }), h("th", { class: "r", text: "rows" }), h("th", { class: "r", text: t.label }), h("th", { class: "r", text: "change" }))));
-  const tb = h("tbody");
-  pocket.forEach((c, k) => {
-    const rest = pocket.filter((_, j) => j !== k);
-    const s = rest.length ? pocketStats(m.schema, rest, t, m.rows, m.edge) : { n: m.rows.length, mean: m.base.mean };
-    const d = m.schema.dimById.get(c.dim);
-    const delta = ps.mean - s.mean;
-    const tr = h("tr", null, h("td", { class: "v", text: d.kind === "scoped" ? `${d.name} (${d.scope.label})` : d.label }),
-      h("td", { class: "r num", text: fmtInt(s.n) }), h("td", { class: "r num", text: fmtT(t, s.mean) }),
-      h("td", { class: "r num", text: `${fmtDelta(t, delta)} for ${fmtInt(s.n - ps.n)} fewer rows` }));
-    tb.append(tr);
-  });
-  tbl.append(tb);
-  return h("div", { class: "table-wrap" }, tbl,
-    h("p", { class: "muted", text: "A block that barely changes the pocket's rate only costs rows; a block whose removal drops the rate is doing the work." }));
-}
+// ---------------------------------------------------------------------------
+// Blocks to add: suggested, then every value, under one search
 
-function suggestBlock(m, A, pocket, rows) {
-  const t = m.target;
+// What the reader typed into the search, kept across redraws.
+let query = "";
+
+function suggest(m, pocket, rows) {
   const used = new Set(pocket.map(c => c.dim));
   const dims = boardDims(m.schema).concat(memberDims(m.schema)).filter(d => !used.has(d.id));
-  const base = summarize(t, rows);
-  const sug = suggestions(m.schema, dims, t, rows, base, 10);
-  const wrap = h("div");
-  wrap.append(h("div", { class: "section-title", text: pocket.length ? "Next block" : "Where to start" }),
-    h("p", { class: "muted", text: `Values ranked by the ${t.better < 0 ? "upper" : "lower"} end of their 95% interval inside ${pocket.length ? "the pocket" : "the sweep"}: the conservative estimate, not the luckiest. Values with fewer than ${MIN_N} rows are left out.` }));
-  const tbl = h("table", { class: "vals suggest" }, h("thead", null, h("tr", null, h("th", { text: "add" }), h("th", { class: "r", text: "rows" }), h("th", { class: "r", text: t.label }), h("th", { class: "r", text: "95% interval" }))));
+  return suggestions(m.schema, dims, m.target, rows, summarize(m.target, rows), 10);
+}
+
+function addIsland(m, A, pocket, sug) {
+  const input = h("input", { class: "search", type: "search", placeholder: "Find a parameter or value", "data-search": "1",
+    "aria-label": "Find a parameter or value", dataset: { focus: "pocket-search" } });
+  input.value = query;
+  const body = h("div", { class: "add-body" });
+  const draw = () => {
+    body.replaceChildren(suggestedPart(m, A, pocket, sug, query), everyPart(m, A, pocket, query));
+  };
+  input.addEventListener("input", () => { query = input.value; draw(); });
+  draw();
+  return h("section", { class: "island add-island", "aria-labelledby": "add-title" },
+    h("header", { class: "isl-head" }, h("h2", { class: "isl-title", id: "add-title", text: "Add a block" }), input),
+    body);
+}
+
+const matches = (q, ...texts) => !q || texts.some(x => String(x).toLowerCase().includes(q));
+
+function suggestedPart(m, A, pocket, sug, raw) {
+  const t = m.target;
+  const q = raw.trim().toLowerCase();
+  const shown = sug.filter(s => matches(q, s.dimLabel, s.label));
+  const lo = Math.min(m.base.lo, ...shown.map(s => s.lo)), hi = Math.max(m.base.hi, ...shown.map(s => s.hi));
+  const pad = (hi - lo) * 0.08 || 1;
+  const domain = [lo - pad, hi + pad];
+  const title = h("h3", { class: "part-title has-tip" }, h("span", { text: pocket.length ? "Next block" : "Where to start" }),
+    h("span", { class: "note", text: `ranked by the ${t.better < 0 ? "upper" : "lower"} end of the 95% interval` }));
+  tip(title, `Values ranked by the ${t.better < 0 ? "upper" : "lower"} end of their 95% interval inside ${pocket.length ? "the pocket" : "the rows in view"}: the conservative estimate, not the luckiest. Values with fewer than ${MIN_N} rows are left out.`);
+  const part = h("div", { class: "isl-part" }, title);
+  if (!shown.length) { part.append(h("p", { class: "isl-note", text: q ? "No suggestion matches." : `No value has ${MIN_N} rows ${pocket.length ? "inside the pocket" : "yet"}.` })); return part; }
+  const tbl = h("table", { class: "vals suggest" }, h("thead", null, h("tr", null, h("th", { text: "value" }), h("th", { class: "r", text: "rows" }),
+    h("th", { class: "r", text: t.label }), h("th", { class: "iv", text: "95% interval" }))));
   const tb = h("tbody");
-  for (const sgt of sug) {
-    const d = m.schema.dimById.get(sgt.dim);
-    const name = d.kind === "member" ? `${sgt.dimLabel} included` : `${d.kind === "scoped" ? `${d.name} (${d.scope.label})` : sgt.dimLabel} = ${sgt.label}`;
-    tb.append(h("tr", { class: "clickable", tabindex: "0", onclick: () => A.addPocket(sgt.dim, sgt.key), onkeydown: (e) => { if (e.key === "Enter") A.addPocket(sgt.dim, sgt.key); } },
-      h("td", { class: "v", text: name }),
-      h("td", { class: "r num", text: fmtInt(sgt.n) }), h("td", { class: "r num", text: fmtT(t, sgt.mean) }),
-      h("td", { class: "r num", text: `${fmtT(t, sgt.lo)} – ${fmtT(t, sgt.hi)}` })));
+  for (const s of shown) {
+    const d = m.schema.dimById.get(s.dim);
+    const what = d.kind === "member" ? `${s.dimLabel} included` : `${name(d)} = ${s.label}`;
+    const tr = h("tr", { class: "clickable", tabindex: "0", "aria-label": `Add ${what}`, onclick: () => A.addPocket(s.dim, s.key),
+      onkeydown: (e) => { if (e.key === "Enter") A.addPocket(s.dim, s.key); } },
+      h("td", { class: "v", text: what }), h("td", { class: "r num", text: fmtInt(s.n) }), h("td", { class: "r num", text: fmtT(t, s.mean) }),
+      h("td", { class: "iv has-tip" }, intervalBar(s.mean, s.lo, s.hi, m.base.mean, domain)));
+    tip(tr.lastChild, `${fmtT(t, s.lo)} to ${fmtT(t, s.hi)}; the dashed line is the base, ${fmtT(t, m.base.mean)}.`);
+    tb.append(tr);
   }
   tbl.append(tb);
-  wrap.append(h("div", { class: "table-wrap" }, tbl));
-  return wrap;
+  part.append(h("div", { class: "table-wrap" }, tbl));
+  return part;
 }
 
-// The target as a Python expression on one row dict `r`.
-function targetPy(t) {
-  if (t.id === "tradeable") return '(r["gates"] >= 6 and r["total"] >= 3000)';
-  if (t.id === "gates7") return 'r["gates"] >= 7';
-  if (t.gate) return `r["gates_detail"][${JSON.stringify(t.gate)}]["pass"]`;
-  return `r[${JSON.stringify(t.id)}]`;
-}
-
-function pyValue(v) {
-  if (v === null) return "None";
-  if (v === true) return "True";
-  if (v === false) return "False";
-  if (typeof v === "number") return String(v);
-  return JSON.stringify(v);
-}
-
-function yamlValue(v) {
-  if (v === null) return "null";
-  return typeof v === "string" ? v : String(v);
-}
-
-function codeBlock(m, pocket, ps) {
-  const sc = m.schema;
-  const conds = [], yaml = [];
-  for (const c of pocket) {
-    const d = sc.dimById.get(c.dim);
-    const vals = c.keys.map(k => (d.levels.find(l => l.key === k) || {}).value);
-    if (d.kind === "member") {
-      conds.push(`${JSON.stringify(d.name)} in (r[${JSON.stringify(d.set.column)}] or [])`);
-      yaml.push(`# ${d.set.column}: always include ${d.name}`);
-      continue;
+function everyPart(m, A, pocket, raw) {
+  const q = raw.trim().toLowerCase();
+  const part = h("div", { class: "isl-part" }, h("h3", { class: "part-title" }, h("span", { text: "Every value" }),
+    h("span", { class: "note", text: "click to add or take out, or drag onto the stack" })));
+  const list = h("div", { class: "palette", dataset: { scroll: "pocket-palette" } });
+  let shown = 0;
+  for (const d of boardDims(m.schema).concat(memberDims(m.schema))) {
+    const nm = name(d);
+    const levels = (d.kind === "member" ? d.levels.filter(x => x.key === "in") : d.levels).filter(l => matches(q, nm, l.label));
+    if (!levels.length) continue;
+    shown++;
+    const block = pocket.find(c => c.dim === d.id);
+    const vals = h("div", { class: "pal-vals" });
+    for (const l of levels) {
+      const on = !!block && block.keys.includes(l.key);
+      const chip = h("button", { class: "vchip", type: "button", draggable: "true", "aria-pressed": on ? "true" : "false",
+        "aria-label": `${on ? "Take out" : "Add"} ${nm} = ${l.label}`,
+        onclick: () => (on ? takeOut(A, pocket, d.id, l.key) : A.addPocket(d.id, l.key)) }, d.kind === "member" ? "included" : l.label);
+      chip.addEventListener("dragstart", (e) => {
+        e.dataTransfer.setData(VALUE, JSON.stringify({ dim: d.id, key: l.key }));
+        e.dataTransfer.setData("text/plain", `${nm} = ${l.label}`);
+      });
+      vals.append(chip);
     }
-    if (d.kind === "size") {
-      conds.push(`len(r[${JSON.stringify(d.column)}] or []) in (${vals.map(pyValue).join(", ")},)`);
-      continue;
-    }
-    const path = d.column.split(".").map(p => `[${JSON.stringify(p)}]`).join("");
-    if (d.scope) {
-      const sd = sc.dimById.get(d.scope.dim);
-      conds.push(`r[${JSON.stringify(sd.column)}] == ${pyValue(sd.levels[d.scope.level].value)}`);
-    }
-    conds.push(`r${path} in (${vals.map(pyValue).join(", ")},)`);
-    const all = d.levels.map(l => yamlValue(l.value));
-    yaml.push(`${d.scope ? `${d.name}  # under ${d.scope.label}` : d.column}: [${vals.map(yamlValue).join(", ")}]  # was [${all.join(", ")}]`);
+    list.append(h("div", { class: "pal-item" + (block ? " in" : "") }, h("div", { class: "pal-name", text: nm }), vals));
   }
-  const py = `def in_pocket(r):\n    """${fmtInt(ps.n)} rows, ${fmtT(m.target, ps.mean)} [${fmtT(m.target, ps.lo)}, ${fmtT(m.target, ps.hi)}] ${m.target.label.toLowerCase()} (${m.ds.meta.label})."""\n    return (${conds.join("\n            and ")})`;
-  const space = `# narrowed space: ${fmtInt(ps.n)} rows here hit ${fmtT(m.target, ps.mean)} [${fmtT(m.target, ps.lo)}, ${fmtT(m.target, ps.hi)}]\n${yaml.join("\n")}`;
-  const src = (m.ds.meta.source || "results.jsonl").split(":").pop();
-  const query = `import json\n\nrows = [json.loads(l) for l in open(${JSON.stringify(src)})]\ninside = [r for r in rows if in_pocket(r)]\ny = [${targetPy(m.target)} for r in inside]\nprint(len(inside), sum(y) / len(y))`;
-  const out = h("div");
-  for (const [label, text] of [["Python predicate (one row as a dict)", py], ["The pocket as a space, for the next sweep's YAML", space], ["Check it on the results file", query]]) {
-    const pre = h("pre", { class: "code", text });
-    out.append(h("div", { class: "code-head" }, h("span", { text: label }),
-      h("button", { class: "btn small", onclick: async () => { await copyText(text, pre); } }, icon("copy"), "Copy")), pre);
-  }
-  return out;
+  part.append(shown ? list : h("p", { class: "isl-note", text: "Nothing matches." }));
+  return part;
 }
 
+// One value out of its block; the block goes when it holds none.
+function takeOut(A, pocket, dim, key) {
+  A.set({ pocket: pocket.map(c => (c.dim === dim ? { dim, keys: c.keys.filter(k => k !== key) } : c)).filter(c => c.keys.length) });
+}
