@@ -59,8 +59,9 @@ export function divergingFill(t) {
   return { background: `color-mix(in oklab, ${pole} calc(var(--heat-cap) * ${share}), var(--mid))`, color: "var(--ink)" };
 }
 
-// Line chart with a crosshair: series [{label, color, points: [[x, y]], dash}],
-// x numeric. A legend is drawn for two or more series.
+// Line chart with a crosshair: series [{label, color, points: [[x, y]], dash,
+// group}], x numeric. Series that share a group read as one; a legend is
+// drawn for two or more.
 export function lineChart(series, opts = {}) {
   const W = opts.width || 640, H = opts.height || 200;
   const m = { l: 52, r: 14, t: 10, b: 26 };
@@ -113,21 +114,32 @@ export function lineChart(series, opts = {}) {
     cross.setAttribute("x1", px); cross.setAttribute("x2", px); cross.setAttribute("visibility", "visible");
   });
   overlay.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); hoverX = null; });
+  // series that share a group (an interval's two bounds) are one entry: one
+  // legend item, and in the tip their values as a range
+  const entries = [];
+  for (const sr of series) {
+    const e = sr.group ? entries.find(x => x.group === sr.group) : null;
+    if (e) e.members.push(sr);
+    else entries.push({ group: sr.group, label: sr.label, color: sr.color, dash: sr.dash, members: [sr] });
+  }
+  const fmtY = opts.fmtY || fmtNum;
   tip(overlay, () => {
     if (hoverX === null) return null;
-    const rows = series.map(sr => {
-      const p = nearest(sr.points, hoverX);
-      return p ? h("div", null, h("span", { style: { display: "inline-block", width: "12px", height: "2px", background: sr.color, verticalAlign: "middle", marginRight: "6px" } }),
-        h("b", { text: (opts.fmtY || fmtNum)(p[1]) }), h("span", { class: "k", text: "  " + sr.label })) : null;
+    const rows = entries.map(e => {
+      const ys = e.members.map(sr => nearest(sr.points, hoverX)).filter(Boolean).map(p => p[1]);
+      if (!ys.length) return null;
+      const lo = Math.min(...ys), hi = Math.max(...ys);
+      return h("div", null, h("span", { style: { display: "inline-block", width: "12px", height: "2px", background: e.color, verticalAlign: "middle", marginRight: "6px" } }),
+        h("b", { text: hi > lo ? `${fmtY(lo)} to ${fmtY(hi)}` : fmtY(lo) }), h("span", { class: "k", text: "  " + e.label }));
     });
     const p0 = nearest(series[0] ? series[0].points : [], hoverX);
     return h("div", null, h("div", { class: "k", text: `${opts.xLabel || "x"} ${(opts.fmtX || fmtInt)(p0 ? p0[0] : hoverX)}` }), rows);
   });
   svgEl.append(overlay);
   const wrap = h("figure", { class: "fig", style: { margin: 0 } });
-  if (series.length >= 2 || opts.legend) {
-    wrap.append(h("div", { class: "legend" }, series.map(sr =>
-      h("span", null, h("i", { style: { background: sr.color, height: sr.dash ? "0" : "2px", borderTop: sr.dash ? `2px dashed ${sr.color}` : null } }), sr.label))));
+  if (entries.length >= 2 || opts.legend) {
+    wrap.append(h("div", { class: "legend" }, entries.map(e =>
+      h("span", null, h("i", { style: { background: e.color, height: e.dash ? "0" : "2px", borderTop: e.dash ? `2px dashed ${e.color}` : null } }), e.label))));
   }
   wrap.append(svgEl);
   return wrap;

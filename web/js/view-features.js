@@ -289,8 +289,8 @@ function membersIsland(m, A, s) {
     isl.append(h("div", { class: "isl-part" }, h("h3", { class: "part-title" }, h("span", { text: `${t.label} by the number of members` }),
       h("span", { class: "note", text: `${fmtP(e.p, "p")} for any difference across sizes; thin lines bound the 95% interval` })),
     lineChart([{ label: t.label, color: "var(--ink)", points: ok.map(l => [l.value, l.mean]) },
-      { label: "95% interval", color: "var(--muted)", points: ok.map(l => [l.value, l.lo]), width: 1, endDot: false },
-      { label: "", color: "var(--muted)", points: ok.map(l => [l.value, l.hi]), width: 1, endDot: false }],
+      { label: "95% interval", group: "ci", color: "var(--muted)", points: ok.map(l => [l.value, l.lo]), width: 1, endDot: false },
+      { label: "95% interval", group: "ci", color: "var(--muted)", points: ok.map(l => [l.value, l.hi]), width: 1, endDot: false }],
     { height: 170, xLabel: "members", fmtX: v => String(v), fmtY: v => fmtT(t, v), label: "needle by subset size" })));
   }
   return isl;

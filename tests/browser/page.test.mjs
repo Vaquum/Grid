@@ -494,6 +494,22 @@ test("a Limen run reads with its manifest's parameters and Limen's metrics", asy
   await page.close();
 });
 
+test("features on a pool: each member's inclusion, then the needle by the number of members", async () => {
+  const { page, errors } = await open();
+  await page.keyboard.press("4");
+  await page.waitForSelector(".ft-island .legend");
+  // the interval's two bounds are one legend entry, and no entry is empty
+  assert.deepEqual(await page.locator(".ft-island .legend > span").allInnerTexts(), ["Tradeable", "95% interval"]);
+  // the chart's part keeps the gap between parts after the members' table
+  const gap = await page.evaluate(() => {
+    const isl = document.querySelector(".ft-island");
+    return isl.querySelector(":scope > .isl-part").getBoundingClientRect().top - isl.querySelector(":scope > .table-wrap").getBoundingClientRect().bottom;
+  });
+  assert.ok(gap >= 20, `gap ${gap}`);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("features on a Limen run: its groups from the manifest, its dropped columns from the round log", async () => {
   const { page, errors } = await limenPage();
   await page.goto(base + "limen");

@@ -526,7 +526,7 @@ pre.code .ln { color: var(--muted); user-select: none; }
 .isl-title { margin: 0; font-size: var(--fs-l); font-weight: 600; line-height: 20px; }
 .isl-count { color: var(--muted); font-size: var(--fs-m); }
 .isl-head .search { flex: 1 1 200px; width: auto; max-width: 300px; margin-left: auto; }
-.isl-part + .isl-part { margin-top: var(--sp-5); }
+.isl-part + .isl-part, .island > :not(.isl-head) + .isl-part { margin-top: var(--sp-5); }
 .part-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px var(--sp-2); margin: 0 0 var(--sp-2); font-size: var(--fs-m); font-weight: 600; }
 .part-title .note { font-weight: 400; color: var(--muted); }
 .isl-note { margin: var(--sp-2) 0 0; color: var(--muted); font-size: var(--fs-m); }
@@ -599,7 +599,6 @@ table.suggest th.iv, table.suggest td.iv { width: 34%; min-width: 96px; }
 .pr-map-island { grid-area: map; }
 .island.pending { color: var(--muted); }
 .pr-rows { display: grid; gap: 2px; margin: 0 -8px; }
-.pr-list .isl-note + .isl-part, .pr-list .pr-rows + .isl-part { margin-top: var(--sp-5); }
 .pr-row {
   display: grid; grid-template-columns: minmax(0, 1fr) 56px 52px 64px; align-items: center; gap: var(--sp-3);
   min-height: 34px; padding: 6px 8px; border: 0; border-radius: var(--r-m); background: transparent; color: var(--ink); text-align: left;
