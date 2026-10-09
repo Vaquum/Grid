@@ -16,7 +16,9 @@ const NULL_GAP = 13;  // % between "none" and the first number
 // One y scale for every card: zero, the reference, every shown value's
 // mean, and the intervals up to a quarter of that span beyond (a longer
 // interval is cut at the edge and marked so), rounded out to the finest
-// step of 1, 2, 2.5 or 5 that needs at most three intervals.
+// step of 1, 2, 2.5 or 5 that needs at most three intervals. A span the
+// target cannot print (nothing shown yet, and a base a rounding error from
+// zero) gets ten of its last digits, or a point for a rate.
 export function plotDomain(groups, ref, target) {
   const binary = target.kind === "binary";
   let lo = Math.min(0, ref), hi = Math.max(0, ref);
@@ -30,7 +32,8 @@ export function plotDomain(groups, ref, target) {
       if (Number.isFinite(l.hi)) ciHi = Math.max(ciHi, l.hi);
     }
   }
-  if (!(hi > lo)) hi = lo + (binary ? 0.01 : 1);
+  const least = binary ? 0.01 : 10 * Math.pow(10, -(target.digits ?? 2));
+  if (!(hi - lo >= least / 10)) hi = lo + least;
   const span = hi - lo;
   const a = Math.min(lo, Math.max(ciLo, lo - span / 4));
   const b = Math.max(hi, Math.min(ciHi, hi + span / 4));
@@ -179,9 +182,15 @@ export function effectPlot(levels, opts) {
   return box;
 }
 
-// A tick in as many decimals as its step has (0.025 needs three).
-function tickText(target, t, step) {
-  const decimals = s => { const m = /\.(\d+)$/.exec(String(+s.toPrecision(12))); return m ? m[1].length : 0; };
+// The decimals a step has (0.025 needs three; 5e-7, which String() writes
+// with an exponent, seven).
+function decimals(s) {
+  const m = /^-?\d+(?:\.(\d+))?(?:e([+-]\d+))?$/.exec(String(+s.toPrecision(12)));
+  return m ? Math.max(0, (m[1] ? m[1].length : 0) - (m[2] ? Number(m[2]) : 0)) : 0;
+}
+
+// A tick in as many decimals as its step has.
+export function tickText(target, t, step) {
   if (target.kind === "binary") return `${(t * 100).toFixed(decimals(step * 100))}%`;
   const digits = decimals(step);
   if (target.unit === "$") return (t < 0 ? "−$" : "$") + Math.abs(t).toLocaleString("en-US", { maximumFractionDigits: digits });
