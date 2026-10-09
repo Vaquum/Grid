@@ -8,7 +8,7 @@ import { limenProfile } from "./profiles.js";
 import { rowsIn, summarize, board, boardOrder, MIN_N } from "./engine.js";
 import { boardDims, objectiveTop, objectiveKeys } from "./model.js";
 import { h, clear, icon, installTips, hideTip, syncInfo, fmtInt, fmtRowValue, runName, tip } from "./ui.js";
-import { runStatus } from "./status.js";
+import { runStatus, rowsSince } from "./status.js";
 import { manifestSection, figureLine } from "./manifest.js";
 import { applyGates } from "./gates.js";
 import { renderBoard } from "./view-board.js";
@@ -523,7 +523,7 @@ function statusOf(m) {
   const ds = m.ds, log = runLog(m);
   return runStatus({ meta: ds.meta, n: ds.n, edge: app.state.edge, mode: app.config.mode, connected: !!(app.live && app.live.connected),
     playing: !!app.playback, seg: segmentOf(m), writing: !!(log && log.openTraceback), lastRow: ds.n ? ds.arrivals[ds.n - 1] : NaN,
-    started: Number.isFinite(app.sweep.meta.started) ? app.sweep.meta.started : app.started / 1000, now: Date.now() / 1000 });
+    since: rowsSince(Number.isFinite(app.sweep.meta.started) ? app.sweep.meta.started : app.started / 1000, ds.meta), now: Date.now() / 1000 });
 }
 
 function updateRail(m) {
@@ -600,8 +600,20 @@ function notifyRecords() {
   if (prev === undefined || top === undefined || top === prev) return;
   if (top < prev && app.state.edge === null && app.config.mode !== "live") return;
   if (m.allRows.length < MIN_N) return;
+  const run = m.ds.id, gen = m.ds.meta.generation;
   note("good", "New best row.", `${objectiveKeys(m).map(({ t }) => `${t.label} ${fmtRowValue(t, t.values[top])}`).join(" · ")} (row ${fmtInt(top)})`,
-    () => setState({ view: "trials", sel: { kind: "row", i: top } }), "best");
+    () => openRow(run, gen, top), "best");
+}
+
+// A row a toast or the list of what happened names: in the run it was
+// found in, even after the reader moved to another run, or after that run
+// started over (its rows are then its archive's).
+function openRow(run, gen, i) {
+  const now = app.sweep.runs.find(r => r.id === run);
+  const id = now && now.meta.generation === gen ? run : `${run}.g${gen}`;
+  if (!app.sweep.runs.some(r => r.id === id)) return;
+  if (id === app.state.run) setState({ view: "trials", sel: { kind: "row", i } });
+  else setState({ run: id, view: "trials", sel: { kind: "row", i }, context: [], pocket: [], edge: null, clusters: [], clusterK: null });
 }
 
 // ---------------------------------------------------------------------------

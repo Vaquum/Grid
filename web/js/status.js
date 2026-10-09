@@ -9,11 +9,19 @@ import { fmtInt, fmtAgo, fmtClock, fmtDuration } from "./ui.js";
 // Seconds without a row before a run being written is quiet.
 export const QUIET_AFTER = 600;
 
+// When a run's rows could first arrive: the later of the server's start
+// and the run's last start-over, so a run that has just started again is
+// not quiet for the time before it.
+export function rowsSince(started, meta) {
+  const resets = meta.resets || [];
+  return Math.max(started, resets.length ? resets[resets.length - 1].at : -Infinity);
+}
+
 // s: { meta, n, edge (null: the latest row), mode ("live" or a recording),
 // connected, playing, seg (the run's log segment, or null), writing (a
 // traceback is being written to the log), lastRow (wall time the latest
-// row was read, NaN for rows read at the start), started (when the server
-// started reading), now } -> { kind, label, detail, tip }
+// row was read, NaN for rows read at the start), since (rowsSince), now }
+// -> { kind, label, detail, tip }
 export function runStatus(s) {
   const { meta } = s;
   if (s.edge !== null && s.edge < s.n) {
@@ -45,7 +53,7 @@ export function runStatus(s) {
   if (seg && seg.status === "finished") {
     return { kind: "kept", label: "Finished", detail: last, tip: "The run's log has its closing summary: the sweep is done." };
   }
-  const quiet = Number.isFinite(ago) ? ago : s.now - s.started;
+  const quiet = Number.isFinite(ago) ? ago : s.now - s.since;
   if (quiet > QUIET_AFTER) {
     return { kind: "quiet", label: "Quiet", detail: last || `no row in ${fmtDuration(quiet)}`,
       tip: `No row has arrived for over ${QUIET_AFTER / 60} minutes. The Run view (7) shows a crash or a stop when the log has one.` };

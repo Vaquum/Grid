@@ -3,14 +3,14 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runStatus } from "../../web/js/status.js";
+import { runStatus, rowsSince } from "../../web/js/status.js";
 import { fmtClock, fmtStamp, runName } from "../../web/js/ui.js";
 
 process.env.TZ = "UTC";  // the reader's clock, for these tests
 
 const now = 1_000_000;
 const base = { meta: { live: true, source: "results.jsonl" }, n: 100, edge: null, mode: "live", connected: true,
-  playing: false, seg: null, writing: false, lastRow: now - 5, started: now - 3600, now };
+  playing: false, seg: null, writing: false, lastRow: now - 5, since: now - 3600, now };
 const st = (patch = {}) => runStatus({ ...base, ...patch, meta: { ...base.meta, ...(patch.meta || {}) } });
 const said = s => [s.kind, s.label, s.detail];
 
@@ -18,8 +18,16 @@ test("a run being written is live, and quiet after ten minutes without a row", (
   assert.deepEqual(said(st()), ["live", "Live", "last row 5 s ago"]);
   assert.deepEqual(said(st({ lastRow: now - 700 })), ["quiet", "Quiet", "last row 12 min ago"]);
   // no row since the server began reading: live, then quiet ten minutes on
-  assert.deepEqual(said(st({ lastRow: NaN, started: now - 60 })), ["live", "Live", "no new row yet"]);
+  assert.deepEqual(said(st({ lastRow: NaN, since: now - 60 })), ["live", "Live", "no new row yet"]);
   assert.deepEqual(said(st({ lastRow: NaN })), ["quiet", "Quiet", "no row in 60 min"]);
+});
+
+test("a run that has just started over is not quiet for the time before it", () => {
+  // the server has read for an hour; the run started over a minute ago
+  const meta = { resets: [{ at: now - 60, reason: "truncated", rows: 3900 }] };
+  assert.equal(rowsSince(now - 3600, meta), now - 60);
+  assert.equal(rowsSince(now - 3600, {}), now - 3600);
+  assert.deepEqual(said(st({ lastRow: NaN, since: rowsSince(now - 3600, meta) })), ["live", "Live", "no new row yet"]);
 });
 
 test("a crash in the run's latest segment says so, until a progress line says it went on", () => {
