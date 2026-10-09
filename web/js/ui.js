@@ -437,6 +437,22 @@ export async function copyText(text, fallbackEl) {
   }
 }
 
+// Copying, said one way everywhere: a toast (`say`, the app's) that names
+// what was copied and what it is for, or, when the browser refuses, that
+// the text is selected to copy by hand (or that it is not on the page).
+export async function copyAndSay(text, say, done, opts = {}) {
+  const ok = await copyText(text, opts.select || null);
+  say(h("span", null, h("b", { text: ok ? `${done} ` : "Copying was refused. " }),
+    ok ? opts.then || "" : opts.select ? "The text is selected: copy it by hand." : "The browser did not allow the clipboard."));
+}
+
+// A block of code with its title (text, or a node) and its Copy button.
+export function codeBlock(title, text, say, done, cls) {
+  const pre = h("pre", { class: "code" + (cls ? ` ${cls}` : ""), text });
+  return [h("div", { class: "code-head" }, typeof title === "string" || !title ? h("span", { text: title || "" }) : title,
+    h("button", { class: "btn small", type: "button", onclick: () => copyAndSay(text, say, done, { select: pre }) }, icon("copy"), "Copy")), pre];
+}
+
 // ---------------------------------------------------------------------------
 // Icons (24-unit strokes)
 

@@ -107,14 +107,14 @@ export function renderPairs(view, m, A) {
   const combos = plan ? background(m, `combos${size}`, () => comboJob(m, plan), A.rerender) : null;
   view.append(pairsStrip(m, A, pairs, size, plan, combos));
   if (!pairs) {
-    view.append(h("div", { class: "island pending", role: "status" }, h("span", { text: "Testing every pair…" })));
+    view.append(h("div", { class: "empty", role: "status", text: "Testing every pair…" }));
     return;
   }
   const ranked = pairs.list.filter(r => r.detectable).sort((a, b) => b.omega2 - a.omega2);
   const chosen = chosenSet(m, pairs, ranked, size, combos);
   let detail;
   if (size === 2) detail = chosen ? pairIsland(m, A, pairs, chosen) : noPair(pairs);
-  else if (!combos) detail = h("section", { class: "island pr-pair pending", role: "status" }, h("p", { class: "isl-note", text: `Testing every ${SIZE_NAME[size][0]} of the ${fmtInt(plan.pool.length)} strongest parameters…` }));
+  else if (!combos) detail = h("section", { class: "empty pr-pair", role: "status", text: `Testing every ${SIZE_NAME[size][0]} of the ${fmtInt(plan.pool.length)} strongest parameters…` });
   else detail = chosen ? comboIsland(m, A, combos, chosen) : noCombo(combos);
   // which sets on the left (the ranked ones over the map of every pair),
   // the chosen one on the right, in sight of either
@@ -318,7 +318,7 @@ function pairRow(m, A, r, on, share, figure, q, kind) {
 // One pair: the needle in every combination, with each value's margin
 
 function noPair(pairs) {
-  return h("section", { class: "island pr-pair empty-pair" }, h("p", { class: "isl-note", text: `No pair interacts detectably over these ${fmtInt(pairs.rows)} rows. Choose any cell of the map to open its pair.` }));
+  return h("section", { class: "empty pr-pair" }, h("p", { text: `No pair interacts detectably over these ${fmtInt(pairs.rows)} rows. Choose any cell of the map to open its pair.` }));
 }
 
 // A cell of a heat table: the needle in one combination, coloured against
@@ -326,7 +326,7 @@ function noPair(pairs) {
 // the combination on the board.
 function heatCell(ctx, c, conds, where, cls = "") {
   const { m, A, t, base, span } = ctx;
-  if (!c.n) return h("td", { class: `empty ${cls}` });
+  if (!c.n) return h("td", { class: `blank ${cls}` });
   if (c.withheld) {
     const td = h("td", { class: `withheld has-tip ${cls}` }, h("span", { class: "n", text: fmtInt(c.n) }));
     tip(td, `${where}: ${fmtInt(c.n)} rows, fewer than 30, so no number is shown`);
@@ -348,9 +348,9 @@ function heatCell(ctx, c, conds, where, cls = "") {
 // which way is better.
 function heatLegend(t) {
   return h("div", { class: "legend" },
-    h("span", null, h("i", { class: "box", style: { background: "var(--better)" } }), t.better < 0 ? "lower than the base" : "higher than the base"),
-    h("span", null, h("i", { class: "box", style: { background: "var(--mid)", outline: "1px solid var(--line)" } }), "at the base"),
-    h("span", null, h("i", { class: "box", style: { background: "var(--worse)" } }), t.better < 0 ? "higher than the base" : "lower than the base"));
+    h("span", null, h("i", { class: "box better" }), t.better < 0 ? "lower than the base" : "higher than the base"),
+    h("span", null, h("i", { class: "box mid" }), "at the base"),
+    h("span", null, h("i", { class: "box worse" }), t.better < 0 ? "higher than the base" : "lower than the base"));
 }
 
 function pairIsland(m, A, pairs, chosen) {
@@ -410,7 +410,7 @@ function pairIsland(m, A, pairs, chosen) {
 
 function noCombo(combos) {
   const [one] = SIZE_NAME[combos.size];
-  return h("section", { class: "island pr-pair empty-pair" }, h("p", { class: "isl-note", text: combos.tested
+  return h("section", { class: "empty pr-pair" }, h("p", { text: combos.tested
     ? `No ${one} acts detectably beyond ${combos.size === 3 ? "its pairs" : "its smaller sets"} over these ${fmtInt(combos.rows)} rows, so they give the full picture. Choose one of the closest to open it anyway.`
     : `No ${one} can be tested at ${fmtInt(combos.rows)} rows: each has a combination of values under ${MIN_CELL} rows.` }));
 }
@@ -563,8 +563,8 @@ function mapIsland(m, A, pairs, chosen) {
     h("header", { class: "isl-head" }, h("h2", { class: "isl-title", id: "pr-map-title", text: "Every pair" }),
       h("span", { class: "isl-count", text: capped ? `the ${fmtInt(pairs.dims.length)} strongest of ${fmtInt(pairs.of)} parameters` : `${fmtInt(pairs.dims.length)} parameters` }),
       h("div", { class: "legend pr-legend" },
-        h("span", null, h("i", { class: "box", style: { background: "var(--better)" } }), "interact (below the diagonal)"),
-        h("span", null, h("i", { class: "box", style: { background: "var(--warning)" } }), `${TOGETHER} (above)`),
-        h("span", null, h("i", { class: "box", style: { background: "var(--surface-2)", outline: "1px solid var(--line-2)" } }), "nothing detectable"))),
+        h("span", null, h("i", { class: "box better" }), "interact (below the diagonal)"),
+        h("span", null, h("i", { class: "box together" }), `${TOGETHER} (above)`),
+        h("span", null, h("i", { class: "box none" }), "nothing detectable"))),
     h("div", { class: "table-wrap", dataset: { scroll: "pairs-map" } }, tbl));
 }

@@ -7,7 +7,7 @@
 // there); the best row against luck; and the run's health: its pace and
 // segments, its problems and warnings, and the sampler.
 
-import { h, icon, tip, fmtT, fmtRowValue, fmtInt, fmtPct, fmtP, fmtNum, fmtPace, fmtDuration, fmtAgo, fmtClock, inText, rangeText, spanText, runName } from "./ui.js";
+import { h, icon, tip, fmtT, fmtRowValue, fmtInt, fmtPct, fmtP, fmtNum, fmtPace, fmtDuration, fmtAgo, fmtClock, inText, rangeText, spanText, codeBlock, runName } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { lineChart, distChart } from "./charts.js";
 import { invariantBreaks, recordCurve, uniformity, summarize, rowsIn, gTest, MIN_N } from "./engine.js";
@@ -322,7 +322,7 @@ function distIsland(m, res, sel) {
   const isl = h("section", { class: "island rn-dists", "aria-label": "Distributions" },
     h("header", { class: "isl-head" }, h("h2", { class: "isl-title", text: "Distributions" }),
       h("span", { class: "isl-count num", text: `${outs.length} outcome${outs.length === 1 ? "" : "s"}` }),
-      h("div", { class: "legend rn-legend" }, groups.map(g => h("span", null, h("i", { class: "box", style: { background: g.ink } }),
+      h("div", { class: "legend rn-legend" }, groups.map(g => h("span", null, h("i", { class: "box", style: { "--c": g.ink } }),
         `${g.label} · ${fmtInt(g.rows.length)} rows`)))));
   if (!outs.length) { isl.append(h("p", { class: "isl-note", text: "No row in view has an outcome yet." })); return isl; }
   const nDrawn = outs.filter(t => drawn.has(t.id)).length;
@@ -342,15 +342,15 @@ function distCard(m, t, groups, drawn, sel, test, q, res) {
   // values the rows have read as the cards print them: a whole number
   // whole, a 0/1 outcome no or yes
   const ch = distChart(groups.map((g, i) => ({ label: g.label, fill: g.fill, ink: g.ink, text: g.text, vals: vals[i] })),
-    { target: t, label: `${t.label}: how the rows spread` });
+    { kind: "dist", target: t, label: `${t.label}: how the rows spread` });
   const isNeedle = t.id === m.target.id;
   const card = h("article", { class: "rn-card" + (isNeedle ? " needle" : ""), dataset: { outcome: t.id } });
   const tags = h("span", { class: "rn-tags" });
-  if (isNeedle) tags.append(h("span", { class: "gt-tag", text: "the needle" }));
-  if (t.cost) tags.append(h("span", { class: "gt-tag", text: "cost" }));
-  else if (KIND_OF[t.group]) tags.append(h("span", { class: "gt-tag", text: KIND_OF[t.group] }));
+  if (isNeedle) tags.append(h("span", { class: "tag", text: "the needle" }));
+  if (t.cost) tags.append(h("span", { class: "tag", text: "cost" }));
+  else if (KIND_OF[t.group]) tags.append(h("span", { class: "tag", text: KIND_OF[t.group] }));
   if (drawn) {
-    const tg = h("span", { class: "gt-tag has-tip", text: "clusters drawn on it" });
+    const tg = h("span", { class: "tag has-tip", text: "clusters drawn on it" });
     tip(tg, () => h("div", null, h("b", { text: "The clusters are drawn on this outcome" }),
       h("div", { class: "k", text: "So the clusters differ on it by construction; that difference is shown, never tested." })));
     tags.append(tg);
@@ -362,7 +362,7 @@ function distCard(m, t, groups, drawn, sel, test, q, res) {
   const figs = h("div", { class: "rn-figs" });
   groups.forEach((g, i) => {
     const v = vals[i], miss = g.rows.length - v.length;
-    const line = h("div", { class: "rn-fig" }, groups.length > 1 ? h("i", { class: "box", style: { background: g.ink } }) : null);
+    const line = h("div", { class: "rn-fig" }, groups.length > 1 ? h("i", { class: "box", style: { "--c": g.ink } }) : null);
     if (!v.length) line.append(h("span", { class: "muted", text: `${g.label}: no row has a value` }));
     else if (t.kind === "binary") {
       const s = summarize(t, g.rows);
@@ -603,7 +603,7 @@ function recordIsland(m) {
     { label: "best so far", color: "var(--ink)", points: rec.pts.map(p => [p.n, p.best]), step: true },
     { label: "expected best under noise", color: "var(--cat-3)", points: rec.pts.map(p => [p.n, p.luck]), dash: "5 4" },
     { label: "mean", color: "var(--muted)", points: rec.pts.map(p => [p.n, p.mean]), endDot: false },
-  ], { height: 190, xLabel: "rows", target: rec.t, label: "record against the luck line" }));
+  ], { kind: "record", height: 192, xLabel: "rows", target: rec.t, label: "record against the luck line" }));
   const above = (rec.last.best - rec.last.luck) * (rec.t.better < 0 ? -1 : 1) > 0;
   isl.append(h("p", { class: "isl-note" }, h("b", { text: above ? "Above the luck line" : "Inside the luck line" }),
     `: the best row reaches ${fmtRowValue(rec.t, rec.last.best)}; noise alone would give about ${fmtT(rec.t, rec.last.luck)} at ${fmtInt(rec.last.n)} rows. The dashed line is that expectation; a record that only tracks it is harvesting noise.`));
@@ -647,7 +647,7 @@ function paceIsland(m, health) {
     }));
     if (series.length) {
       isl.append(h("div", { class: "part-title", text: `Rows over time, in ${unit[2]} from each segment's start` }));
-      isl.append(lineChart(series, { height: 160, fmtX: v => `${fmtNum(v, unit[1] === "h" ? 1 : 0)} ${unit[1]}`, fmtY: v => `${fmtInt(v)} rows`, label: "rows over time by segment" }));
+      isl.append(lineChart(series, { kind: "pace", height: 160, fmtX: v => `${fmtNum(v, unit[1] === "h" ? 1 : 0)} ${unit[1]}`, fmtY: v => `${fmtInt(v)} rows`, label: "rows over time by segment" }));
     }
     isl.append(h("div", { class: "part-title", text: "Segments in the log" }));
     const maxRows = Math.max(1, ...log.segments.map(s => (s.progress.length ? s.progress[s.progress.length - 1][1] : 0)));
@@ -658,11 +658,11 @@ function paceIsland(m, health) {
       const mine = health.seg && health.seg.index === s.index;
       const fill = h("div", { class: "fill" + (s.status === "open" ? " live" : s.status === "crashed" ? " crashed" : ""), style: { width: `${Math.max(1, 100 * rows / maxRows)}%` } });
       tl.append(h("div", { class: "seg-row" },
-        h("div", null, h("div", { style: { fontWeight: mine ? "650" : "400" }, text: s.marker ? s.marker.label : "first run" }),
+        h("div", null, h("div", { class: mine ? "seg-mine" : null, text: s.marker ? s.marker.label : "first run" }),
           h("div", { class: "muted mono", text: s.marker ? s.marker.stamp : `log line ${s.line}` })),
         h("div", { class: "seg-bar has-tip" }, fill),
         h("div", { class: "num" }, h("div", null, `${fmtInt(rows)} rows`, el ? h("span", { class: "muted", text: ` · ${fmtDuration(el)}` }) : null),
-          h("div", { class: "sev " + (s.status === "crashed" ? "crit" : s.status === "open" ? "ok" : s.status === "finished" ? "off" : "warn"), style: { display: "flex" }, text: s.status }))));
+          h("div", { class: "sev " + (s.status === "crashed" ? "crit" : s.status === "open" ? "ok" : s.status === "finished" ? "off" : "warn"), text: s.status }))));
       tip(tl.lastChild.querySelector(".seg-bar"), `Segment ${s.index + 1}: from log line ${s.line}${s.endLine ? ` to ${s.endLine}` : ""}, ${fmtInt(rows)} of ${fmtInt(s.total)} rows${mine ? "; the rows on screen" : ""}`);
     }
     isl.append(tl);
@@ -680,13 +680,13 @@ function problemsIsland(m, A, health) {
     if (p.kind === "crash") {
       any = true;
       const c = p.c, seg = log.segments.find(s => s.index === c.segment);
+      const where = c.where ? `${c.where.path.split("/").slice(-2).join("/")}:${c.where.line} in ${c.where.func}` : null;
       isl.append(h("div", { class: "issue" }, h("span", { class: "sev crit" }, icon("alert"), "crash"),
-        h("div", { style: { minWidth: 0 } },
+        h("div", null,
           h("div", null, h("b", { class: "mono", text: `${c.exception}` }), h("span", { text: `: ${c.message || ""}` })),
-          c.where ? h("div", { class: "mono muted", text: `${c.where.path.split("/").slice(-2).join("/")}:${c.where.line} in ${c.where.func}` }) : null,
-          c.where && c.where.code ? h("pre", { class: "code", text: c.where.code }) : null,
+          c.where && c.where.code ? codeBlock(h("span", { class: "mono", text: where }), c.where.code, A.toast, "The failing line copied.") : where ? h("div", { class: "mono muted", text: where }) : null,
           h("details", null, h("summary", { class: "muted", text: `Full traceback (log line ${c.line}${seg ? `, ${seg.marker ? seg.marker.label : "first run"}, after ${fmtInt(c.row)} rows` : ""})` }),
-            h("pre", { class: "code trace", text: c.text.join("\n") })))));
+            codeBlock("", c.text.join("\n"), A.toast, "Traceback copied.", "trace")))));
     } else if (p.kind === "writing") {
       any = true;
       isl.append(h("div", { class: "issue" }, h("span", { class: "sev crit" }, icon("alert"), "writing"), h("span", { text: "A traceback is being written to the log right now." })));
@@ -694,17 +694,17 @@ function problemsIsland(m, A, health) {
       const ok = p.r.count === 0;
       if (!ok) any = true;
       isl.append(h("div", { class: "issue" }, h("span", { class: "sev " + (ok ? "ok" : "crit") }, icon(ok ? "check" : "alert"), ok ? "holds" : "broken"),
-        h("div", { style: { minWidth: 0 } }, h("div", { text: p.inv.label }),
+        h("div", null, h("div", { text: p.inv.label }),
           h("div", { class: "muted num", text: ok ? `checked on ${fmtInt(p.r.checked)} rows` : `${fmtInt(p.r.count)} of ${fmtInt(p.r.checked)} rows break it` }),
-          ok ? null : h("div", { class: "chips", style: { marginTop: "4px" } }, p.r.first.map(i => h("button", { class: "chip", style: { paddingRight: "8px" }, onclick: () => A.select({ kind: "row", i }), text: `row ${fmtInt(i)}` }))))));
+          ok ? null : h("div", { class: "chips" }, p.r.first.map(i => h("button", { class: "chip", onclick: () => A.select({ kind: "row", i }), text: `row ${fmtInt(i)}` }))))));
     } else if (p.kind === "bad") {
       any = true;
       isl.append(h("div", { class: "issue" }, h("span", { class: "sev crit" }, icon("alert"), "bad lines"),
-        h("div", { style: { minWidth: 0 } }, h("div", { text: `${fmtInt(ds.meta.badCount)} lines of the results file are not JSON objects; they are not rows.` }),
+        h("div", null, h("div", { text: `${fmtInt(ds.meta.badCount)} lines of the results file are not JSON objects; they are not rows.` }),
           ds.meta.bad.slice(0, 5).map(b => h("div", { class: "mono muted", text: `line ${b.line}: ${b.error} — ${b.text}` })))));
     } else if (p.kind === "schema") {
       isl.append(h("div", { class: "issue" }, h("span", { class: "sev warn" }, icon("alert"), "schema"),
-        h("div", { style: { minWidth: 0 } }, h("div", { text: "Fields changed after the run was well under way:" }),
+        h("div", null, h("div", { text: "Fields changed after the run was well under way:" }),
           p.late.slice(0, 8).map(e => h("div", { class: "mono muted", text: e.event === "kind" ? `${e.column}: kind ${e.from} → ${e.kind} at row ${fmtInt(e.row)}` : `${e.column}: first seen at row ${fmtInt(e.row)}` })))));
     }
   }
@@ -756,11 +756,11 @@ function samplerIsland(m) {
   const pairs = independence(m);
   const uneven = params.map(d => ({ d, u: uniformity(d, m.allRows) })).filter(x => x.u.p < 1e-6);
   const dep = pairs.filter(p => together(p.p, p.V)).sort((a, b) => b.V - a.V);
-  isl.append(h("p", { class: "isl-note", style: { marginTop: 0 }, text: `${params.length} sampled parameters checked for an even draw (χ² against uniform) and ${fmtInt(pairs.length)} pairs for independence (Cramér's V).` }));
+  isl.append(h("p", { class: "isl-note", text: `${params.length} sampled parameters checked for an even draw (χ² against uniform) and ${fmtInt(pairs.length)} pairs for independence (Cramér's V).` }));
   if (!uneven.length) isl.append(h("div", { class: "issue" }, h("span", { class: "sev ok" }, icon("check"), "even"), h("span", { text: "Every sampled parameter's values were drawn about equally often." })));
   for (const { d, u } of uneven) {
     isl.append(h("div", { class: "issue" }, h("span", { class: "sev warn" }, icon("alert"), "uneven"),
-      h("div", { style: { minWidth: 0 } }, h("span", { class: "mono", text: d.label }),
+      h("div", null, h("span", { class: "mono", text: d.label }),
         h("span", { class: "muted num", text: `  ${d.levels.map((l, j) => `${l.label} ${fmtPct(u.shares[j], 1)}`).join(" · ")}` }))));
   }
   if (!dep.length) isl.append(h("div", { class: "issue" }, h("span", { class: "sev ok" }, icon("check"), "independent"), h("span", { text: `No pair of sampled parameters is ${TOGETHER}.` })));

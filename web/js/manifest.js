@@ -5,7 +5,7 @@
 // parameters (in their own spelling, so 1.0 stays 1.0) and says what each
 // list was. What cannot be narrowed is said, in the page and in the text.
 
-import { h, icon, fmtInt, fmtT, rangeText, copyText } from "./ui.js";
+import { h, icon, fmtInt, fmtT, rangeText, copyAndSay } from "./ui.js";
 
 // ---------------------------------------------------------------------------
 // Reading YAML values, as far as a manifest's parameter lists need
@@ -206,8 +206,9 @@ export function mergeConditions(...lists) {
 const openKeys = new Set();   // which views' manifests the reader opened
 
 // `conditions` narrow it (none: the manifest as run); `scope` names them
-// ("the pocket"); `figure` is a line on what the rows say there.
-export function manifestSection(m, conditions, scope, figure) {
+// ("the pocket"); `figure` is a line on what the rows say there; `say` is
+// the app's toast, for its copy.
+export function manifestSection(m, conditions, scope, figure, say) {
   const exp = m.ds.meta.experiment;
   if (!exp || exp.kind !== "limen") return null;
   if (typeof exp.manifestText !== "string") throw new Error("this run's experiment has no manifest text; pack or serve it again with this Grid");
@@ -243,10 +244,8 @@ export function manifestSection(m, conditions, scope, figure) {
   lines.forEach((l, j) => pre.append(h("span", { class: "mf-line" + (marks.has(j) ? " changed" : j < head.length - 1 ? " note" : "") }, l)));
   const note = res.changed.length ? `narrowed to ${scope} · ${res.changed.length === 1 ? "1 parameter" : `${res.changed.length} parameters`}`
     : res.problems.length ? `as run · ${scope} could not be narrowed` : "as run";
-  const copy = h("button", { class: "btn small", type: "button", onclick: async () => {
-    const ok = await copyText(text, pre);
-    copy.lastChild.textContent = ok ? "Copied" : "Selected: copy it by hand";
-  } }, icon("copy"), h("span", { text: "Copy" }));
+  const copy = h("button", { class: "btn small", type: "button",
+    onclick: () => copyAndSay(text, say, "Manifest copied.", { select: pre, then: res.changed.length ? `Narrowed to ${scope}.` : "" }) }, icon("copy"), "Copy");
   const details = h("details", { class: "manifest", open: openKeys.has(key) ? true : null },
     h("summary", null, icon("fwd", "mf-chev"), h("span", { class: "mf-title", text: "Manifest" }), h("span", { class: "mf-file mono", text: exp.manifestFile }),
       h("span", { class: "mf-note", text: note })),

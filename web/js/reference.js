@@ -78,14 +78,14 @@ const KEYS = [
 
 export function renderReference(pane, topic, close) {
   clear(pane);
-  pane.append(h("div", { style: { display: "flex", alignItems: "center", gap: "10px" } },
+  pane.append(h("div", { class: "ref-head" },
     h("h2", { text: "System reference" }),
-    h("button", { class: "icon-btn", style: { marginLeft: "auto" }, "aria-label": "Close the reference", onclick: close }, icon("close"))),
+    h("button", { class: "icon-btn", "aria-label": "Close the reference", onclick: close }, icon("close"))),
   h("p", { text: "Each topic says what a surface is for, how to read it and how to use it." }));
-  const toc = h("div", { class: "chips", style: { margin: "8px 0 4px" } },
-    TOPICS.map(t => h("a", { class: "chip", href: `#ref-${t.id}`, style: { paddingRight: "8px", textDecoration: "none", color: "inherit" },
+  const toc = h("div", { class: "chips ref-toc" },
+    TOPICS.map(t => h("a", { class: "chip", href: `#ref-${t.id}`,
       onclick: (e) => { e.preventDefault(); pane.querySelector(`#ref-${t.id}`).scrollIntoView({ behavior: "smooth" }); }, text: t.title })),
-    h("a", { class: "chip", href: "#ref-keys", style: { paddingRight: "8px", textDecoration: "none", color: "inherit" },
+    h("a", { class: "chip", href: "#ref-keys",
       onclick: (e) => { e.preventDefault(); pane.querySelector("#ref-keys").scrollIntoView({ behavior: "smooth" }); }, text: "Keys" }));
   pane.append(toc);
   for (const t of TOPICS) {
@@ -93,6 +93,6 @@ export function renderReference(pane, topic, close) {
       h("dl", { class: "pru" }, h("dt", { text: "Purpose" }), h("dd", { text: t.purpose }), h("dt", { text: "Read" }), h("dd", { text: t.read }), h("dt", { text: "Use" }), h("dd", { text: t.use }))));
   }
   pane.append(h("section", { class: "topic", id: "ref-keys" }, h("h3", { text: "Keys" }),
-    h("div", { class: "keys" }, KEYS.map(([k, v]) => [h("div", null, k.split("  ").map(x => h("kbd", { text: x, style: { marginRight: "4px" } }))), h("div", { text: v })]))));
+    h("div", { class: "keys" }, KEYS.map(([k, v]) => [h("div", null, k.split("  ").map(x => h("kbd", { text: x }))), h("div", { text: v })]))));
   if (topic === "keys") pane.querySelector("#ref-keys").scrollIntoView();
 }

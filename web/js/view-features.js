@@ -6,7 +6,7 @@
 // draws a random subset of a pool for every row (plate sweeps' feats)
 // shows each member's inclusion effect, compared inside each subset size.
 
-import { h, tip, fmtT, fmtInt, fmtPct, fmtP, fmtDelta, inText, rangeText, deltaRange, runName } from "./ui.js";
+import { h, tip, fmtT, fmtInt, fmtPct, fmtP, fmtDelta, inText, rangeText, deltaRange, codeBlock, runName } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { memberEffects, dimEffect } from "./engine.js";
 import { memberDims } from "./model.js";
@@ -20,9 +20,8 @@ export function renderFeatures(view, m, A) {
   if (!lf && !sets.length) {
     view.append(strip("The features in figures", [rowsCell(m)],
       { key: "features", label: "About features", content: () => featuresAbout(m, null, sets) }, null, A));
-    view.append(h("section", { class: "island", "aria-labelledby": "ft-none" },
-      h("header", { class: "isl-head" }, h("h2", { class: "isl-title", id: "ft-none", text: "Features" })),
-      h("p", { class: "isl-note", text: "This sweep draws no features to compare: no row holds a subset of a pool, and no manifest names feature groups or an ablation." })));
+    view.append(h("div", { class: "empty", role: "note" }, h("b", { text: "No features to compare" }),
+      h("p", { text: "No row holds a subset of a pool, and no manifest names feature groups or an ablation." })));
     return;
   }
   view.append(featuresStrip(m, A, lf, sets));
@@ -291,7 +290,7 @@ function membersIsland(m, A, s) {
     lineChart([{ label: t.label, color: "var(--ink)", points: ok.map(l => [l.value, l.mean]) },
       { label: "95% interval", group: "ci", color: "var(--muted)", points: ok.map(l => [l.value, l.lo]), width: 1, endDot: false },
       { label: "95% interval", group: "ci", color: "var(--muted)", points: ok.map(l => [l.value, l.hi]), width: 1, endDot: false }],
-    { height: 170, xLabel: "members", target: t, label: "needle by subset size" })));
+    { kind: "subset", height: 172, xLabel: "members", target: t, label: "needle by subset size" })));
   }
   return isl;
 }
@@ -321,9 +320,8 @@ function nextText(m, lf, sets) {
 }
 
 function nextIsland(m, A, lf, sets) {
-  const text = nextText(m, lf, sets);
+  const title = lf ? "For the next manifest" : "For the next pool";
   return h("section", { class: "island ft-island", "aria-labelledby": "ft-next" },
-    h("header", { class: "isl-head" }, h("h2", { class: "isl-title", id: "ft-next", text: lf ? "For the next manifest" : "For the next pool" }),
-      h("span", { class: "isl-count", text: "what the evidence so far supports" })),
-    h("pre", { class: "code", text }));
+    h("header", { class: "isl-head" }, h("h2", { class: "isl-title", id: "ft-next", text: title })),
+    ...codeBlock("What the evidence so far supports", nextText(m, lf, sets), A.toast, lf ? "The next manifest's lines copied." : "The next pool copied."));
 }

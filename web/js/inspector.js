@@ -1,7 +1,7 @@
 // The inspector: a parameter (what it is, its attributes, where it acts,
 // its values and how their estimates settled), a value, or one row in full.
 
-import { h, icon, tip, clear, fmtT, fmtP, fmtInt, fmtNum, fmtPct, fmtDelta, fmtRowValue, fmtStamp, copyText, inText, rangeText } from "./ui.js";
+import { h, icon, tip, clear, fmtT, fmtP, fmtInt, fmtNum, fmtPct, fmtDelta, fmtRowValue, fmtStamp, codeBlock, inText, rangeText } from "./ui.js";
 import { miniBar, lineChart, needleDomain } from "./charts.js";
 import { dimEffect, uniformity } from "./engine.js";
 import { rowObject } from "./pack.js";
@@ -101,7 +101,7 @@ function dimDetail(box, m, A, d, levelKey) {
   const tbl = h("table", { class: "vals" },
     h("thead", null, h("tr", null, h("th", { text: "Value" }), h("th", { class: "r", text: "Rows" }), h("th", { class: "r", text: target.label }),
       tip(h("th", { class: "r has-tip", text: "Difference" }), `Each value's ${inText(target.label)} against the base, ${fmtT(target, base.mean)} over the rows in view.`),
-      h("th", { style: { width: "34%" }, text: "95% interval" }))));
+      h("th", { class: "iv", text: "95% interval" }))));
   const tb = h("tbody");
   const shareOf = new Map(d.levels.map((l, j) => [l.key, uni.shares ? uni.shares[j] : NaN]));
   for (const l of e.levels) {
@@ -129,7 +129,7 @@ function dimDetail(box, m, A, d, levelKey) {
       h("button", { class: "btn", onclick: () => A.addContext(d.id, levelKey) }, "Look inside it ", h("kbd", { text: "C" })),
       h("button", { class: "btn", onclick: () => A.addPocket(d.id, levelKey) }, "Add to pocket ", h("kbd", { text: "P" }))));
   } else {
-    deg4.append(h("p", { class: "muted", style: { marginTop: "6px" }, text: "Choose a value to look inside it or to stack it into a pocket." }));
+    deg4.append(h("p", { class: "isl-note", text: "Choose a value to look inside it or to stack it into a pocket." }));
   }
   box.append(deg4);
   box.append(part("How the estimates settled", settling(m, d, e)));
@@ -174,16 +174,8 @@ function settling(m, d, e) {
     }
   }
   if (!series.some(sr => sr.points.length > 1)) return h("p", { class: "muted", text: "Not enough rows per value yet." });
-  const fig = lineChart(series, { height: 150, width: 360, xLabel: "rows", target: m.target, label: `${d.label}: estimates as rows arrived` });
-  return h("div", null, h("p", { class: "muted", style: { margin: "0 0 4px" }, text: pick.length < shown.length ? "The two highest and two lowest values; each line starts once a value has 30 rows." : "Each line starts once a value has 30 rows." }), fig);
-}
-
-function toastCopy(ok) {
-  const el = document.querySelector(".toasts");
-  if (!el) return;
-  const t = h("div", { class: "toast", text: ok ? "Copied." : "Copying was refused; the text is selected, copy it by hand." });
-  el.append(t);
-  setTimeout(() => t.remove(), 3000);
+  const fig = lineChart(series, { kind: "settling", height: 152, width: 360, xLabel: "rows", target: m.target, label: `${d.label}: estimates as rows arrived` });
+  return h("div", null, h("p", { class: "isl-note", text: pick.length < shown.length ? "The two highest and two lowest values; each line starts once a value has 30 rows." : "Each line starts once a value has 30 rows." }), fig);
 }
 
 // ---------------------------------------------------------------------------
@@ -245,16 +237,8 @@ function rowDetail(box, m, A, i) {
   // code: replay and raw row
   const prof = sc.profile;
   const out = [];
-  if (prof && prof.replay) {
-    const cmd = prof.replay.python(obj);
-    const pre = h("pre", { class: "code", text: cmd });
-    out.push(h("div", { class: "code-head" }, h("span", { text: "Replay it exactly (in research/, with its .venv)" }),
-      h("button", { class: "btn small", onclick: async () => toastCopy(await copyText(cmd, pre)) }, icon("copy"), "Copy")), pre);
-  }
-  const raw = JSON.stringify(obj, null, 1);
-  const pre2 = h("pre", { class: "code", text: raw, style: { maxHeight: "320px" } });
-  out.push(h("div", { class: "code-head" }, h("span", { text: "The row, rebuilt from its columns" }),
-    h("button", { class: "btn small", onclick: async () => toastCopy(await copyText(raw, pre2)) }, icon("copy"), "Copy")), pre2);
+  if (prof && prof.replay) out.push(...codeBlock("Replay it exactly (in research/, with its .venv)", prof.replay.python(obj), A.toast, "Replay copied."));
+  out.push(...codeBlock("The row, rebuilt from its columns", JSON.stringify(obj, null, 1), A.toast, `Row ${fmtInt(i)} copied.`, "capped"));
   box.append(part("Replay", ...out));
 }
 

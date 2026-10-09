@@ -343,7 +343,7 @@ function update() {
         const drawn = render(view, m, ACTIONS);
         const spec = (drawn && drawn.manifest) || { conditions: m.context, scope: "the context",
           figure: m.context.length ? figureLine(m, m.base.n, m.base) : null };
-        const manifest = manifestSection(m, spec.conditions, spec.scope, spec.figure);
+        const manifest = manifestSection(m, spec.conditions, spec.scope, spec.figure, toast);
         if (manifest) view.append(manifest);
       }
     } catch (err) {
@@ -388,7 +388,7 @@ function renderNoRows(view, m) {
       : m.context.length ? "No row holds every condition of the context." : "This run has no rows yet.";
   view.append(h("div", { class: "empty" },
     h("p", null, h("b", { text: "No rows in view. " }), why),
-    h("div", { class: "actions", style: { justifyContent: "center" } },
+    h("div", { class: "actions" },
       m.edge < m.ds.n ? h("button", { class: "btn", onclick: () => { stopPlay(); setState({ edge: null }, { replace: true }); } }, "Show every row ", h("kbd", { text: "End" })) : null,
       m.context.length ? h("button", { class: "btn", onclick: () => setState({ context: [] }) }, "Clear the context ", h("kbd", { text: "Shift C" })) : null)));
 }

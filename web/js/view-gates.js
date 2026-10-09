@@ -34,7 +34,7 @@ export function renderGates(view, m, A) {
   for (const g of sc.gates) grid.append(d.editing === g.id ? maker(m, A, g) : gateCard(m, A, g, stats.get(g.id)));
   for (const p of sc.gateProblems) grid.append(problemCard(m, A, p));
   if (!sc.gates.length && !sc.gateProblems.length) {
-    grid.append(h("div", { class: "gt-ghost", role: "note" },
+    grid.append(h("div", { class: "empty gt-ghost", role: "note" },
       h("b", { text: "Each gate gets a card here" }),
       h("p", { text: "How often rows pass it, with its interval; its needle's rows against the need, the passing ones in blue; for a gate that never passed, what bounds it; and what moves it, on the board." }),
       h("p", { text: "With gates set, the strip says how many rows pass them all, the hardest one, and what stops the rows that pass the most." })));
@@ -199,7 +199,7 @@ function maker(m, A, gate) {
   const input = h("input", { class: "gt-need", type: "text", inputmode: "decimal", spellcheck: "false", autocomplete: "off",
     value: d.text, "aria-label": `Need${t.unit ? `, in ${t.unit}` : ""}`, dataset: { focus: "gate-need" } });
   const preview = h("div", { class: "gt-preview" });
-  const foot = h("div", { class: "gt-actions" });
+  const foot = h("div", { class: "isl-foot" });
   const defs = m.state.gates;
   const commit = () => {
     const x = parseNeed(draft.text);
@@ -218,7 +218,7 @@ function maker(m, A, gate) {
     const passOf = valid ? (i => { const v = t.values[i]; return v === v ? (test(v, x) ? 1 : 0) : NaN; }) : (() => 0);
     let k = 0, n = 0;
     for (let j = 0; j < m.rows.length; j++) { const p = passOf(m.rows[j]); if (p === p && t.values[m.rows[j]] === t.values[m.rows[j]]) { n++; k += p; } }
-    const chart = passHistogram(t.values, passOf, m.rows, { need: valid ? x : undefined, needLabel: valid ? `need ${needText(t, x)}` : undefined, unit: t.unit, label: `${t.label} against the need` });
+    const chart = passHistogram(t.values, passOf, m.rows, { kind: "gate", need: valid ? x : undefined, needLabel: valid ? `need ${needText(t, x)}` : undefined, unit: t.unit, label: `${t.label} against the need` });
     clear(preview);
     preview.append(chart.svg, h("div", { class: "gt-cap" }, valid
       ? h("span", null, h("b", { class: "num", text: n ? rate(k / n) : "–" }), ` of the rows pass · ${fmtInt(k)} of ${fmtInt(n)}`)
@@ -269,7 +269,7 @@ function gateCard(m, A, g, s) {
   card.append(h("div", { class: "gt-sub" },
     h("span", { class: "num", text: s.n ? `${fmtInt(s.passed)} of ${fmtInt(s.n)} rows pass · 95% ${pctRange(s.lo, s.hi, s.rate > 0 && s.rate < 0.01 ? 2 : 1)}` : "No row has a value." }),
     s.never ? h("span", { class: "sev crit" }, icon("alert"), "never passed") : s.always ? h("span", { class: "sev ok" }, icon("check"), "always passes") : null,
-    g.set ? null : h("span", { class: "gt-tag", text: "the runner's" })));
+    g.set ? null : h("span", { class: "tag", text: "the runner's" })));
   if (!g.set) card.append(h("div", { class: "gt-need-line", text: `Need: ${g.need}` }));
   // the needle's rows against the need
   const sign = g.set && g.def.op[0] === "<" ? -1 : 1;
@@ -279,7 +279,7 @@ function gateCard(m, A, g, s) {
   if (vals.length) {
     vals.sort((a, b) => a - b);
     const unit = g.set ? g.target.unit : g.unit;
-    const chart = passHistogram(g.value, i => g.pass[i], m.rows, { need: g.needAt, needLabel: g.needAt !== undefined ? `need ${needText(g.set ? g.target : { unit }, g.needAt)}` : undefined,
+    const chart = passHistogram(g.value, i => g.pass[i], m.rows, { kind: "gate", need: g.needAt, needLabel: g.needAt !== undefined ? `need ${needText(g.set ? g.target : { unit }, g.needAt)}` : undefined,
       unit, labels: g.yesNo ? [[0, "no"], [1, "yes"]] : undefined, label: `${g.label}: rows against the need` });
     card.append(h("div", { class: "gt-chart" }, chart.svg));
     // a gate set here knows which way is better; the runner's says only its
@@ -293,7 +293,7 @@ function gateCard(m, A, g, s) {
     if (corr && Math.abs(corr.r) > 0.8) p.append(" ", h("b", { text: `It moves with ${inText(corr.label)} (r = ${fmtNum(corr.r, 3)})` }), ", so that holds it back: no parameter here can pass it while that stays where it is.");
     card.append(p);
   }
-  const acts = h("div", { class: "gt-actions" },
+  const acts = h("div", { class: "isl-foot" },
     h("button", { class: "btn", type: "button", onclick: () => A.set({ target: `gate:${g.id}`, view: "board" }) }, "What moves it"));
   if (g.set) {
     acts.append(h("button", { class: "btn", type: "button", onclick: () => {
@@ -317,7 +317,7 @@ function problemCard(m, A, p) {
   return h("article", { class: "island gt-card gt-problem", role: "listitem" },
     h("header", { class: "gt-head" }, h("h3", { class: "gt-title", text: "A gate that cannot be read" })),
     h("p", { class: "gt-note" }, what),
-    h("div", { class: "gt-actions" }, h("button", { class: "btn gt-remove", type: "button",
+    h("div", { class: "isl-foot" }, h("button", { class: "btn gt-remove", type: "button",
       onclick: () => A.set({ gates: m.state.gates.filter(g => JSON.stringify(g) !== JSON.stringify(p.def)) }) }, "Remove")));
 }
 

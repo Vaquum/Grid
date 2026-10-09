@@ -220,25 +220,28 @@ function likeTip(m, ranked, x) {
 // ---------------------------------------------------------------------------
 // The island: its head with the column toggles, the table, the tie left out.
 
+// The column sets as toggles that say what they are: an icon and a name,
+// in a group for each part (a row's parameters, the checks on its score,
+// what it cost).
 function colTools(m, A, cols) {
   const bar = h("div", { class: "tr-tools", role: "toolbar", "aria-label": "Columns" });
   const on = m.state.trialCols;
-  let part = null;
+  let part = null, group = null;
   for (const p of PRESETS) {
     const c = cols[p.id];
     if (!c) continue;
-    if (part !== null && p.part !== part) bar.append(h("span", { class: "tr-sep", "aria-hidden": "true" }));
+    if (p.part !== part) { group = h("div", { class: "seg" }); bar.append(group); }
     part = p.part;
     const empty = !c.length;
-    const b = h("button", { class: "icon-btn", type: "button", "aria-label": p.name,
+    const b = h("button", { type: "button",
       "aria-pressed": on.includes(p.id) && !empty ? "true" : "false", "aria-disabled": empty ? "true" : null,
       dataset: { cols: p.id, focus: `cols-${p.id}` },
       onclick: () => {
         if (empty) return;
         A.set({ trialCols: on.includes(p.id) ? on.filter(x => x !== p.id) : [...on, p.id] }, { replace: true });
-      } }, icon(p.icon));
+      } }, icon(p.icon), h("span", { text: p.name }));
     tip(b, () => h("div", null, h("b", { text: p.name }), h("div", { class: "k", text: presetWhat(p.id, m, c) })));
-    bar.append(b);
+    group.append(b);
   }
   return bar;
 }

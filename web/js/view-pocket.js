@@ -132,7 +132,7 @@ function stackIsland(m, A, pocket, ps, verdicts) {
   const stack = h("div", { class: "stack", "aria-label": "The pocket's blocks, the first at the bottom" });
   stack.append(floor(m, domain));
   if (!pocket.length) {
-    stack.append(h("div", { class: "drop" }, h("b", { text: "Drop a value here" }),
+    stack.append(h("div", { class: "empty drop" }, h("b", { text: "Drop a value here" }),
       h("span", null, "or take one from the right, or press ", h("kbd", { text: "P" }), " on a value in the inspector")));
   }
   pocket.forEach((c, k) => stack.append(brick(m, A, pocket, c, k, steps[k], verdicts[k], domain, ps)));
@@ -157,9 +157,9 @@ function stackIsland(m, A, pocket, ps, verdicts) {
     stack);
   if (pocket.length) {
     isl.append(h("footer", { class: "isl-foot" },
-      h("button", { class: "btn small", type: "button", onclick: () => A.set({ context: pocket.map(c => ({ ...c })), view: "board" }) }, "Open on the board"),
-      h("button", { class: "btn small", type: "button", onclick: () => A.set({ pocketB: pocket.map(c => ({ ...c })) }) }, "Pin to compare"),
-      h("button", { class: "btn small", type: "button", onclick: () => A.set({ pocket: [] }) }, "Clear")));
+      h("button", { class: "btn", type: "button", onclick: () => A.set({ context: pocket.map(c => ({ ...c })), view: "board" }) }, "Open on the board"),
+      h("button", { class: "btn", type: "button", onclick: () => A.set({ pocketB: pocket.map(c => ({ ...c })) }) }, "Pin to compare"),
+      h("button", { class: "btn", type: "button", onclick: () => A.set({ pocket: [] }) }, "Clear")));
   }
   return isl;
 }
@@ -248,8 +248,8 @@ function compareIsland(m, A, pinned, ps) {
     h("div", { class: "table-wrap" }, tbl),
     h("p", { class: "isl-note", text: overlap ? "Their intervals overlap: these rows do not tell the two pockets apart." : "Their intervals do not overlap." }),
     h("footer", { class: "isl-foot" },
-      h("button", { class: "btn small", type: "button", onclick: () => A.set({ pocket: pinned.map(c => ({ ...c })) }) }, "Bring the pinned one back"),
-      h("button", { class: "btn small", type: "button", onclick: () => A.set({ pocketB: null }) }, "Unpin")));
+      h("button", { class: "btn", type: "button", onclick: () => A.set({ pocket: pinned.map(c => ({ ...c })) }) }, "Bring the pinned one back"),
+      h("button", { class: "btn", type: "button", onclick: () => A.set({ pocketB: null }) }, "Unpin")));
 }
 
 // ---------------------------------------------------------------------------

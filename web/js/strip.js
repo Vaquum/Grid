@@ -2,7 +2,7 @@
 // and the view's two tools at its end: its blurb behind an (i), and a copy
 // of what it shows as notes.
 
-import { h, icon, tip, copyText, infoButton } from "./ui.js";
+import { h, icon, tip, copyAndSay, infoButton } from "./ui.js";
 
 // One figure. `onPick` makes it a button; `tipFn` explains it. A value
 // that is a parameter's name is set in mono (valueClass "mono"). A figure
@@ -23,10 +23,8 @@ export function strip(ariaLabel, cells, about, copy, A) {
   const tools = h("div", { class: "strip-tools" });
   if (about) tools.append(infoButton(about.key, about.label, about.content));
   if (copy) {
-    const b = h("button", { class: "icon-btn strip-copy", type: "button", "aria-label": copy.label, onclick: async () => {
-      const ok = await copyText(copy.text(), null);
-      A.toast(h("span", null, h("b", { text: ok ? `${copy.done} ` : "Copying was refused. " }), ok ? "Paste it into the research notes." : "The browser did not allow the clipboard."));
-    } }, icon("copy"));
+    const b = h("button", { class: "icon-btn strip-copy", type: "button", "aria-label": copy.label,
+      onclick: () => copyAndSay(copy.text(), A.toast, copy.done, { then: "Paste it into the research notes." }) }, icon("copy"));
     tip(b, () => h("div", null, h("b", { text: copy.label }), h("div", { class: "k", text: copy.what })));
     tools.append(b);
   }

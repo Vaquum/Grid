@@ -184,7 +184,7 @@ export function effectPlot(levels, opts) {
     if (opts.labels === "marked" && !marked) return;
     const prio = l.key === opts.selected ? 5 : l.key === opts.best ? 4 : l.key === opts.worst ? 3 : (j === 0 || j === order.length - 1) ? 2 : 1;
     const dead = opts.dead && opts.dead.includes(l.key);
-    xAxis.append(h("span", { class: "xl" + (l.n > 0 ? "" : " empty") + (l.key === opts.best && opts.on ? " best" : "") + (dead ? " dead" : ""), style: { left: `${x}%` },
+    xAxis.append(h("span", { class: "xl" + (l.n > 0 ? "" : " blank") + (l.key === opts.best && opts.on ? " best" : "") + (dead ? " dead" : ""), style: { left: `${x}%` },
       dataset: { prio: String(prio) }, text: l.label }));
   });
   if (log) corner.append(h("span", { class: "xs", title: "The values are spaced by factors: a log axis", text: "log" }));
