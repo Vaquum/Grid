@@ -113,6 +113,16 @@ pocket, see below) and up to the replay edge.
   inside it. A block earns its place when the pocket's rows differ from
   the rows it takes away (those holding every other block but not this
   one): a two-sample z test, Benjamini–Hochberg across the blocks.
+- **Interactions of any order**: k parameters act together when their
+  cell means over the full k-way grid explain the needle beyond the best
+  fit holding every (k−1)-way term among them (weighted backfitting; for a
+  rate, the logistic model with those terms by iterative proportional
+  fitting and a likelihood-ratio test). A set is tested only when every
+  cell holds 5 rows, so its degrees of freedom are Π(levels − 1); with two
+  parameters it is exactly the pair test. Sizes 3 to 6 combine only the
+  strongest parameters (by main effect or strongest pair: effect
+  heredity), at most 2,000 sets or 4·10⁸ rows read a size, corrected with
+  Benjamini–Hochberg across the sets tested at that size.
 - **Shown digits**: a target is printed with its profile's digits, or more
   when its means are smaller than those can print: two significant digits
   at the larger of the mean's size and its 95% half-width over every row
@@ -135,10 +145,12 @@ text. A sweep without a manifest has no such section.
 2. **Pocket**: a strip of the pocket's figures; the stack, read bottom up
    as a path from the rows in view, each block saying whether it earns its
    place; and the blocks to add, ranked and every one, under one search.
-3. **Pairs**: a strip of the pairs' figures; the interactions ranked over
+3. **Pairs**: a strip of the chosen size's figures; the interactions of 2
+   to 6 parameters ranked (or, when none is detectable, the closest) over
    the map of every pair (interaction under the diagonal, the sampler's
-   dependence above), and beside them the chosen pair (the strongest, or
-   the most linked) as a value-by-value grid with each value's margin.
+   dependence above), and beside them the chosen set: a pair as a
+   value-by-value grid with each value's margin, three as that grid for
+   each value of the third, more as their best and worst combinations.
 4. **Features**: inclusion effects of every set member.
 5. **Trials**: the leaderboard and any row in full, with its replay command.
 6. **Gates**: pass rates, never-passed gates and what bounds them, and what

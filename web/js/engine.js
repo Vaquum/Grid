@@ -582,6 +582,158 @@ export function pocketStats(schema, conditions, target, contextRows, edge) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Interactions of any order
+
+// What k parameters do together beyond everything their smaller subsets
+// explain: the needle's cell means over their full grid against the best
+// fit that holds every (k-1)-way term among them (and so every lower one),
+// fitted by weighted backfitting. A set is tested only when every cell of
+// its grid has at least `minCell` rows, so the degrees of freedom are the
+// grid's own, Π(levels − 1); otherwise it comes back `sparse`. For a rate,
+// p is the likelihood-ratio test of the logistic model with every
+// (k-1)-way term (iterative proportional fitting); ω² is read off the same
+// decomposition as for a number. `table` adds each cell's mean and
+// interval.
+export function comboEffect(dims, target, rows, base, minCell, table = false) {
+  const k = dims.length;
+  const L = dims.map(d => d.levels.length);
+  const strides = new Array(k);
+  let C = 1;
+  for (let t = k - 1; t >= 0; t--) { strides[t] = C; C *= L[t]; }
+  const cnt = new Float64Array(C), sum = new Float64Array(C), sq = new Float64Array(C);
+  const y = target.values, shift = base.shift, codes = dims.map(d => d.codes);
+  outer: for (let j = 0; j < rows.length; j++) {
+    const i = rows[j], v = y[i];
+    if (v !== v) continue;
+    let c = 0;
+    for (let t = 0; t < k; t++) { const x = codes[t][i]; if (x < 0) continue outer; c += x * strides[t]; }
+    const d = v - shift;
+    cnt[c]++; sum[c] += d; sq[c] += d * d;
+  }
+  let minN = Infinity;
+  for (let c = 0; c < C; c++) if (cnt[c] < minN) minN = cnt[c];
+  const res = { k, cells: C, minN, sparse: !(minN >= minCell), N: 0, F: NaN, p: NaN, omega2: NaN, df: NaN, dfW: NaN };
+  if (table) res.table = cellTable(dims, L, strides, cnt, sum, sq, shift, target.kind === "binary");
+  if (res.sparse) return res;
+
+  // each (k-1)-subset is the grid without one parameter: a cell's place in it
+  const margins = [];
+  for (let drop = 0; drop < k; drop++) {
+    const size = C / L[drop], map = new Int32Array(C);
+    for (let c = 0; c < C; c++) {
+      let m = 0, mult = 1;
+      for (let t = k - 1; t >= 0; t--) {
+        if (t === drop) continue;
+        m += (Math.floor(c / strides[t]) % L[t]) * mult;
+        mult *= L[t];
+      }
+      map[c] = m;
+    }
+    margins.push({ size, map, g: new Float64Array(size) });
+  }
+  let N = 0, S = 0, SS = 0, SSW = 0;
+  const mean = new Float64Array(C);
+  for (let c = 0; c < C; c++) {
+    N += cnt[c]; S += sum[c]; SS += sq[c];
+    mean[c] = sum[c] / cnt[c];
+    SSW += Math.max(0, sq[c] - sum[c] * sum[c] / cnt[c]);
+  }
+  const mu = S / N;
+  const fit = new Float64Array(C).fill(mu);
+  let prev = Infinity, SSI = 0;
+  for (let it = 0; it < 300; it++) {
+    for (const mg of margins) {
+      const acc = new Float64Array(mg.size), w = new Float64Array(mg.size);
+      for (let c = 0; c < C; c++) {
+        const m = mg.map[c];
+        acc[m] += cnt[c] * (mean[c] - (fit[c] - mg.g[m]));
+        w[m] += cnt[c];
+      }
+      for (let c = 0; c < C; c++) {
+        const m = mg.map[c];
+        fit[c] += acc[m] / w[m] - mg.g[m];
+      }
+      for (let m = 0; m < mg.size; m++) mg.g[m] = acc[m] / w[m];
+    }
+    SSI = 0;
+    for (let c = 0; c < C; c++) { const r = mean[c] - fit[c]; SSI += cnt[c] * r * r; }
+    if (Math.abs(prev - SSI) <= 1e-12 * Math.max(1e-300, SS)) break;
+    prev = SSI;
+  }
+  const df = L.reduce((a, l) => a * (l - 1), 1);
+  const dfW = N - C;
+  const SST = Math.max(0, SS - S * S / N);
+  const MSW = dfW > 0 ? SSW / dfW : NaN;
+  res.N = N; res.df = df; res.dfW = dfW; res.SSI = SSI; res.SST = SST;
+  if (df > 0 && dfW > 0 && MSW > 0) {
+    res.F = (SSI / df) / MSW;
+    res.p = fSurvival(res.F, df, dfW);
+    res.omega2 = SST > 0 ? (SSI - df * MSW) / (SST + MSW) : 0;
+  } else if (df > 0 && dfW > 0 && MSW === 0) {
+    res.F = SSI > 0 ? Infinity : NaN; res.p = SSI > 0 ? 0 : 1; res.omega2 = SST > 0 ? SSI / SST : 0;
+  }
+  if (target.kind === "binary") {
+    const hits = new Float64Array(C);
+    for (let c = 0; c < C; c++) hits[c] = Math.round(sum[c] + shift * cnt[c]);
+    const lr = logisticOrderTest(C, cnt, hits, margins);
+    res.G = lr.G; res.p = chi2Survival(lr.G, df);
+  }
+  return res;
+}
+
+// The logistic model with every (k-1)-way term, against the saturated one:
+// iterative proportional fitting of the hits and misses table to its cell
+// totals and to each (k-1)-subset's hits and misses; G² of the fit.
+function logisticOrderTest(C, cnt, hits, margins) {
+  const N = cnt.reduce((a, b) => a + b, 0), H = hits.reduce((a, b) => a + b, 0);
+  const eh = new Float64Array(C), em = new Float64Array(C);
+  for (let c = 0; c < C; c++) { eh[c] = cnt[c] * H / N; em[c] = cnt[c] - eh[c]; }
+  const obs = margins.map(mg => {
+    const oh = new Float64Array(mg.size), om = new Float64Array(mg.size);
+    for (let c = 0; c < C; c++) { oh[mg.map[c]] += hits[c]; om[mg.map[c]] += cnt[c] - hits[c]; }
+    return { oh, om };
+  });
+  for (let it = 0; it < 500; it++) {
+    let moved = 0;
+    margins.forEach((mg, t) => {
+      const fh = new Float64Array(mg.size), fm = new Float64Array(mg.size);
+      for (let c = 0; c < C; c++) { fh[mg.map[c]] += eh[c]; fm[mg.map[c]] += em[c]; }
+      for (let c = 0; c < C; c++) {
+        const m = mg.map[c];
+        eh[c] = fh[m] > 0 ? eh[c] * obs[t].oh[m] / fh[m] : 0;
+        em[c] = fm[m] > 0 ? em[c] * obs[t].om[m] / fm[m] : 0;
+      }
+      for (let c = 0; c < C; c++) {
+        const tot = eh[c] + em[c];
+        if (!(tot > 0)) continue;
+        const nh = eh[c] * cnt[c] / tot;
+        moved = Math.max(moved, Math.abs(nh - eh[c]));
+        eh[c] = nh; em[c] = cnt[c] - nh;
+      }
+    });
+    if (moved < 1e-9 * Math.max(1, N)) break;
+  }
+  let G = 0;
+  for (let c = 0; c < C; c++) {
+    const h = hits[c], m = cnt[c] - hits[c];
+    if (h > 0) G += h * Math.log(h / eh[c]);
+    if (m > 0) G += m * Math.log(m / em[c]);
+  }
+  return { G: Math.max(0, 2 * G) };
+}
+
+// Every cell of a grid with its parameters' values, rows, mean and interval.
+function cellTable(dims, L, strides, cnt, sum, sq, shift, binary) {
+  const out = [];
+  for (let c = 0; c < cnt.length; c++) {
+    const at = L.map((l, t) => Math.floor(c / strides[t]) % l);
+    const mi = meanInterval(cnt[c], sum[c], sq[c], shift, binary);
+    out.push({ at, keys: at.map((x, t) => dims[t].levels[x].key), n: cnt[c], mean: mi.mean, lo: mi.lo, hi: mi.hi, withheld: cnt[c] < MIN_N });
+  }
+  return out;
+}
+
 // Does each block of a pocket earn its place? A block's rows to judge are
 // the ones it takes away: those that hold every other block (inside the
 // context) but not this one. The pocket's rows against them, a two-sample z

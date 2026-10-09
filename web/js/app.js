@@ -31,7 +31,7 @@ const VIEWS = [
 
 const DEFAULT_STATE = {
   run: null, view: "board", target: null, context: [], pocket: [], pocketB: null,
-  sel: null, edge: null, show: { hp: true, flat: true }, pair: null, featSort: "effect",
+  sel: null, edge: null, show: { hp: true, flat: true }, pair: null, order: 2, featSort: "effect",
 };
 
 const app = {
@@ -44,7 +44,7 @@ const app = {
 // only a bare #anchor.
 
 function encodeState(st) {
-  const o = { v: st.view, r: st.run, t: st.target, c: st.context, p: st.pocket, s: st.sel, e: st.edge, pr: st.pair, sh: st.show, fs: st.featSort };
+  const o = { v: st.view, r: st.run, t: st.target, c: st.context, p: st.pocket, s: st.sel, e: st.edge, pr: st.pair, po: st.order, sh: st.show, fs: st.featSort };
   const json = JSON.stringify(o);
   const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(json)));
   return "s1." + b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -58,7 +58,7 @@ function decodeState(hash) {
     const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
     const o = JSON.parse(new TextDecoder().decode(bytes));
     return { ...DEFAULT_STATE, view: o.v, run: o.r, target: o.t, context: o.c || [], pocket: o.p || [], sel: o.s || null,
-      edge: o.e ?? null, pair: o.pr || null, show: o.sh || DEFAULT_STATE.show, featSort: o.fs || "effect" };
+      edge: o.e ?? null, pair: o.pr || null, order: o.po || 2, show: o.sh || DEFAULT_STATE.show, featSort: o.fs || "effect" };
   } catch (err) {
     console.warn("ignoring an address that is not a Grid view", err);
     return null;

@@ -598,6 +598,8 @@ table.suggest th.iv, table.suggest td.iv { width: 34%; min-width: 96px; }
 .pr-fig { font-size: var(--fs-m); text-align: right; white-space: nowrap; }
 .pr-q { font-size: var(--fs-s); color: var(--muted); text-align: right; white-space: nowrap; }
 .pr-row.linked { grid-template-columns: minmax(0, 1fr) 56px 64px; }
+.pr-row.quiet { color: var(--ink-2); }
+.pr-row.quiet .pr-meter i { background: var(--off); }
 .pr-figs { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px var(--sp-4); margin: -4px 0 6px; font-size: var(--fs-m); }
 .pr-figs .k { color: var(--muted); }
 .pr-figs b { font-weight: 600; }
@@ -627,6 +629,15 @@ table.suggest th.iv, table.suggest td.iv { width: 34%; min-width: 96px; }
 .pr-map td.cell.sel { outline: 2px solid var(--ink); outline-offset: 1px; }
 .pr-map td.diag, .pr-map td.none { background: transparent; }
 .pr-legend { margin: 0 0 0 auto; }
+.pr-size { margin-left: auto; }
+.pr-size button { min-width: 30px; padding: 0 8px; font-variant-numeric: tabular-nums; }
+.pr-map td.cell.in-set { outline: 1.5px dashed var(--ink); outline-offset: 0; }
+.pr-facets { display: flex; flex-wrap: wrap; gap: var(--sp-4) var(--sp-5); align-items: flex-start; }
+.pr-facet { min-width: 0; }
+.facet-title { margin: 0 0 6px; font-size: var(--fs-m); font-weight: 400; color: var(--muted); }
+.facet-title b { color: var(--ink); font-weight: 600; }
+table.pr-combos td.v { font-family: var(--mono); font-size: var(--fs-s); white-space: normal; overflow-wrap: anywhere; }
+table.pr-combos th.iv, table.pr-combos td.iv { width: 30%; min-width: 96px; }
 
 /* the manifest at the foot of every view */
 .manifest-sec { margin-top: 32px; }

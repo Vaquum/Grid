@@ -142,6 +142,19 @@ test("pairs: the strip, the ranked and linked pairs, and a chosen pair with its 
   await page.reload();
   await page.waitForSelector(".pr-map", { timeout: 20000 });
   assert.equal(names(await page.locator("#pr-pair-title").innerText()), want);
+  // three at a time: tested in the background, and the size kept by the address
+  await page.locator('.pr-size button[aria-label="3 parameters at once"]').click();
+  await page.waitForFunction(() => !document.querySelector(".pr-list [role=status]"), null, { timeout: 30000 });
+  assert.match(await page.locator(".strip").innerText(), /Interacting triples\s+\d+\s+of [\d,]+ tested/);
+  assert.match(await page.locator(".pr-list").innerText(), /Every triple of the \d+ strongest parameters: [\d,]+ triples; [\d,]+ tested, [\d,]+ too sparse/);
+  // a triple opens as the grid of two for each value of the third
+  await page.locator(".pr-list .pr-row").first().click();
+  assert.equal((await page.locator("#pr-pair-title").innerText()).split(" × ").length, 3);
+  assert.ok(await page.locator(".pr-facet").count() >= 2);
+  assert.ok(await page.locator(".pr-map td.cell.in-set").count() >= 1);
+  await page.reload();
+  await page.waitForSelector(".pr-facet", { timeout: 30000 });
+  assert.equal(await page.locator('.pr-size button[aria-pressed="true"]').innerText(), "3");
   assert.deepEqual(errors, []);
   await page.close();
 });
