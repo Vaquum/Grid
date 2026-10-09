@@ -798,6 +798,16 @@ kbd { border: 1px solid var(--line-2); border-radius: 4px; padding: 0 5px; backg
   box-shadow: 0 6px 20px var(--shadow); font-size: var(--fs-m);
 }
 .toast b { font-weight: 600; }
+/* a toast's kind at its edge; one that opens something answers the pointer */
+.toast.crit { box-shadow: inset 3px 0 0 var(--critical), 0 6px 20px var(--shadow); }
+.toast.warn { box-shadow: inset 3px 0 0 var(--warning), 0 6px 20px var(--shadow); }
+.toast.good { box-shadow: inset 3px 0 0 var(--good), 0 6px 20px var(--shadow); }
+.toast.crit b { color: var(--critical-ink); }
+.toast.go { cursor: pointer; }
+.toast.go:hover { background: var(--hover); }
+.toast .go-k { color: var(--muted); }
+.issue.go { cursor: pointer; border-radius: var(--r-s); }
+.issue.go:hover { background: var(--hover); }
 
 /* run view */
 .timeline { display: flex; flex-direction: column; gap: var(--sp-2); }

@@ -477,6 +477,18 @@ test("the needle changes target and the replay edge hides later rows", async () 
   await page.close();
 });
 
+test("the tab names the sweep and the view, under Grid's mark", async () => {
+  const { page, errors } = await open();
+  assert.equal(await page.title(), "Synthetic sweep · Board — Grid");
+  await page.keyboard.press("7");
+  await page.waitForFunction(() => document.title === "Synthetic sweep · Run — Grid");
+  assert.match(await page.locator("#favicon").getAttribute("href"), /^data:image\/svg\+xml,/);
+  // a recording is neither live nor in trouble: the mark has no dot
+  assert.doesNotMatch(decodeURIComponent(await page.locator("#favicon").getAttribute("href")), /circle/);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("the address keeps the view across a reload", async () => {
   const { page } = await open();
   await page.keyboard.press("6");
@@ -775,6 +787,42 @@ test("live: the Run view's cards keep drawing as rows arrive after the clusters 
     await moreRows(page);
     const blank = await page.$$eval(".rn-card", cards => cards.filter(c => !c.querySelector("svg.dist g.has-tip rect")).map(c => c.dataset.outcome));
     assert.deepEqual(blank, []);
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    sweep.stop();
+  }
+});
+
+test("live: a relaunch keeps the reader on the rows they had, and the Run view tells what happened", async () => {
+  const sweep = await liveSweep();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const errors = [];
+    page.on("pageerror", e => errors.push(String(e)));
+    await page.goto(sweep.url);
+    await page.waitForSelector(".status[data-kind=live]", { timeout: 15000 });
+    assert.match(await page.title(), /^Synthetic sweep · Board — Grid$/);
+    // the demo crashes 900 rows in and relaunches, its results file started over
+    await page.waitForFunction(() => document.querySelectorAll("#run-pick option").length === 2, null, { timeout: 120000 });
+    await page.waitForTimeout(1500);
+    const kept = await page.$eval("#run-pick", s => s.value);
+    assert.match(kept, /^r0\.g\d+$/, "the page stays on the rows it had");
+    assert.ok(await shownRows(page) >= 3900, "the rows kept are all there");
+    assert.match(await page.locator(".status").innerText(), /archived/i);
+    assert.match(await page.$eval("#run-pick", s => s.selectedOptions[0].textContent), /· until \d\d:\d\d$/);
+    // the Run view lists what the toasts said
+    await page.keyboard.press("7");
+    await page.waitForSelector(".rn-told");
+    const told = await page.locator(".rn-told").innerText();
+    assert.match(told, /A run crashed\./);
+    assert.match(told, /started over\./);
+    // and follows the run from its first new row
+    await page.locator(".rn-told .issue.go", { hasText: "started over" }).click();
+    await page.waitForFunction(() => document.querySelector("#run-pick").value === "r0");
+    await page.waitForSelector(".status[data-kind=live]", { timeout: 15000 });
+    // the first rows of the new run each set a record; none is told until it has rows to rank
+    assert.ok(await page.locator(".toast", { hasText: "New best row" }).count() <= 1);
     assert.deepEqual(errors, []);
     await page.close();
   } finally {

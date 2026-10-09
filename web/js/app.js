@@ -5,7 +5,7 @@
 import { decodePack, Dataset } from "./pack.js";
 import { buildSchema } from "./schema.js";
 import { limenProfile } from "./profiles.js";
-import { rowsIn, summarize, board, boardOrder } from "./engine.js";
+import { rowsIn, summarize, board, boardOrder, MIN_N } from "./engine.js";
 import { boardDims, objectiveTop, objectiveKeys } from "./model.js";
 import { h, clear, icon, installTips, hideTip, syncInfo, fmtInt, fmtRowValue, runName, tip } from "./ui.js";
 import { runStatus } from "./status.js";
@@ -40,6 +40,9 @@ const DEFAULT_STATE = {
 const app = {
   config: null, sweep: null, state: null, cache: {}, live: null, playback: null,
   els: {}, top: null, lastBest: new Map(), started: Date.now(),
+  // what happened while the page was open, newest first; the run and the
+  // state the pill last said, to tell a change of it
+  events: [], watch: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -133,7 +136,7 @@ async function reconnect(cfg) {
     const body = await loadLive(cfg);
     installSweep(body.pack, true);
     startStream(cfg, body.cursor);
-    toast(h("span", null, h("b", { text: "Reconnected. " }), "Rows read again from the server."));
+    note(null, "Reconnected.", "Rows read again from the server.");
   } catch (err) {
     console.error(err);
     setTimeout(() => reconnect(cfg), 5000);
@@ -146,12 +149,23 @@ function applyMessage(msg) {
     const meta = msg.run;
     const old = sw.runs.find(r => r.id === meta.id);
     if (old && msg.known) {
-      // the run started over: its rows so far are kept as an archived run
+      // the run started over: its rows so far came just before, kept as an
+      // archived run, which the reader is on if they were on this run
       const fresh = new Dataset(meta);
       sw.runs[sw.runs.indexOf(old)] = fresh;
-      toast(h("span", null, h("b", { text: `${meta.label} started over. ` }), "The rows read before are kept as a separate run."));
+      app.lastBest.delete(meta.id);
+      const stayed = sw.runs.some(r => r.id === app.state.run && r.meta.archivedFrom === meta.id);
+      note("warn", `${meta.label} started over.`,
+        stayed ? "The page stays on the rows it had, kept as an archived run. Follow the run from its first new row:" : "Its rows so far are kept as an archived run.",
+        () => setState({ run: meta.id, sel: null, context: [], pocket: [], edge: null, clusters: [], clusterK: null }));
     } else if (!old) {
       sw.runs.push(new Dataset(meta));
+      // the run on screen started over: the reader stays on the rows they
+      // had (its rows arrive next, before the page draws again)
+      if (meta.archivedFrom && meta.archivedFrom === app.state.run) {
+        app.state = { ...app.state, run: meta.id };
+        try { history.replaceState(null, "", "#" + encodeState(app.state)); } catch (err) { /* host refused */ }
+      }
     } else {
       old.meta = meta;
     }
@@ -191,7 +205,7 @@ function mergeLog(sw, logId, delta) {
   cur.openTraceback = delta.openTraceback;
   if (delta.crashes.length > prevCrashes) {
     const c = delta.crashes[delta.crashes.length - 1];
-    toast(h("span", null, h("b", { text: "A run crashed. " }), `${c.exception || "An exception"}${c.where ? ` at ${c.where.path.split("/").pop()}:${c.where.line}` : ""}.`), "crit",
+    note("crit", "A run crashed.", `${c.exception || "An exception"}${c.where ? ` at ${c.where.path.split("/").pop()}:${c.where.line}` : ""}.`,
       () => setState({ view: "run" }));
   }
 }
@@ -429,6 +443,14 @@ function updateTop(m0) {
   setText(els.statusDetail, st.detail ? `· ${st.detail}` : "");
   els.statusDetail.hidden = !st.detail;
   setText(els.progress, runHealth(m).line);
+  // a run being written going quiet, or getting rows again, is news
+  const w = app.watch;
+  if (w && w.run === ds.id && w.kind !== st.kind && (st.kind === "quiet" || (w.kind === "quiet" && st.kind === "live"))) {
+    note(st.kind === "quiet" ? "warn" : null, `${runName(ds.meta)} ${st.kind === "quiet" ? "is quiet." : "has rows again."}`,
+      st.kind === "quiet" ? "No row has arrived for ten minutes." : "Rows are arriving again.");
+  }
+  app.watch = { run: ds.id, kind: st.kind };
+  syncTab(st);
   // needles: their options change only when the schema's targets do
   const targetsKey = m.schema.targets.map(x => `${x.id}\t${x.label}\t${x.diagnostic ? 1 : 0}`).join("\n");
   if (targetsKey !== top.targetsKey) {
@@ -464,6 +486,29 @@ function updateTop(m0) {
     els.play.setAttribute("aria-label", playing ? "Pause the replay" : "Replay the rows as they arrived");
     if (playing) els.play.setAttribute("aria-pressed", "true"); else els.play.removeAttribute("aria-pressed");
   }
+}
+
+// The tab: the sweep's name and the view, or the run's trouble in place of
+// the view, so a row of tabs says which sweep is which and which needs the
+// reader; the icon carries a dot for a run live, quiet or down.
+const TAB_INK = "#6a86bd";
+const TAB_DOT = { live: "#6f9a52", quiet: "#d0902e", down: "#d24c5e" };
+function syncTab(st) {
+  const v = VIEWS.find(x => x.id === app.state.view) || VIEWS[0];
+  const trouble = st.kind === "down" || st.kind === "quiet";
+  const title = `${app.sweep.meta.name || "sweep"} · ${trouble ? st.label : v.label} — Grid`;
+  if (document.title !== title) document.title = title;
+  const link = document.getElementById("favicon");
+  const href = tabIcon(TAB_DOT[st.kind]);
+  if (link && link.getAttribute("href") !== href) link.setAttribute("href", href);
+}
+
+// Grid's mark, with a dot in place of its top right square
+function tabIcon(dot) {
+  const k = TAB_INK;
+  return "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="1" y="1" width="6" height="6" rx="1.2" fill="${k}"/>`
+    + `<rect x="1.5" y="9.5" width="5" height="5" rx="1" fill="none" stroke="${k}"/><rect x="9" y="9" width="6" height="6" rx="1.2" fill="${k}"/>`
+    + (dot ? `<circle cx="12" cy="4" r="3.5" fill="${dot}"/>` : `<rect x="9.5" y="1.5" width="5" height="5" rx="1" fill="none" stroke="${k}"/>`) + "</svg>");
 }
 
 function btnIcon(name, label, key, fn) {
@@ -543,7 +588,8 @@ function stopPlay() {
   app.playback = null;
 }
 
-// New records as rows arrive (live or replay): one toast per new best.
+// New records as rows arrive (live or replay), once a run has rows enough
+// to rank (its first rows each set one), one toast at a time.
 function notifyRecords() {
   if (!app.sweep) return;
   const m = model();
@@ -553,20 +599,33 @@ function notifyRecords() {
   app.lastBest.set(m.ds.id, top);
   if (prev === undefined || top === undefined || top === prev) return;
   if (top < prev && app.state.edge === null && app.config.mode !== "live") return;
-  toast(h("span", null, h("b", { text: "New best row. " }),
-    `${objectiveKeys(m).map(({ t }) => `${t.label} ${fmtRowValue(t, t.values[top])}`).join(" · ")} (row ${fmtInt(top)})`),
-  "good", () => setState({ view: "trials", sel: { kind: "row", i: top } }));
+  if (m.allRows.length < MIN_N) return;
+  note("good", "New best row.", `${objectiveKeys(m).map(({ t }) => `${t.label} ${fmtRowValue(t, t.values[top])}`).join(" · ")} (row ${fmtInt(top)})`,
+    () => setState({ view: "trials", sel: { kind: "row", i: top } }), "best");
 }
 
 // ---------------------------------------------------------------------------
 // Toasts, theme, reference, keys
 
-export function toast(content, kind, onClick) {
-  const el = h("div", { class: "toast" + (kind ? " " + kind : ""), role: "status" }, content);
-  if (onClick) { el.style.cursor = "pointer"; el.addEventListener("click", () => { onClick(); el.remove(); }); }
+// A toast says its kind (crit, warn, good) at its edge; one that opens
+// something ends in an arrow; one told once at a time (`one`) replaces the
+// one before it.
+export function toast(content, kind, onClick, one) {
+  if (one) for (const x of app.els.toasts.querySelectorAll(`[data-one="${one}"]`)) x.remove();
+  const el = h("div", { class: "toast" + (kind ? " " + kind : "") + (onClick ? " go" : ""), role: "status", dataset: one ? { one } : null },
+    content, onClick ? h("span", { class: "go-k", "aria-hidden": "true", text: " →" }) : null);
+  if (onClick) el.addEventListener("click", () => { onClick(); el.remove(); });
   app.els.toasts.append(el);
   while (app.els.toasts.children.length > 3) app.els.toasts.firstChild.remove();
   setTimeout(() => el.remove(), 7000);
+}
+
+// What happened while the page was open: said in a toast, and kept after
+// the toast goes, newest first (the Run view lists them).
+function note(kind, title, text, go, one) {
+  app.events.unshift({ at: Date.now() / 1000, kind, title, text, go });
+  if (app.events.length > 100) app.events.length = 100;
+  toast(h("span", null, h("b", { text: `${title} ` }), text), kind, go, one);
 }
 
 function toggleTheme() {
@@ -648,6 +707,8 @@ export const ACTIONS = {
   },
   openReference,
   toast,
+  events: () => app.events,
+  opened: () => app.started / 1000,
   rerender: () => update(),
   isLive: () => app.config.mode === "live",
   rowUrl: () => (app.config.mode === "live" ? app.config.row : null),

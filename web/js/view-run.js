@@ -7,7 +7,7 @@
 // there); the best row against luck; and the run's health: its pace and
 // segments, its problems and warnings, and the sampler.
 
-import { h, icon, tip, fmtT, fmtRowValue, fmtInt, fmtPct, fmtP, fmtNum, fmtDuration, fmtAgo, inText, rangeText, runName } from "./ui.js";
+import { h, icon, tip, fmtT, fmtRowValue, fmtInt, fmtPct, fmtP, fmtNum, fmtDuration, fmtAgo, fmtClock, inText, rangeText, runName } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { lineChart, distChart } from "./charts.js";
 import { invariantBreaks, recordCurve, uniformity, summarize, rowsIn, gTest, MIN_N } from "./engine.js";
@@ -106,6 +106,8 @@ export function renderRun(view, m, A) {
   view.append(h("div", { class: "rn-pair" }, recordIsland(m), paceIsland(m, health)));
   if (m.sweep.runs.length > 1) view.append(runsIsland(m, A));
   view.append(h("div", { class: "rn-pair" }, problemsIsland(m, A, health), samplerIsland(m)));
+  const told = eventsIsland(A);
+  if (told) view.append(told);
   const log = runLog(m);
   if (log && log.warnings.length) view.append(warningsIsland(log));
 }
@@ -699,6 +701,26 @@ function problemsIsland(m, A, health) {
     }
   }
   if (!any) isl.append(h("p", { class: "note" }, h("span", { class: "sev ok" }, icon("check"), "Nothing broken."), " No crash, no broken invariant, no bad line."));
+  return isl;
+}
+
+// What the page told while it was open, newest first, kept after its
+// toasts went: crashes, restarts, a run going quiet, new bests; one that
+// opens something opens it from here too.
+const TOLD = { crit: "crit", warn: "warn", good: "ok" };
+function eventsIsland(A) {
+  const list = A.events();
+  if (!list.length) return null;
+  const isl = h("section", { class: "island rn-told", "aria-label": "While this page was open" },
+    h("header", { class: "isl-head" }, h("h2", { class: "isl-title", text: "While this page was open" }),
+      h("span", { class: "isl-count", text: `since ${fmtClock(A.opened())}` })));
+  for (const e of list.slice(0, 50)) {
+    isl.append(h("div", { class: "issue" + (e.go ? " go" : ""), tabindex: e.go ? "0" : null, role: e.go ? "button" : null,
+      onclick: e.go || null, onkeydown: e.go ? (ev) => { if (ev.key === "Enter") e.go(); } : null },
+    h("span", { class: `sev num ${TOLD[e.kind] || "off"}`, text: fmtClock(e.at, true) }),
+    h("span", null, h("b", { text: e.title }), ` ${e.text}`)));
+  }
+  if (list.length > 50) isl.append(h("p", { class: "isl-note", text: `${fmtInt(list.length - 50)} earlier are left out.` }));
   return isl;
 }
 
