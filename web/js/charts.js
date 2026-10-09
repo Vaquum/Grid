@@ -261,7 +261,9 @@ export function quantile(sorted, f) {
 // far taller than the rest (most rounds at exactly 0) is drawn broken at
 // twice the next, with its share, so the rest stay readable.
 //
-// groups: [{ label, fill, vals }] with vals the group's values, sorted.
+// groups: [{ label, fill, ink, text, vals }] with vals the group's values,
+// sorted; `ink` draws its spread, `text` writes its share over a broken
+// bin when two groups are drawn (default: its ink).
 export function distChart(groups, opts = {}) {
   const W = opts.width || 420;
   const shown = groups.filter(g => g.vals.length);
@@ -322,6 +324,7 @@ export function distChart(groups, opts = {}) {
     if (!shown.some((_, gi) => share[gi][b] > 0)) continue;
     const g0 = m.l + b * bw + 1, inner = Math.max(1, bw - 2), each = inner / shown.length;
     const bar = s("g", { class: "has-tip" });
+    const cut = [];
     shown.forEach((g, gi) => {
       const x = share[gi][b];
       if (!(x > 0)) return;
@@ -329,9 +332,10 @@ export function distChart(groups, opts = {}) {
       bar.append(s("rect", { x: g0 + gi * each + (shown.length > 1 ? 0.5 : 0), y: base - hgt, width: Math.max(1, each - (shown.length > 1 ? 1 : 0)), height: hgt, rx: 1.5, fill: g.fill }));
       if (brokenAt.has(b) && x > top) {
         bar.append(s("rect", { x: g0 + gi * each, y: base - hgt + 7, width: each + 0.5, height: 2, fill: "var(--surface)" }));
-        svg.append(s("text", { class: "label ink", x: g0 + gi * each + each / 2, y: m.t - 4, "text-anchor": "middle", text: fmtPct(x, x < 0.1 ? 1 : 0) }));
+        cut.push({ text: fmtPct(x, x < 0.1 ? 1 : 0), fill: shown.length > 1 ? g.text || g.ink || g.fill : null });
       }
     });
+    if (cut.length) svg.append(cutLabel(cut, g0 + inner / 2, m, W));
     const range = discrete ? fmtV(distinct[b]) : `${fmtV(edges[b])} to ${fmtV(edges[b + 1])}`;
     tip(bar, () => h("div", null, h("b", { text: range }),
       shown.map((g, gi) => h("div", { class: "k", text: `${g.label}: ${fmtPct(share[gi][b], share[gi][b] < 0.01 ? 2 : 1)} (${fmtInt(counts[gi][b])} of ${fmtInt(g.vals.length)})` }))));
@@ -365,4 +369,18 @@ export function distChart(groups, opts = {}) {
     });
   }
   return { svg, outside, discrete };
+}
+
+// A broken bin's label, once over the bin and inside the chart: the share
+// of each group whose bar breaks there, in the order the bars stand, so
+// two groups' shares never print over each other.
+function cutLabel(cut, mid, m, W) {
+  const half = 3.3 * (cut.reduce((n, c) => n + c.text.length, 0) + 3 * (cut.length - 1));
+  const [x, anchor] = mid - half < m.l ? [m.l, "start"] : mid + half > W - m.r ? [W - m.r, "end"] : [mid, "middle"];
+  const text = s("text", { class: "label ink", x, y: m.t - 4, "text-anchor": anchor });
+  cut.forEach((c, k) => {
+    if (k) text.append(s("tspan", { text: " · " }));
+    text.append(s("tspan", { fill: c.fill, text: c.text }));
+  });
+  return text;
 }

@@ -155,8 +155,9 @@ function setCompare(m, A, on) {
 }
 
 // The colours of what the cards show: the chosen rows in blue against
-// every row in grey; two clusters compared in the first two categorical
-// colours.
+// every row in grey (its share over a broken bin in the secondary ink,
+// which reads as text where the grey does not); two clusters compared in
+// the first two categorical colours.
 function shownGroups(m, sel) {
   if (sel.mode === "compare") {
     return [{ key: "a", label: sel.a.id, rows: sel.a.rows, fill: "var(--cat-1-bar)", ink: "var(--cat-1)" },
@@ -164,7 +165,7 @@ function shownGroups(m, sel) {
   }
   if (sel.mode === "against") {
     return [{ key: "sel", label: sel.label, rows: sel.rows, fill: "var(--data-bar)", ink: "var(--data)" },
-      { key: "all", label: "All rows", rows: m.rows, fill: "var(--off-bar)", ink: "var(--off)" }];
+      { key: "all", label: "All rows", rows: m.rows, fill: "var(--off-bar)", ink: "var(--off)", text: "var(--ink-2)" }];
   }
   return [{ key: "all", label: "All rows", rows: m.rows, fill: "var(--data-bar)", ink: "var(--data)" }];
 }
