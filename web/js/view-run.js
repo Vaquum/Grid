@@ -327,7 +327,7 @@ function distIsland(m, res, sel) {
   if (!outs.length) { isl.append(h("p", { class: "isl-note", text: "No row in view has an outcome yet." })); return isl; }
   const nDrawn = outs.filter(t => drawn.has(t.id)).length;
   if (sel.mode !== "whole" && nDrawn) {
-    isl.append(h("p", { class: "isl-note rn-drawn", text: `The clusters are drawn on ${nDrawn === outs.length ? "every one" : `${nDrawn} of ${outs.length}`} of these outcomes (marked), so they differ on ${nDrawn === 1 ? "it" : "them"} by construction: shown, never tested.${nDrawn < outs.length ? " The others are tested, with q across them." : ""}` }));
+    isl.append(h("p", { class: "isl-note rn-drawn", text: `The clusters are drawn on ${nDrawn === outs.length ? "every one of these outcomes" : `${nDrawn} of these ${outs.length} outcomes`} (marked), so they differ on ${nDrawn === 1 ? "it" : "them"} by construction: shown, never tested.${nDrawn < outs.length ? ` The ${outs.length - nDrawn === 1 ? "other is" : "others are"} tested${outs.length - nDrawn > 1 ? ", with q across them" : ""}.` : ""}` }));
   }
   const grid = h("div", { class: "rn-grid" });
   outs.forEach((t, j) => grid.append(distCard(m, t, groups, drawn.has(t.id), sel, tests[j], q[j], res)));

@@ -31,9 +31,13 @@ before(async () => {
   // a real Limen run's first rounds, read from its result directory
   execFileSync("python3", ["-m", "grid", "pack", "--limen", "tests/fixtures/limen_run", "--out", join(dir, "limen.pack.json.gz")], { cwd: ROOT });
   execFileSync("python3", ["tools/build.py", "--pack", join(dir, "limen.pack.json.gz"), "--out", join(dir, "limen.html")], { cwd: ROOT, stdio: "ignore" });
+  // the first 150 rounds of a longer run: enough rounds to fall into groups
+  execFileSync("python3", ["-m", "grid", "pack", "--limen", "tests/fixtures/limen_run_150", "--out", join(dir, "limen150.pack.json.gz")], { cwd: ROOT });
+  execFileSync("python3", ["tools/build.py", "--pack", join(dir, "limen150.pack.json.gz"), "--out", join(dir, "limen150.html")], { cwd: ROOT, stdio: "ignore" });
   server = createServer(async (req, res) => {
     try {
-      const body = await readFile(join(dir, req.url.startsWith("/limen") ? "limen.html" : "demo.html"));
+      const page = req.url.startsWith("/limen150") ? "limen150.html" : req.url.startsWith("/limen") ? "limen.html" : "demo.html";
+      const body = await readFile(join(dir, page));
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       res.end(body);
     } catch (err) { res.writeHead(500); res.end(String(err)); }
@@ -342,6 +346,76 @@ test("gates: one that cannot be read says why, and goes on request", async () =>
   assert.match(await page.locator(".gt-problem").innerText(), /this run has no needle nope/);
   await page.locator(".gt-problem").getByRole("button", { name: "Remove" }).click();
   await page.waitForSelector(".gt-ghost");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("run: a sweep with no groups gets its strip, every row's distributions and no clusters", async () => {
+  const { page, errors } = await open();
+  await page.keyboard.press("7");
+  await page.waitForSelector(".rn-card");
+  assert.match(await page.locator(".strip").innerText(), /Rows\s+6,000/);
+  // the rows of the synthetic sweep do not fall into groups: none is drawn, and the page says why
+  await page.waitForFunction(() => (document.querySelector(".rn-pick .isl-count") || {}).textContent === "none", null, { timeout: 20000 });
+  assert.match(await page.locator(".rn-pick .isl-note").innerText(), /do not fall into groups: the best grouping \(\d clusters\) has a silhouette of 0\.\d\d, under 0\.26/);
+  assert.match(await page.locator(".strip").innerText(), /Clusters\s+none\s+the rows do not group/);
+  assert.equal(await page.locator(".rn-chip").count(), 0);
+  // a card per outcome, the needle first, every row in one colour
+  const names = await page.locator(".rn-card .rn-name").allInnerTexts();
+  assert.equal(names[0], "Tradeable");
+  assert.ok(names.length >= 8, names.join(", "));
+  assert.equal(await page.locator(".rn-legend").innerText(), "All rows · 6,000 rows");
+  assert.equal(await page.locator(".rn-diff").count(), 0);
+  for (const label of ["Best so far against luck", "Pace", "Problems", "The sampler"]) {
+    assert.equal(await page.locator(`section[aria-label="${label}"]`).count(), 1, label);
+  }
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("run: a Limen run's clusters, one against every row, two compared, and another number of them", async () => {
+  const { page, errors } = await limenPage();
+  await page.goto(base + "limen150");
+  await page.waitForSelector(".pcard");
+  await page.keyboard.press("7");
+  await page.waitForSelector(".rn-chip", { timeout: 20000 });
+  const strip = await page.locator(".strip").innerText();
+  assert.match(strip, /Rows\s+150/);
+  assert.match(strip, /Net PnL per bar\s+-?\d\.\d+ bps\s+median 0\.0 bps/);
+  assert.match(strip, /Clusters\s+2\s+silhouette 0\.\d\d, (weak|reasonable)/);
+  // two clusters: the rounds that never entered, and the ones that did
+  const chips = await page.locator(".rn-chip").allInnerTexts();
+  assert.equal(chips.length, 2);
+  assert.match(chips[0], /^A\s+\d+\s+\d+%\s+Entries 0/);
+  const sizes = chips.map(c => +/^[AB]\s+(\d+)/.exec(c)[1]);
+  assert.equal(sizes[0] + sizes[1], 150);
+  const cards = page.locator(".rn-card");
+  assert.equal(await cards.first().locator(".rn-name").innerText(), "Net PnL per bar");
+  assert.equal(await page.locator(".rn-legend").innerText(), "All rows · 150 rows");
+  // A against every row: two groups on each card; the outcomes the clusters
+  // are drawn on are said once and never tested, the others are
+  await page.locator('.rn-chip[data-cluster="A"]').click();
+  await page.waitForSelector(".rn-drawn");
+  assert.equal(await page.locator(".rn-legend").innerText(), `A · ${sizes[0]} rows\nAll rows · 150 rows`);
+  assert.equal(await cards.first().locator(".dist-box").count(), 2);
+  assert.equal(await page.locator('.rn-card[data-outcome="backtest_pnl_per_bar_bps"] .rn-diff').count(), 0);
+  assert.match(await page.locator('.rn-card[data-outcome="execution_time"] .rn-diff').innerText(), /q/);
+  assert.equal(await page.locator(".rn-apart .isl-title").innerText(), "What sets A apart");
+  // Compare: A against B
+  await page.locator(".rn-compare").click();
+  await page.locator('.rn-chip[data-cluster="B"]').click();
+  await page.waitForFunction(() => (document.querySelector(".rn-apart .isl-title") || {}).textContent === "What sets A and B apart");
+  assert.equal(await page.locator(".rn-legend").innerText(), `A · ${sizes[0]} rows\nB · ${sizes[1]} rows`);
+  // three clusters; with Compare on a third choice replaces the first
+  await page.locator('.rn-k button[data-k="3"]').click();
+  await page.waitForFunction(() => document.querySelectorAll(".rn-chip").length === 3, null, { timeout: 20000 });
+  for (const id of ["A", "B", "C"]) await page.locator(`.rn-chip[data-cluster="${id}"]`).click();
+  await page.waitForFunction(() => [...document.querySelectorAll('.rn-chip[aria-pressed="true"]')].map(c => c.dataset.cluster).join() === "B,C");
+  // the address keeps the choice
+  await page.reload();
+  await page.waitForSelector('.rn-chip[aria-pressed="true"]', { timeout: 20000 });
+  assert.deepEqual(await page.locator('.rn-chip[aria-pressed="true"]').evaluateAll(cs => cs.map(c => c.dataset.cluster)), ["B", "C"]);
+  assert.equal(await page.locator(".rn-compare").getAttribute("aria-pressed"), "true");
   assert.deepEqual(errors, []);
   await page.close();
 });
