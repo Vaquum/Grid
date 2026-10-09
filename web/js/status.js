@@ -32,14 +32,14 @@ export function runStatus(s) {
     return { kind: "down", label: "Reconnecting", detail: null, tip: "The stream from the server stopped; the page reads the sweep again." };
   }
   if (meta.archivedFrom) {
-    return { kind: "kept", label: "Archived", detail: Number.isFinite(meta.archivedAt) ? `until ${fmtClock(meta.archivedAt)}` : null,
+    return { kind: "archived", label: "Archived", detail: Number.isFinite(meta.archivedAt) ? `until ${fmtClock(meta.archivedAt)}` : null,
       tip: `The rows read before its results file ${meta.archivedReason === "replaced" ? "was replaced" : "started over"}, kept as they were. The run goes on under its own name in the run picker.` };
   }
   if (s.mode !== "live") {
-    return { kind: "kept", label: "Recorded", detail: s.mode === "demo" ? null : "file", tip: "A snapshot of the sweep's files. Press play to replay its rows as they arrived." };
+    return { kind: "recorded", label: "Recorded", detail: s.mode === "demo" ? null : "file", tip: "A snapshot of the sweep's files. Press play to replay its rows as they arrived." };
   }
   if (!meta.live) {
-    return { kind: "kept", label: "Earlier run", detail: null, tip: `An earlier run of this sweep, read from ${meta.source}: not the one being written.` };
+    return { kind: "earlier", label: "Earlier run", detail: null, tip: `An earlier run of this sweep, read from ${meta.source}: not the one being written.` };
   }
   const ago = Number.isFinite(s.lastRow) ? s.now - s.lastRow : NaN;
   const last = Number.isFinite(ago) ? `last row ${fmtAgo(ago)}` : null;
@@ -51,7 +51,7 @@ export function runStatus(s) {
       tip: "The run's log shows a crash in its latest segment, and no relaunch since. The Run view (7) has the traceback." };
   }
   if (seg && seg.status === "finished") {
-    return { kind: "kept", label: "Finished", detail: last, tip: "The run's log has its closing summary: the sweep is done." };
+    return { kind: "finished", label: "Finished", detail: last, tip: "The run's log has its closing summary: the sweep is done." };
   }
   const quiet = Number.isFinite(ago) ? ago : s.now - s.since;
   if (quiet > QUIET_AFTER) {
