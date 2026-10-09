@@ -113,15 +113,13 @@ test("the strip copies the board as notes", async () => {
 test("a nested parameter has one name on its card, in the inspector and in the notes, and a row of cards keeps its plots level", async () => {
   const { page, errors } = await open();
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: base });
-  const title = page.locator(".pcard .pc-name[title*=' · ']").first();
-  const name = await title.getAttribute("title");
+  const { name, sub } = await page.$eval(".pcard .pc-name[title*=' · ']", n => ({ name: n.title, sub: n.closest(".pcard").querySelector(".pc-sub").textContent }));
   assert.match(name, /^\w+ · \w+$/);
   // the whole name shows, on a second line if it must
   assert.deepEqual(await page.$$eval(".pc-name", ns => ns.filter(n => n.scrollHeight > n.clientHeight + 1).map(n => n.title)), []);
   // where it applies, said the same on its card and in the inspector
-  const sub = await page.locator(".pcard", { has: title }).locator(".pc-sub").innerText();
   assert.match(sub, /^only when \w+ = \w+ · \d+%$/);
-  await title.click();
+  await page.locator(`.pcard .pc-name[title="${name}"]`).click();
   assert.equal(await page.locator("#inspector h2").innerText(), name);
   assert.ok((await page.locator("#inspector .eyebrow").first().innerText()).endsWith(` · ${sub}`));
   await page.keyboard.press("Escape");
