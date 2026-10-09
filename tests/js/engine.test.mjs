@@ -5,12 +5,13 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
+import { fileURLToPath } from "node:url";
 import { decodePack } from "../../web/js/pack.js";
 import { buildSchema } from "../../web/js/schema.js";
 import * as E from "../../web/js/engine.js";
 import { bhQ } from "../../web/js/stats.js";
 
-const ROOT = new URL("../../", import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const G = JSON.parse(readFileSync(new URL("../golden/engine.json", import.meta.url)));
 let ds, schema, all;
 

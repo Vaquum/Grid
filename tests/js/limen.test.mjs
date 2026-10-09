@@ -9,11 +9,12 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
+import { fileURLToPath } from "node:url";
 import { decodePack } from "../../web/js/pack.js";
 import { buildSchema } from "../../web/js/schema.js";
 import { limenProfile } from "../../web/js/profiles.js";
 
-const ROOT = new URL("../../", import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 let ds, schema, manifest;
 
 before(() => {
