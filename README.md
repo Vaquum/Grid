@@ -140,3 +140,7 @@ tests/golden/engine.json`.
 - `web/js/`: stats, pack decoding, schema and profiles, the engine, the views
 - `tools/`: build, synthetic sweeps, simulator, live demo, reference values
 - `tests/`: Python, JavaScript (against scipy references) and browser tests
+
+## License
+
+[MIT License](LICENSE).
