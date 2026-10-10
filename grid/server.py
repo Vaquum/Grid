@@ -131,8 +131,10 @@ class Server:
             except IndexError as err:
                 raise ValueError(str(err)) from err
             shards: Any = exp.get("shards")
-            dirs: dict[str, str] = ({str(lb): str(d) for lb, d in shards}
-                                    if isinstance(shards, list) else {})
+            dirs: dict[str, str] = (
+                {str(p[0]): str(p[1])
+                 for p in cast(list[list[Any]], shards)}
+                if isinstance(shards, list) else {})
             single: Any = exp.get("dir")
         records: list[Json] = []
         where: list[str] = []
