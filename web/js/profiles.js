@@ -208,7 +208,7 @@ export const LIMEN_EXECUTION = {
     { id: "trade_mean", key: "tradeMean", label: "Mean trade", unit: BPS, better: 1, digits: 2,
       definition: "the mean net return of the round's trades, each compounded over its bars" },
     { id: "trade_t", key: "tradeT", label: "Per-trade t", unit: "", better: 1, digits: 2, group: "activity",
-      definition: "the mean trade over its standard error: how many of its own noise's widths the trades' mean lies from 0; it needs two trades" },
+      definition: "the mean trade over its standard error: how many of its own noise's widths the trades' mean lies from 0; read from 30 trades or more" },
     { id: "timing", key: "timing", label: "Timing per bar", unit: BPS, better: 1, digits: 2, group: "skill",
       definition: "the mean gross return per bar beyond the mean deployed notional times the market's mean return, over the bars with a market return: what choosing the bars earned beyond being in the market" },
   ],

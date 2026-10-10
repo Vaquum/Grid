@@ -43,6 +43,11 @@ ROUND_LOG = "round_data.jsonl"
 # reach: 0.05 in probability, a threshold that much lower would let it pass.
 REACH = 0.05
 BPS = 10_000.0
+# The fewest trades a per-trade t is read from. With fewer its spread is
+# too wide to read (two trades give it one degree of freedom), and trades
+# stopped at one level have all but one return, their t near infinite: on
+# a 10,000-round run, |t| reached 1e14 under 10 trades and 19 from 30.
+T_TRADES = 30
 
 
 def manifest_copy(names: Iterable[str], directory: str) -> str:
@@ -290,7 +295,8 @@ def _span(pos: list[float], gross: list[float], net: list[float],
     winning bars (``wins``) and mean deployed notional (``inventory``);
     its trades, each a run of bars in the market (pos above 0) with its
     net return compounded over them, as Limen's per-trade summary has it
-    (``trades``, their mean ``tradeMean`` and its t, ``tradeT``); and with
+    (``trades``, their mean ``tradeMean`` and, from T_TRADES of them, its
+    t, ``tradeT``); and with
     market returns, the window's ``timing``, the mean gross return beyond
     the mean deployed notional times the market's mean return, over the
     bars with a market return (what the bars it chose earned beyond being
@@ -333,9 +339,10 @@ def _span(pos: list[float], gross: list[float], net: list[float],
     k = len(trades)
     mean = sum(trades) / k if k else None
     t = None
-    if mean is not None and k >= 2:
+    if mean is not None and k >= T_TRADES:
         var = sum((r - mean) ** 2 for r in trades) / (k - 1)
-        if var > 0:
+        # trades of one return (but for float error) have no t
+        if var > (1e-9 * max(abs(r) for r in trades)) ** 2:
             t = mean / math.sqrt(var / k)
     out: Json = {"bars": bars, "trades": k,
                  "tradeMean": None if mean is None else mean * BPS,

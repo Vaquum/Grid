@@ -103,7 +103,7 @@ function dimDetail(box, m, A, d, levelKey) {
   const tbl = h("table", { class: "vals" },
     h("thead", null, h("tr", null, h("th", { text: "Value" }), h("th", { class: "r", text: "Rows" }), h("th", { class: "r", text: target.label }),
       tip(h("th", { class: "r has-tip", text: "Difference" }), `Each value's ${inText(target.label)} against the base, ${fmtT(target, base.mean)} over the rows in view.`),
-      e.halves ? HALF_NAMES.map(name => tip(h("th", { class: "r has-tip", text: name.replace(" half", "") }), `Each value's ${inText(target.label)} on the ${name} of the test window.`)) : null,
+      e.halves ? HALF_NAMES.map(name => tip(h("th", { class: "r has-tip", text: name.charAt(0).toUpperCase() + name.slice(1) }), `Each value's ${inText(target.label)} on the ${name} of the test window.`)) : null,
       h("th", { class: "iv", text: "95% interval" }))));
   const halfOf = e.halves ? e.halves.map(x => (x ? new Map(x.levels.map(l => [l.key, l])) : new Map())) : null;
   const tb = h("tbody");

@@ -174,7 +174,7 @@ const verdictTag = (v) => (Object.hasOwn(SHOWS_TEXT, v)
 function halfCells(t, x, value) {
   return [0, 1].map(k => { const y = x.halves ? x.halves[k] : null; return h("td", { class: "r num", text: y && Number.isFinite(value(y)) ? fmtDelta(t, value(y)) : "–" }); });
 }
-const halfHeads = () => HALF_NAMES.map(name => h("th", { class: "r", text: name.replace(" half", "") }));
+const halfHeads = () => HALF_NAMES.map(name => h("th", { class: "r", text: name.charAt(0).toUpperCase() + name.slice(1) }));
 
 function groupsIsland(m, lf) {
   const t = m.target, g = lf.groups, d = lf.design;
@@ -257,11 +257,11 @@ function columnsIsland(m, A, lf) {
     const tr = h("tr", null, h("td", { class: "v", text: name }), h("td", { class: "r num", text: fmtInt(x.drops) }));
     if (x.reason) {
       tr.append(h("td", { class: "r num muted", text: "–" }), h("td", { class: "iv" }), h("td", { class: "r num muted", text: "–" }),
-        lf.halves ? [h("td", { class: "r num muted", text: "–" }), h("td", { class: "r num muted", text: "–" })] : null,
+        ...(lf.halves ? [h("td", { class: "r num muted", text: "–" }), h("td", { class: "r num muted", text: "–" })] : []),
         h("td", null, h("span", { class: "ft-v quiet", text: x.reason === "few" ? `fewer than ${MIN_DROPS} drops` : "cannot be told apart" })));
     } else {
       tr.append(h("td", { class: "r num", text: fmtDelta(t, x.keep) }), h("td", { class: "iv" }, intervalBar(x.keep, x.lo, x.hi, 0, dom)),
-        h("td", { class: "r num", text: fmtP(x.q) }), lf.halves ? halfCells(t, x, y => y.keep) : null, h("td", null, verdictTag(verdictFor(t, x, x.keep))));
+        h("td", { class: "r num", text: fmtP(x.q) }), ...(lf.halves ? halfCells(t, x, y => y.keep) : []), h("td", null, verdictTag(verdictFor(t, x, x.keep))));
       tip(tr.children[3], () => h("div", null, h("b", { text: `Keeping ${name}` }),
         h("div", { text: `${fmtDelta(t, x.keep)}, 95% ${deltaRange(t, x.lo, x.hi)}` }),
         h("div", { class: "k", text: `dropped in ${fmtInt(x.drops)} rows${x.members.length > 1 ? "; these columns were always dropped together, so they are one term" : ""}` })));

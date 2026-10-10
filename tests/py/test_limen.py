@@ -236,26 +236,42 @@ class Execution(unittest.TestCase):
         whole, (h1, h2) = got["whole"], got["halves"]
         trades = [1.01 * 0.98 - 1, 0.03, 0.01]
         mean = sum(trades) / 3
-        sd = (sum((r - mean) ** 2 for r in trades) / 2) ** 0.5
         market = 1.0
         for r in self.RET[1:]:
             market *= 1 + r
         self.close(whole, {
             "bars": 8, "trades": 3, "tradeMean": mean * 1e4,
-            "tradeT": mean / (sd / 3 ** 0.5), "pnl": 0.03 / 8 * 1e4,
+            "pnl": 0.03 / 8 * 1e4,
             "cost": 0.004 / 8 * 1e4, "wins": 3 / 8, "inventory": 0.5,
             # the bars with a market return: gross 0.034, position 4 and
             # market 0.031 over seven bars
             "timing": (0.034 / 7 - 4 / 7 * 0.031 / 7) * 1e4,
             "market": market - 1})
-        # each half read as a window of its own: one trade, then two whose
-        # mean is two of its standard errors
+        # each half read as a window of its own: one trade, then two
         self.close(h1, {"bars": 4, "trades": 1, "tradeMean": trades[0] * 1e4,
                         "pnl": -0.01 / 4 * 1e4, "inventory": 0.5})
-        self.assertIsNone(h1["tradeT"])
         self.close(h2, {"bars": 4, "trades": 2, "tradeMean": 0.02 * 1e4,
-                        "tradeT": 2.0, "pnl": 0.04 / 4 * 1e4,
-                        "wins": 0.5, "inventory": 0.5})
+                        "pnl": 0.04 / 4 * 1e4, "wins": 0.5,
+                        "inventory": 0.5})
+        # under 30 trades, no t is read
+        for span in (whole, h1, h2):
+            self.assertIsNone(span["tradeT"])
+
+    def test_a_t_is_read_from_30_trades(self) -> None:
+        # 30 one-bar trades returning 1% and 0% in turn: their mean is
+        # half a percent, its standard error a sixth of that over √29
+        pos = [0, 1] * 30
+        net = [0.0, 0.01, 0.0, 0.0] * 15
+        got = self.summary(pos, net, net)
+        assert got is not None
+        self.close(got["whole"], {"trades": 30, "tradeMean": 50.0,
+                                  "tradeT": 29 ** 0.5})
+        # a half has 15: none
+        self.assertIsNone(got["halves"][0]["tradeT"])
+        # trades all of one return have no t either
+        flat = self.summary(pos, [0.0, 0.01] * 30, [0.0, 0.01] * 30)
+        assert flat is not None
+        self.assertIsNone(flat["whole"]["tradeT"])
 
     def test_a_trade_open_across_the_middle_is_a_trade_in_each_half(
             self) -> None:
