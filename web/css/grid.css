@@ -974,13 +974,15 @@ tr.sel td { background: var(--on); }
 }
 .ed:focus-within { outline: 2px solid var(--ink); outline-offset: 2px; }
 .ed-gutter, .ed-text { font-family: var(--mono); font-size: var(--fs-m); line-height: 18px; }
-/* the margin takes the text's height, not its own (contain: size), and
-   room for the text's scroll bar at its foot */
+/* the margin takes the text's height, not its own (contain: size), so its
+   width is set: as many digits as the last line's number; and room for
+   the text's scroll bar at its foot */
 .ed-gutter {
-  contain: size; margin: 0; padding: var(--sp-2) var(--sp-2) calc(var(--sp-2) + 24px) var(--sp-3); overflow: hidden;
+  contain: size; width: calc(var(--digits, 3) * 1ch + var(--sp-3) + var(--sp-2) + 1px); margin: 0;
+  padding: var(--sp-2) var(--sp-2) calc(var(--sp-2) + 24px) var(--sp-3); overflow: hidden;
   text-align: right; color: var(--muted); background: var(--panel); border-right: 1px solid var(--line); user-select: none;
 }
-.ed-gutter span { display: block; min-width: 2ch; }
+.ed-gutter span { display: block; }
 .ed-gutter .bad { color: var(--critical-ink); font-weight: 700; }
 .ed-text {
   display: block; width: 100%; height: min(62vh, 560px); min-height: 180px; margin: 0; padding: var(--sp-2) var(--sp-3);

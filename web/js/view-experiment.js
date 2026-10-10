@@ -520,6 +520,7 @@ function paint(d) {
   if (d.gkey !== gkey) {
     d.gkey = gkey;
     d.gutter.replaceChildren(...Array.from({ length: n }, (_, i) => h("span", { class: bad.has(i + 1) ? "bad" : null, text: String(i + 1) })));
+    d.gutter.style.setProperty("--digits", String(Math.max(2, String(n).length)));
     d.gutter.scrollTop = d.ta.scrollTop;
   }
   const space = searchSpace(d.text);
