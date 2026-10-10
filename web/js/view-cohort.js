@@ -217,7 +217,7 @@ function cohortStrip(m, A, pool, members, t) {
     stripCell("Cohort, second half", j ? bpsText(pnlOf(second(j.cohort))) : "–", "net per bar", () => h("div", null,
       h("b", { text: "The cohort on the second half of the test window" }),
       h("div", { class: "k", text: j && j.aggregation === "majority_vote"
-        ? "Its members' votes (the run recorded no probabilities), long where more than half of them vote for it, executed long-flat at the costs set below."
+        ? "Its members' votes, as Limen's Cohort aggregates their architecture: long where more than half of them vote for it, executed long-flat at the costs set below."
         : "Its members' probabilities averaged, over 0.5, executed long-flat at the costs set below." })), null, stale),
     stripCell("Best member alone", best ? bpsText(pnlOf(second(best))) : "–", "net per bar", () => h("div", null,
       h("b", { text: t.halves ? "The member best on the first half, alone, on the second" : "The member best on the whole window, alone, on the second half" })), null, stale),
@@ -226,7 +226,7 @@ function cohortStrip(m, A, pool, members, t) {
   ];
   return strip("The cohort in figures", cells, { key: "cohort", label: "About the cohort", content: () => about("Cohort",
     "The pool is the rows in view that are in the pocket and pass every gate set in Gates (Grid's own standing gates only when set there): the pocket found with the other views, filtered down. Its members are the pool's best by the needle on the first half of the test window, from one result directory, since a Limen Cohort takes one (each shard's manifest differs by its seed).",
-    "The cohort is judged on the second half, which chose nothing: rebuilt from what the run recorded, its members' probabilities averaged and over 0.5 as Limen's Cohort averages them (their votes, more than half, when the run recorded no probabilities), and executed as Limen executes a signal (long on the bar after a 1, at the fee and slippage set here). Its best member alone and its members' mean are executed the same way, so the three compare like for like. A gate set in Gates is read on the first half where its needle is measured on each half; a gate or a needle of the whole window lets the second half help choose, and the view says so. The pocket is yours: found by reading the whole window in the other views, it was chosen with the second half too.",
+    "The cohort is judged on the second half, which chose nothing: rebuilt from what the run recorded, aggregated as Limen's Cohort aggregates the members' architecture (their probabilities averaged and over 0.5, or for an architecture it does not average, their votes, more than half, a regressor voting for a predicted move above 0), and executed as Limen executes a signal (long on the bar after a 1, at the fee and slippage set here). Its best member alone and its members' mean are executed the same way, so the three compare like for like. A gate set in Gates is read on the first half where its needle is measured on each half; a gate or a needle of the whole window lets the second half help choose, and the view says so. The pocket is yours: found by reading the whole window in the other views, it was chosen with the second half too.",
     "Exits by take-profit or stop-loss are not rebuilt (the run does not record the prices they need); calibrated and uncalibrated members' probabilities are averaged as they come, as Limen's Cohort averages them.") }, null, A);
 }
 
@@ -361,7 +361,7 @@ function judgedIsland(m, A, members, t, touched) {
   };
   isl.append(h("div", { class: "co-costs" }, cost("fee", "Fee", pick.fee !== null ? pick.fee : j.fee),
     cost("slip", "Slippage", pick.slip !== null ? pick.slip : j.slip),
-    h("span", { class: "isl-note", text: `per fill; the members' own, unless set here. ${fmtInt(j.bars)} bars they share, the cohort long on ${fmtPct(j.fired, 0)} of their signals.` })));
+    h("span", { class: "isl-note", text: `per fill; the members' own, unless set here. ${fmtInt(j.bars)} bars they share, the cohort long on ${fmtPct(j.fired, 0)} of them, ${j.aggregation === "majority_vote" ? "by its members' votes" : "its members' probabilities averaged"}, as Limen's Cohort aggregates ${String(j.architecture || "their architecture").split(".").pop()}.` })));
   const best = j.members[0], mean = { whole: meanOf(j.members.map(x => x.whole)), halves: [meanOf(j.members.map(x => x.halves && x.halves[0])), meanOf(j.members.map(second))] };
   const c2 = second(j.cohort), b2 = second(best);
   const verdict = !touched ? `Chosen on the first half, the cohort makes ${bpsText(pnlOf(c2))} a bar on the second`

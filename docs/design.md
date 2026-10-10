@@ -441,11 +441,16 @@ says so in its verdict; so does a pocket found by reading the whole
 window, which the view cannot know.
 
 The judgement trains nothing. The server rebuilds the cohort from what
-the run recorded (`grid/cohort.py`): each member's test probabilities bar
-by bar, aligned by the bars' times (rebuilt from each round's first and
-last bar, at the data's interval, less the bars it dropped), averaged and
-over 0.5, as Limen's probability-weighted `Cohort` predicts (the members'
-own thresholds take no part); the signal executed as Limen executes one
+the run recorded (`grid/cohort.py`): each member's test outputs bar by
+bar, aligned by the bars' times (rebuilt from each round's first and last
+bar, at the data's interval, less the bars it dropped), aggregated as
+Limen's `Cohort` aggregates the members' architecture, which it names as
+Limen does (a round parameter, else the manifest's reference
+architecture, else the run's sfd module): an architecture it knows to
+give probabilities by their mean over 0.5 (the members' own thresholds
+take no part, and rounds that recorded none cannot be judged), any other
+by the members' votes, more than half, a regressor voting for a
+predicted move above 0; the signal executed as Limen executes one
 (long on the bar after a 1, slippage on each fill, the fee on the entry
 notional and the exit proceeds), checked against the execution Limen
 recorded for its rounds. Each member is executed alike from its own
@@ -453,8 +458,11 @@ predictions, so the cohort, its best member alone and its members' mean
 are set side by side on each half. The halves are where every member's
 own halves agree (each member was ranked on its own window's halves), so
 no bar of the second half chose a member; where the members' windows
-differ, the bars between are in neither half. Exits by take-profit or stop-loss need
-prices the run does not record, and are not rebuilt; the view says so.
+differ, the bars between are in neither half. Exits by take-profit or
+stop-loss need prices the run does not record, and are not rebuilt; the
+view says so. So it does of members using price-line features, which find
+their lines on the history they are given: a predictor given other
+history, as live, can predict otherwise than its round recorded.
 
 Make predictor writes `cohorts/<name>/` in the project: `experiment/`, a
 result directory of the members' metadata, round lines, results rows and

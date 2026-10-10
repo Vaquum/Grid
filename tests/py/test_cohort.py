@@ -1,9 +1,10 @@
 """The Cohort view's server side (grid/cohort.py): a cohort of a Limen run's
 rounds judged on what the run recorded. Limen's long-flat execution is
 rebuilt from a round's recorded signal and checked against the execution
-Limen recorded for it; the members' bars are aligned by time; their
-probabilities are averaged as Limen's Cohort averages them; and the route
-serves it for a run's rows. On a Limen project, a predictor is made of a
+Limen recorded for it; the members' bars are aligned by time; they are
+aggregated as Limen's Cohort aggregates their architecture (probabilities
+averaged, or votes, a regressor's at 0); and the route serves it for a
+run's rows. On a Limen project, a predictor is made of a
 run's rows: cohorts/<name>/ written and Limen's Trainer and Cohort run by
 grid/limen_cohort.py, here with a stand-in limen package
 (tests/fixtures/fake_limen_pkg) that trains nothing.
@@ -33,11 +34,15 @@ from typing import Any
 from grid.__main__ import Wiring
 from grid.cohort import (
     RoundLines,
+    aggregation_of,
+    architecture_of,
     bar_step,
     bar_times,
     costs_of,
     judge,
+    line_features,
     long_flat,
+    vote_threshold,
 )
 from grid.experiment import Project
 from grid.server import serve
@@ -50,6 +55,13 @@ RUN = os.path.join(HERE, "..", "fixtures", "limen_cohort")
 FAKE_PKG = os.path.join(HERE, "..", "fixtures", "fake_limen_pkg")
 FAKE_CLI = os.path.join(HERE, "..", "fixtures", "fake_limen.py")
 HOUR = 3600
+# manifests naming their reference architecture, as Limen's YAML runs do
+LGBM: Json = {"sfd": {"manifest": {"reference_architecture":
+    "limen.sfd.reference_architecture.lightgbm_binary.lightgbm_binary"}}}
+XGB: Json = {"sfd": {"manifest": {"reference_architecture":
+    "limen.sfd.reference_architecture.xgboost_regressor.xgboost_regressor"}}}
+RIDGE: Json = {"sfd": {"manifest": {"reference_architecture":
+    "limen.sfd.reference_architecture.ridge_regressor.ridge_regressor"}}}
 
 
 def wait(check: Any, timeout: float = 20.0) -> None:
@@ -216,7 +228,7 @@ class Aggregation(unittest.TestCase):
         ret: list[float | None] = [None, 0.01, 0.01, 0.01]
         a = synthetic("a", [0.9, 0.9, 0.2, 0.2], ret=ret)
         b = synthetic("b", [0.3, 0.1, 0.8, 0.6], ret=ret)
-        out = judge([a, b], HOUR, 0.0, 0.0)
+        out = judge([a, b], HOUR, 0.0, 0.0, LGBM)
         self.assertEqual(out["aggregation"], "probability_weighted")
         # means 0.6, 0.5, 0.5, 0.4: only the first is over 0.5, so the
         # cohort holds the second bar alone
@@ -225,16 +237,110 @@ class Aggregation(unittest.TestCase):
         self.assertAlmostEqual(out["cohort"]["whole"]["pnl"],
                                0.01 / 4 * 10_000, places=6)
 
-    def test_without_probabilities_the_votes_decide(self) -> None:
+    def test_an_architecture_limen_does_not_average_votes(self) -> None:
+        # three regressors' predicted moves: each votes, and is long, on a
+        # move above 0 (at 0.5 none would ever be)
         ret: list[float | None] = [None, 0.01, 0.01]
-        a = synthetic("a", [0.9, 0.9, 0.9], ret=ret)
-        b = synthetic("b", [0.9, 0.1, 0.1], ret=ret)
-        c = synthetic("c", [0.1, 0.1, 0.9], ret=ret)
-        for rec in (a, b, c):
-            rec["probs"] = None
-        out = judge([a, b, c], HOUR, 0.0, 0.0)
-        self.assertEqual(out["aggregation"], "majority_vote")
+        moves = {"a": [0.002, 0.003, 0.004], "b": [0.001, -0.002, -0.001],
+                 "c": [-0.001, -0.001, 0.002]}
+        recs = []
+        for rid, preds in moves.items():
+            rec = synthetic(rid, [0.5] * 3, ret=ret)
+            rec["preds"], rec["probs"] = preds, None
+            recs.append(rec)
+        out = judge(recs, HOUR, 0.0, 0.0, XGB)
+        self.assertEqual((out["architecture"], out["aggregation"]),
+                         (XGB["sfd"]["manifest"]["reference_architecture"],
+                          "majority_vote"))
+        # votes 2, 1 and 2 of 3: long on the bar after the first (the last
+        # has none after it)
         self.assertAlmostEqual(out["fired"], 2 / 3)
+        self.assertEqual(out["cohort"]["whole"]["trades"], 1)
+        # a member alone is long after each of its moves above 0
+        self.assertEqual(out["members"][0]["whole"]["trades"], 1)
+        self.assertAlmostEqual(out["members"][0]["whole"]["pnl"],
+                               0.02 / 3 * 10_000, places=3)
+
+    def test_averaging_needs_the_probabilities(self) -> None:
+        # Limen's Cohort averages a lightgbm cohort's probabilities: rounds
+        # that did not record them (no model outputs: no "probs") cannot be
+        # judged by votes in their place
+        a, b = synthetic("a", [0.9] * 4), synthetic("b", [0.2] * 4)
+        del b["probs"]
+        with self.assertRaisesRegex(ValueError, "averages the probabilities "
+                                    "of .*lightgbm_binary's members, and 1 "
+                                    "of these 2 rounds did not record them "
+                                    r"\(record them with uel\."
+                                    "record_model_outputs"):
+            judge([a, b], HOUR, 0.0, 0.0, LGBM)
+        # a model whose outputs were recorded without probabilities (an
+        # svm, say, which Limen's Cohort would average) cannot be recorded
+        # into having them
+        b["probs"] = None
+        with self.assertRaisesRegex(ValueError, "1 of these 2 rounds' models "
+                                    "gave none: its cohort cannot predict"):
+            judge([a, b], HOUR, 0.0, 0.0, LGBM)
+        # nor can a ridge regressor's, which it would average too, recorded
+        # or not
+        ridge = synthetic("r", [0.5] * 4)
+        for recorded in (True, False):
+            if recorded:
+                ridge["probs"] = None
+            else:
+                del ridge["probs"]
+            with self.assertRaisesRegex(ValueError, "a regressor's model "
+                                        "gives none: its cohort cannot "
+                                        "predict"):
+                judge([ridge], HOUR, 0.0, 0.0, RIDGE)
+
+    def test_the_architecture_is_named_as_limen_names_it(self) -> None:
+        rec = synthetic("a", [0.9] * 4)
+        # without a parameter naming it: the manifest's, else sfd_module
+        self.assertEqual(architecture_of(rec, LGBM, "yaml:x"),
+                         LGBM["sfd"]["manifest"]["reference_architecture"])
+        self.assertEqual(architecture_of(rec, None, "yaml:lgbm"), "yaml:lgbm")
+        self.assertEqual(architecture_of(rec, {}, None),
+                         "unknown_architecture")
+        rec["round_params"]["model_name"] = " logreg_binary "
+        self.assertEqual(architecture_of(rec, LGBM, None), "logreg_binary")
+        self.assertEqual(aggregation_of("yaml:lgbm"), "probability_weighted")
+        self.assertEqual(aggregation_of("unknown_architecture"),
+                         "majority_vote")
+        self.assertEqual((vote_threshold("xgboost_regressor"),
+                          vote_threshold("lightgbm_binary")), (0.0, 0.5))
+        # a cohort is of one architecture, as Limen's is
+        other = synthetic("b", [0.9] * 4)
+        other["round_params"]["model_name"] = "tabpfn_binary"
+        with self.assertRaisesRegex(ValueError, "of one architecture; these "
+                                    "are of 2 "):
+            judge([rec, other], HOUR, 0.0, 0.0, LGBM)
+
+    def test_members_using_price_lines_are_said(self) -> None:
+        manifest: Json = {"sfd": {"manifest": {
+            "reference_architecture": "lightgbm_binary",
+            "features": [
+                {"func": "limen.features.quantile_price_lines."
+                         "quantile_price_lines", "params": {"group": "lines"}},
+                {"func": "limen.features.parkinson_volatility."
+                         "parkinson_volatility",
+                 "params": {"group": "volatility"}}]}}}
+        recs = [synthetic(rid, [0.9] * 4) for rid in "abcd"]
+        for rec, groups in zip(recs, ["lines|volatility", "volatility",
+                                      "all", None], strict=True):
+            rec["round_params"]["feature_groups"] = groups
+        self.assertEqual([line_features(r, manifest) for r in recs],
+                         [True, False, True, True])
+        out = judge(recs, HOUR, 0.0, 0.0, manifest)
+        self.assertIn("3 of the 4 members use price-line features",
+                      out["notes"][-1])
+        # a line feature behind an include_if flag that is off is not used
+        flagged = json.loads(json.dumps(manifest))
+        flagged["sfd"]["manifest"]["features"][0]["params"][
+            "include_if"] = "use_lines"
+        self.assertFalse(line_features(recs[2], flagged))
+        recs[2]["round_params"]["use_lines"] = True
+        self.assertTrue(line_features(recs[2], flagged))
+        self.assertFalse(line_features(recs[2], LGBM))
 
     def test_a_member_alone_is_itself_at_a_threshold_of_one_half(
             self) -> None:
@@ -242,14 +348,14 @@ class Aggregation(unittest.TestCase):
                  and r["optimal_threshold"] == 0.5]
         self.assertTrue(alone)
         for rec in alone:
-            out = judge([rec], HOUR, 1.0, 5.0)
+            out = judge([rec], HOUR, 1.0, 5.0, LGBM)
             self.assertEqual(out["cohort"]["whole"],
                              out["members"][0]["whole"])
 
     def test_the_rounds_judged_together(self) -> None:
         fee, slip = costs_of(ROUNDS)
         self.assertEqual((fee, slip), (1.0, 5.0))
-        out = judge(ROUNDS, HOUR, fee, slip)
+        out = judge(ROUNDS, HOUR, fee, slip, LGBM)
         self.assertEqual(out["bars"], 1011)
         self.assertEqual([m["id"] for m in out["members"]],
                          [r["round_id"] for r in ROUNDS])
@@ -258,7 +364,7 @@ class Aggregation(unittest.TestCase):
         self.assertEqual(len(out["notes"]), 1)
         self.assertIn("Calibrated and uncalibrated", out["notes"][0])
         with self.assertRaisesRegex(ValueError, "basis points"):
-            judge(ROUNDS, HOUR, -1.0, 5.0)
+            judge(ROUNDS, HOUR, -1.0, 5.0, LGBM)
 
     def test_exits_the_run_cannot_rebuild_are_said(self) -> None:
         a = synthetic("a", [0.9] * 4)
@@ -328,6 +434,13 @@ class Route(unittest.TestCase):
         self.assertEqual(code, 200, out)
         self.assertEqual((out["bars"], out["rows"]), (696, [0, 1]))
         self.assertEqual(len(out["members"]), 2)
+        # named and aggregated as Limen's Cohort names and aggregates the
+        # run's architecture; its members use the template's price lines
+        self.assertEqual((out["architecture"], out["aggregation"]),
+                         (LGBM["sfd"]["manifest"]["reference_architecture"],
+                          "probability_weighted"))
+        self.assertIn("2 of the 2 members use price-line features",
+                      out["notes"][-1])
         # the members' own costs, unless the page sets them
         self.assertEqual((out["fee"], out["slip"]), (1.0, 2.0))
         code, out = self.get("run=%s&rows=0,2,3&fee=4&slip=0" % run.id)

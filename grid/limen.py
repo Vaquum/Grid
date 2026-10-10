@@ -82,6 +82,9 @@ def read_experiment(text: str, path: str, manifest_file: str,
             "limenVersion": meta.get("limen_version"),
             "createdAt": meta.get("created_at"),
             "manifestId": meta.get("manifest_id"),
+            # what Limen's Cohort names the architecture by when neither
+            # the rounds nor the manifest do
+            "sfdModule": meta.get("sfd_module"),
             # the objective the run selects by, when its manifest declares
             # one (Limen 5.18): {metric, direction}
             "objective": objective if isinstance(objective, dict) else None}
