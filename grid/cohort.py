@@ -38,6 +38,9 @@ from typing import Any, cast
 from .limen import windows
 
 Json = dict[str, Any]
+# a member over its test window: its bars' times, its 0/1 predictions, its
+# probabilities (None when it recorded none) and the market's returns
+Series = tuple[list[int], list[int], list[float] | None, list[float | None]]
 
 BPS = 10_000.0
 FEE_BPS = 5.0       # Limen's long_flat_strategy defaults
@@ -198,20 +201,21 @@ def judge(records: list[Json], step: int, fee_bps: float,
     if not (math.isfinite(fee_bps) and math.isfinite(slip_bps)
             and 0 <= fee_bps < BPS and 0 <= slip_bps < BPS):
         raise ValueError("the fee and slippage are basis points from 0")
-    series = []
+    series: list[Series] = []
     for rec in records:
         times = bar_times(rec, step)
         series.append((times, _preds(rec), _probs(rec),
                        _market(rec, len(times))))
-    shared = set(series[0][0])
-    for times, _, _, _ in series[1:]:
-        shared &= set(times)
+    shared: set[int] = set(series[0][0])
+    for s in series[1:]:
+        shared &= set(s[0])
     bars = sorted(shared)
     if len(bars) < 2:
         raise ValueError("the members share fewer than two test bars")
     weighted = all(s[2] is not None for s in series)
-    at = [{t: j for j, t in enumerate(s[0])} for s in series]
-    ret = [series[0][3][at[0][t]] for t in bars]
+    at: list[dict[int, int]] = [{t: j for j, t in enumerate(s[0])}
+                                for s in series]
+    ret: list[float | None] = [series[0][3][at[0][t]] for t in bars]
     signal: list[int] = []
     for t in bars:
         if weighted:
@@ -222,13 +226,13 @@ def judge(records: list[Json], step: int, fee_bps: float,
                        for k, s in enumerate(series)) / len(series)
         signal.append(1 if mean > 0.5 else 0)
     cohort = windows(*long_flat(signal, ret, fee_bps, slip_bps), ret)
-    members = []
+    members: list[Json] = []
     for k, rec in enumerate(records):
         own = [series[k][1][at[k][t]] for t in bars]
         members.append({"id": rec.get("round_id"),
                         **windows(*long_flat(own, ret, fee_bps, slip_bps),
                                   ret)})
-    notes = []
+    notes: list[str] = []
     exits = sum(1 for rec in records
                 if _param(rec, "take_profit_bps") is not None
                 or _param(rec, "stop_loss_bps") is not None)
