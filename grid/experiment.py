@@ -706,6 +706,8 @@ class Project:
                         "rows": self._rows(os.path.join(folder, label,
                                                         "results.csv")),
                         "state": sh.get("state"), "exit": sh.get("exit"),
+                        "checkpoint": os.path.isfile(os.path.join(
+                            folder, label, "checkpoint.json")),
                         "tail": sh.get("error") or _tail(os.path.join(
                             folder, "logs", label + ".log"))
                         if sh.get("state") == "failed" else None})
@@ -718,7 +720,7 @@ class Project:
                            "planned": planned, "rows": rows,
                            "state": "finished" if planned is not None and
                            rows >= planned else "incomplete", "exit": None,
-                           "tail": None}]
+                           "checkpoint": False, "tail": None}]
                 try:
                     started = os.path.getmtime(os.path.join(folder,
                                                             "metadata.json"))

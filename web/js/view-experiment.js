@@ -26,7 +26,9 @@ const NAME = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$/;
 
 const lab = {
   A: null, dom: null, timer: null, loading: false, again: false,
-  project: null, key: "", error: null,
+  // the project as last read, and when that reading was asked for; when a
+  // manifest was last read or written here (performance.now())
+  project: null, key: "", error: null, readAt: -1, wrote: -1,
   chosen: null, drafts: new Map(), forms: new Map(), making: null, busy: null,
   run: null,   // the Limen run in view: its manifest, for a new experiment
 };
@@ -111,12 +113,18 @@ async function load() {
   lab.loading = true;
   let changed = false;
   try {
+    const asked = performance.now();
     const state = await get(lab.A.project.url);
     const key = JSON.stringify(state);
-    if (key !== lab.key || lab.error) {
+    // the first reading asked for since a manifest was read or written
+    // here says whether its file has changed since, even when it reads as
+    // the one before
+    const confirms = lab.wrote > lab.readAt && asked > lab.wrote;
+    if (key !== lab.key || lab.error || confirms) {
       changed = true;
       lab.project = state;
       lab.key = key;
+      lab.readAt = asked;
       lab.error = null;
       if (!state.experiments.some(e => e.name === lab.chosen)) lab.chosen = firstChoice(state);
       if (!state.experiments.length && !lab.making) lab.making = fresh(state);
@@ -424,23 +432,29 @@ function make(mk) {
 // The manifest
 
 // The experiment's manifest as the view holds it. The project's list says
-// the file's version as of its last reading, which a save from here can be
-// ahead of; only a version the list has not said before is a change on
-// disk, read again when nothing here is unsaved.
+// each file's version as of its reading; only a reading asked for after
+// the file was last read or written here can say it has changed (an
+// earlier one may predate a save from here). A change is read again when
+// nothing here is unsaved, and so is a file that could not be read.
 function draftOf(e) {
   let d = lab.drafts.get(e.name);
   if (!d) {
-    d = { name: e.name, file: e.file, phase: "loading", gen: 0, text: "", saved: "", version: null, disk: e.version, seen: e.version,
+    d = { name: e.name, file: e.file, phase: "loading", gen: 0, text: "", saved: "", version: null, disk: e.version, wroteAt: -1,
       errors: null, checked: null, timer: 0, island: null, diff: null, why: null };
     lab.drafts.set(e.name, d);
     read(d);
-  } else if (e.version !== d.seen) {
-    d.seen = e.version;
+  } else if (lab.readAt > d.wroteAt && e.version !== d.disk) {
     d.disk = e.version;
-    if (d.phase === "ready" && e.version !== d.version && d.text === d.saved && !lab.busy && !d.reading) read(d);
+    if (!d.reading && !lab.busy && (d.phase === "failed" || (d.phase === "ready" && e.version !== d.version && d.text === d.saved))) read(d);
   }
   d.file = e.file;
   return d;
+}
+
+// A manifest was read or written here: the readings of the project asked
+// for before now are older than its file.
+function wrote(d) {
+  d.wroteAt = lab.wrote = performance.now();
 }
 
 // The manifest from its file. Read again by itself (changed on disk while
@@ -450,6 +464,7 @@ function read(d, asked) {
   d.reading = true;
   const before = d.text;
   get(`${lab.A.project.url}/manifest?name=${encodeURIComponent(d.name)}`).then((body) => {
+    wrote(d);
     if (d.phase === "ready" && !asked && d.text !== before) {
       Object.assign(d, { reading: false, disk: body.version });
       paint(d);
@@ -488,7 +503,11 @@ function check(d, delay) {
 
 function manifestPart(d) {
   if (d.phase === "loading") return h("section", { class: "island" }, h("p", { class: "isl-note", text: `Reading ${d.file}…` }));
-  if (d.phase === "failed") return h("section", { class: "island" }, h("p", { class: "isl-note" }, h("b", { text: `${d.file} could not be read. ` }), d.why));
+  if (d.phase === "failed") {
+    return h("section", { class: "island" }, h("div", { class: "empty", role: "status" },
+      h("p", null, h("b", { text: `${d.file} could not be read. ` }), d.why, ". It is read again when it changes."),
+      h("div", { class: "actions" }, h("button", { class: "btn", type: "button", onclick: () => { d.phase = "loading"; draw(); read(d, true); } }, "Read it again"))));
+  }
   if (!d.island) d.island = manifestIsland(d);
   return d.island;
 }
@@ -585,7 +604,7 @@ function goTo(ta, line) {
 function save(d) {
   if (d.text === d.saved || lab.busy) return;
   const text = d.text;
-  act("Saving", () => post("save", { name: d.name, text, version: d.version }), (out) => { d.saved = text; d.version = out.version; d.disk = out.version; });
+  act("Saving", () => post("save", { name: d.name, text, version: d.version }), (out) => { d.saved = text; d.version = out.version; d.disk = out.version; wrote(d); });
 }
 
 function compare(d) {
@@ -698,6 +717,7 @@ function startRun(f) {
       const text = d.text;
       const out = await post("save", { name: d.name, text, version: d.version });
       Object.assign(d, { saved: text, version: out.version, disk: out.version });
+      wrote(d);
     }
     return post("start", { name: f.name, rounds: f.rounds, shards: f.shards, execution: f.execution, outputs: f.outputs });
   }, (out) => lab.A.toast(h("span", null, h("b", { text: "Started. " }), `${out.run} opens in the other views once each shard has written a round.`), "good"));
@@ -737,6 +757,13 @@ function runsTable(p, e) {
       h("th", { text: "State" }), h("th", { "aria-label": "Actions" }))), tbody));
 }
 
+// Whether Resume has a shard to run on: a run Grid started, none of its
+// shards running, and one that stopped or failed with a checkpoint written
+// (as the server's resume reads it).
+export function resumable(r) {
+  return r.kind === "grid" && r.state !== "running" && r.shards.some(s => (s.state === "stopped" || s.state === "failed") && s.checkpoint);
+}
+
 // A button that says why it does nothing now, rather than being disabled
 // (a disabled button shows no tip).
 function heldBtn(btn, why) {
@@ -760,7 +787,7 @@ function actions(r) {
       onclick: () => act("Stopping", () => post("stop", { run: r.id })) }, r.stopping ? "Stop now" : "Stop");
     tip(stop, r.stopping ? "Cuts the round in hand short; Limen checkpoints the last whole round." : "Limen finishes the round in hand and writes a checkpoint, from which Resume runs on.");
     out.push(stop);
-  } else if (r.kind === "grid" && (r.state === "stopped" || (r.state === "failed" && r.rows > 0))) {
+  } else if (resumable(r)) {
     const resume = h("button", { class: "btn small", type: "button", disabled: lab.busy ? true : null, dataset: { focus: `ex-res-${r.id}` },
       onclick: () => act("Resuming", () => post("resume", { run: r.id })) }, "Resume");
     tip(resume, "limen run --resume on each shard that stopped or failed, from its checkpoint.");

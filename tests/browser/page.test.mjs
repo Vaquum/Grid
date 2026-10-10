@@ -1283,7 +1283,51 @@ test("experiment: what is typed while a manifest changed on disk is read again s
     await page.locator(".ex-mf .btn", { hasText: "Open it again" }).click();
     await page.waitForFunction(() => document.querySelector(".ed-text").value.endsWith("# changed elsewhere\n"), null, { timeout: 20000 });
     assert.equal(await page.locator(".ex-mf .btn:has-text('Open it again')").isVisible(), false);
+    // saved here, then put back elsewhere before the project is read again:
+    // the file's text comes back
+    const before = readFileSync(file, "utf8");
+    await page.locator(".ed-text").evaluate(t => { t.focus(); t.setSelectionRange(t.value.length, t.value.length); });
+    await page.keyboard.type("# saved here\n");
+    await page.keyboard.press("Control+s");
+    await page.waitForFunction(() => !/unsaved/.test(document.querySelector(".ex-status").textContent));
+    writeFileSync(file, before);
+    await page.waitForFunction(b => document.querySelector(".ed-text").value === b, before, { timeout: 20000 });
     assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    proc.kill();
+  }
+});
+
+test("experiment: a manifest that could not be read is read again when its file changes, and when asked", async () => {
+  const project = mkdtempSync(join(tmpdir(), "grid-project-"));
+  writeFileSync(join(project, "limen.toml"), "[store]\n");
+  mkdirSync(join(project, "manifests"));
+  const file = join(project, "manifests", "exp.yaml");
+  copyFileSync(join(ROOT, "tests/fixtures/limen_run/lightgbm_binary_full.yaml"), file);
+  const proc = spawn("python3", ["-m", "grid", "serve", "--project", project, "--limen-cli", join(ROOT, "tests/fixtures/fake_limen.py"), "--port", "0"], { cwd: ROOT });
+  try {
+    const url = await serverUrl(proc);
+    const { page, errors } = await limenPage();
+    // the first reading of the manifest fails
+    let fails = 1;
+    await page.route(/\/api\/experiment\/manifest/, (route) => (fails-- > 0
+      ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "the disk is busy" }) })
+      : route.continue()));
+    await page.goto(url);
+    await page.waitForSelector("text=could not be read.");
+    assert.match(await page.locator(".ex .empty").innerText(), /the disk is busy\. It is read again when it changes\./);
+    // its file changes: read again
+    appendFileSync(file, "# touched\n");
+    await page.waitForSelector(".ex-status .sev.ok", { timeout: 20000 });
+    assert.ok((await page.locator(".ed-text").inputValue()).endsWith("# touched\n"));
+    // a page that failed to read it reads it again when asked
+    fails = 1;
+    await page.reload();
+    await page.waitForSelector("text=could not be read.");
+    await page.locator(".ex .btn", { hasText: "Read it again" }).click();
+    await page.waitForSelector(".ex-status .sev.ok", { timeout: 20000 });
+    assert.deepEqual(errors.filter(e => !/status of 500/.test(e)), []);
     await page.close();
   } finally {
     proc.kill();

@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { lineOf, valueOf } from "../../web/js/view-experiment.js";
+import { lineOf, valueOf, resumable } from "../../web/js/view-experiment.js";
 import { searchSpace, fmtCount } from "../../web/js/manifest.js";
 
 const FIX = new URL("../fixtures/limen_run/", import.meta.url);
@@ -49,4 +49,16 @@ test("the search space: the manifest's parameters and their combinations", () =>
   const small = "sfd:\n  params:\n    a: [1, 2, 3]\n    b:\n      - x\n      - y\n    c: 5\n";
   assert.deepEqual(searchSpace(small), { params: 3, combinations: 6n });
   assert.deepEqual(searchSpace("uel:\n  n_permutations: 5\n"), { params: 0, combinations: 1n });
+});
+
+test("Resume shows when a shard that stopped or failed has a checkpoint, whatever the run's rows", () => {
+  const run = (state, shards, kind = "grid") => ({ kind, state, rows: shards.reduce((n, s) => n + (s.rows || 0), 0), shards });
+  // one shard stopped before its first round with a checkpoint, one failed
+  // without writing a round: the run reads failed with no rows, and resumes
+  assert.equal(resumable(run("failed", [{ state: "stopped", checkpoint: true }, { state: "failed", checkpoint: false }])), true);
+  assert.equal(resumable(run("stopped", [{ state: "stopped", rows: 3, checkpoint: true }])), true);
+  assert.equal(resumable(run("failed", [{ state: "failed", checkpoint: false }])), false);
+  assert.equal(resumable(run("finished", [{ state: "finished", rows: 5, checkpoint: true }])), false);
+  assert.equal(resumable(run("running", [{ state: "running", checkpoint: false }, { state: "stopped", checkpoint: true }])), false);
+  assert.equal(resumable(run("incomplete", [{ state: "incomplete", checkpoint: false }], "limen")), false);
 });

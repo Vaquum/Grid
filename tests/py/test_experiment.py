@@ -296,6 +296,8 @@ class ProjectRuns(unittest.TestCase):
         for label in ("s1", "s2"):
             self.assertTrue(os.path.isfile(os.path.join(
                 folder, label, "checkpoint.json")))
+        self.assertEqual([s["checkpoint"] for s in stopped["shards"]],
+                         [True, True])
         with self.assertRaisesRegex(ValueError, "no shard .* is running"):
             self.p.stop(rid)
         self.p.resume(rid)
@@ -459,7 +461,8 @@ class ProjectRuns(unittest.TestCase):
         s1, s2 = run["shards"]
         self.assertEqual((s1["state"], s1["rows"], s1["tail"]),
                          ("finished", 5, None))
-        self.assertEqual((s2["state"], s2["exit"]), ("failed", 1))
+        self.assertEqual((s2["state"], s2["exit"], s2["checkpoint"]),
+                         ("failed", 1, False))
         self.assertTrue(s2["tail"].endswith("RuntimeError: no data"))
 
     def test_a_run_that_wrote_no_round_says_so(self) -> None:
