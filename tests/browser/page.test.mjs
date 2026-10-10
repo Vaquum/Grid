@@ -477,7 +477,11 @@ test("charts are drawn at their box's width, so their text is the small size at 
     for (const c of charts) assert.equal(c.fs, "11px");
   }
   // the cards of a row start their charts at one height, however their tags
-  // wrap: each row's chart tops, by the row's top
+  // wrap: each row's chart tops, by the row's top, once the cards are laid
+  // out in rows at this width (a measure taken while the view is drawn
+  // again after the resize reads every box at 0)
+  await page.waitForFunction(() => new Set([...document.querySelectorAll(".rn-grid .rn-card")].map(c => Math.round(c.getBoundingClientRect().top))).size > 1,
+    null, { timeout: 10000 });
   const rows = await page.$$eval(".rn-grid .rn-card", cards => {
     const by = {};
     for (const c of cards) (by[Math.round(c.getBoundingClientRect().top)] ||= []).push(Math.round(c.querySelector(".chart").getBoundingClientRect().top));
@@ -1162,5 +1166,207 @@ test("live: a relaunch keeps the reader on the rows they had, and the Run view t
     await page.close();
   } finally {
     sweep.stop();
+  }
+});
+
+test("experiment: on a Limen project, one is made, checked as it is typed, run in shards, analyzed, and the next made from its run", async () => {
+  // a project with no experiment yet, served with a stand-in limen
+  const project = mkdtempSync(join(tmpdir(), "grid-project-"));
+  writeFileSync(join(project, "limen.toml"), "[store]\n");
+  mkdirSync(join(project, "manifests"));
+  const proc = spawn("python3", ["-m", "grid", "serve", "--project", project, "--limen-cli", join(ROOT, "tests/fixtures/fake_limen.py"), "--port", "0"],
+    { cwd: ROOT, env: { ...process.env, FAKE_LIMEN_PACE: "0.05" } });
+  try {
+    const url = await serverUrl(proc);
+    const { page, errors } = await limenPage();
+    await page.goto(url);
+    // it opens on the Experiment view, ready to make the first
+    await page.waitForSelector(".ex-make");
+    assert.equal(await page.locator(".rail button[aria-current=page]").getAttribute("aria-label"), "Experiment");
+    assert.match(await page.locator(".strip").innerText(), /Limen\s+5\.20\.0/);
+    assert.equal(await page.locator(".ex-make select").inputValue(), "t:lightgbm_binary");
+    // the name offered follows what it starts from, until one is typed
+    await page.locator(".ex-make select").selectOption("t:logreg_binary");
+    assert.equal(await page.locator(".ex-make input").inputValue(), "logreg_binary");
+    await page.locator(".ex-make select").selectOption("t:lightgbm_binary");
+    assert.equal(await page.locator(".ex-make input").inputValue(), "lightgbm_binary");
+    // the other views have no run to show yet
+    await page.keyboard.press("1");
+    await page.waitForSelector("text=No run is open yet.");
+    await page.keyboard.press("0");
+    await page.locator(".ex-make input").fill("first");
+    await page.locator(".ex-make .btn.primary").click();
+    // its manifest, checked by limen validate as it is typed
+    await page.waitForSelector(".ex-status .sev.ok");
+    assert.match(await page.locator(".ex-status").innerText(), /^Valid\s+· 45 parameters, 3\.76 × 10¹⁸ combinations$/);
+    await page.locator(".ed-text").evaluate(t => { t.focus(); t.setSelectionRange(t.value.length, t.value.length); });
+    await page.keyboard.type("# BAD_VALUE\n");
+    await page.waitForSelector(".ex-status .sev.crit");
+    const line = await page.evaluate(() => document.querySelector(".ed-text").value.split("\n").findIndex(l => l.trim().startsWith("n_permutations:")) + 1);
+    assert.equal(await page.locator(".ed-gutter .bad").innerText(), String(line));
+    assert.match(await page.locator(".ex-problems li").innerText(), new RegExp(`Line ${line}\\s+uel\\.n_permutations\\s+'n_permutations' must be a int`));
+    assert.equal(await page.locator(".ex-run-form .btn.primary").isDisabled(), true);
+    for (let i = 0; i < "# BAD_VALUE\n".length; i++) await page.keyboard.press("Backspace");
+    await page.waitForSelector(".ex-status .sev.ok");
+    // saved, it stays the same editor (its undo with it) past the next
+    // reading of the project
+    const editor = await page.locator(".ed-text").elementHandle();
+    await page.keyboard.type("# a note\n");
+    await page.waitForFunction(() => /unsaved/.test(document.querySelector(".ex-status").textContent));
+    await page.keyboard.press("Control+s");
+    await page.waitForFunction(() => !/unsaved/.test(document.querySelector(".ex-status").textContent));
+    await page.waitForTimeout(2500);
+    assert.equal(await editor.evaluate(t => t.isConnected && t.value.endsWith("# a note\n")), true);
+    assert.equal(await page.locator(".ex-mf .btn:has-text('Open it again')").isVisible(), false);
+    // run in two shards side by side
+    await page.locator("input[aria-label='Rounds']").fill("10");
+    await page.locator("input[aria-label='Shards side by side']").fill("2");
+    assert.match(await page.locator(".ex-sum").innerText(), /^2 limen runs side by side, 5 rounds each/);
+    await page.locator(".ex-run-form .btn.primary").click();
+    await page.waitForSelector("text=Started.");
+    await page.waitForFunction(() => /Finished/.test((document.querySelector(".ex-runs tbody tr") || {}).textContent || ""), null, { timeout: 30000 });
+    // analyzed in the views, both shards' rounds as one run
+    await page.waitForFunction(() => { const b = [...document.querySelectorAll(".ex-runs tbody tr:first-child .btn")].find(x => x.textContent === "Analyze"); return b && !b.hasAttribute("aria-disabled"); }, null, { timeout: 30000 });
+    await page.locator(".ex-runs tbody tr").first().locator("button", { hasText: "Analyze" }).click();
+    await page.waitForSelector(".pcard", { timeout: 20000 });
+    await page.waitForFunction(() => document.querySelector(".progress-text").textContent.startsWith("10 rows"), null, { timeout: 20000 });
+    // the run's manifest starts the next experiment
+    await page.locator(".manifest summary").click();
+    await page.locator(".mf-acts button", { hasText: "New experiment" }).click();
+    await page.waitForSelector(".ex-make");
+    assert.equal(await page.locator(".ex-make input").inputValue(), "first_2");
+    assert.equal(await page.locator(".ex-make select").inputValue(), "run");
+    await page.locator(".ex-make .btn.primary").click();
+    await page.waitForSelector(".ex-table tr.sel td:has-text('first_2')");
+    await page.waitForSelector(".ex-status .sev.ok");
+    // a longer run stops as Limen stops, and resumes from its checkpoints
+    await page.locator("input[aria-label='Rounds']").fill("400");
+    await page.locator("input[aria-label='Shards side by side']").fill("2");
+    await page.locator(".ex-run-form .btn.primary").click();
+    const state = (s) => page.waitForFunction(s => (document.querySelector(".ex-runs tbody tr .tag") || {}).textContent === s, s, { timeout: 30000 });
+    await state("Running");
+    await page.locator(".ex-runs tbody tr").first().locator("button", { hasText: "Stop" }).click();
+    await state("Stopped");
+    await page.locator(".ex-runs tbody tr").first().locator("button", { hasText: "Resume" }).click();
+    await state("Running");
+    await page.locator(".ex-runs tbody tr").first().locator("button", { hasText: "Stop" }).click();
+    await state("Stopped");
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    proc.kill();
+  }
+});
+
+test("experiment: what is typed while a manifest changed on disk is read again stays, and Open it again offers the file's", async () => {
+  const project = mkdtempSync(join(tmpdir(), "grid-project-"));
+  writeFileSync(join(project, "limen.toml"), "[store]\n");
+  mkdirSync(join(project, "manifests"));
+  const file = join(project, "manifests", "exp.yaml");
+  copyFileSync(join(ROOT, "tests/fixtures/limen_run/lightgbm_binary_full.yaml"), file);
+  const proc = spawn("python3", ["-m", "grid", "serve", "--project", project, "--limen-cli", join(ROOT, "tests/fixtures/fake_limen.py"), "--port", "0"], { cwd: ROOT });
+  try {
+    const url = await serverUrl(proc);
+    const { page, errors } = await limenPage();
+    await page.goto(url);
+    await page.waitForSelector(".ex-status .sev.ok");
+    // the file changes elsewhere; its new text is slow to come
+    await page.route(/\/api\/experiment\/manifest/, async (route) => { await new Promise(r => setTimeout(r, 1500)); await route.continue(); });
+    const asked = page.waitForRequest(/\/api\/experiment\/manifest/, { timeout: 20000 });
+    appendFileSync(file, "# changed elsewhere\n");
+    await asked;
+    const answered = page.waitForResponse(/\/api\/experiment\/manifest/);
+    await page.locator(".ed-text").evaluate(t => { t.focus(); t.setSelectionRange(t.value.length, t.value.length); });
+    await page.keyboard.type("# mine");
+    await answered;
+    await page.waitForSelector(".ex-mf .btn:has-text('Open it again'):visible");
+    const text = await page.locator(".ed-text").inputValue();
+    assert.ok(text.endsWith("# mine") && !text.includes("changed elsewhere"), text.slice(-80));
+    assert.match(await page.locator(".ex-status").innerText(), /unsaved/);
+    // asked for, the file's text replaces the edits
+    await page.locator(".ex-mf .btn", { hasText: "Open it again" }).click();
+    await page.waitForFunction(() => document.querySelector(".ed-text").value.endsWith("# changed elsewhere\n"), null, { timeout: 20000 });
+    assert.equal(await page.locator(".ex-mf .btn:has-text('Open it again')").isVisible(), false);
+    // saved here, then put back elsewhere before the project is read again:
+    // the file's text comes back
+    const before = readFileSync(file, "utf8");
+    await page.locator(".ed-text").evaluate(t => { t.focus(); t.setSelectionRange(t.value.length, t.value.length); });
+    await page.keyboard.type("# saved here\n");
+    await page.keyboard.press("Control+s");
+    await page.waitForFunction(() => !/unsaved/.test(document.querySelector(".ex-status").textContent));
+    writeFileSync(file, before);
+    await page.waitForFunction(b => document.querySelector(".ed-text").value === b, before, { timeout: 20000 });
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    proc.kill();
+  }
+});
+
+test("experiment: a manifest that could not be read is read again when its file changes, and when asked", async () => {
+  const project = mkdtempSync(join(tmpdir(), "grid-project-"));
+  writeFileSync(join(project, "limen.toml"), "[store]\n");
+  mkdirSync(join(project, "manifests"));
+  const file = join(project, "manifests", "exp.yaml");
+  copyFileSync(join(ROOT, "tests/fixtures/limen_run/lightgbm_binary_full.yaml"), file);
+  const proc = spawn("python3", ["-m", "grid", "serve", "--project", project, "--limen-cli", join(ROOT, "tests/fixtures/fake_limen.py"), "--port", "0"], { cwd: ROOT });
+  try {
+    const url = await serverUrl(proc);
+    const { page, errors } = await limenPage();
+    // the first reading of the manifest fails
+    let fails = 1;
+    await page.route(/\/api\/experiment\/manifest/, (route) => (fails-- > 0
+      ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "the disk is busy" }) })
+      : route.continue()));
+    await page.goto(url);
+    await page.waitForSelector("text=could not be read.");
+    assert.match(await page.locator(".ex .empty").innerText(), /the disk is busy\. It is read again when it changes\./);
+    // its file changes: read again
+    appendFileSync(file, "# touched\n");
+    await page.waitForSelector(".ex-status .sev.ok", { timeout: 20000 });
+    assert.ok((await page.locator(".ed-text").inputValue()).endsWith("# touched\n"));
+    // a page that failed to read it reads it again when asked
+    fails = 1;
+    await page.reload();
+    await page.waitForSelector("text=could not be read.");
+    await page.locator(".ex .btn", { hasText: "Read it again" }).click();
+    await page.waitForSelector(".ex-status .sev.ok", { timeout: 20000 });
+    assert.deepEqual(errors.filter(e => !/status of 500/.test(e)), []);
+    await page.close();
+  } finally {
+    proc.kill();
+  }
+});
+
+test("experiment: a reading of the project asked for before a new experiment was made does not take the choice back", async () => {
+  const project = mkdtempSync(join(tmpdir(), "grid-project-"));
+  writeFileSync(join(project, "limen.toml"), "[store]\n");
+  mkdirSync(join(project, "manifests"));
+  copyFileSync(join(ROOT, "tests/fixtures/limen_run/lightgbm_binary_full.yaml"), join(project, "manifests", "a.yaml"));
+  const proc = spawn("python3", ["-m", "grid", "serve", "--project", project, "--limen-cli", join(ROOT, "tests/fixtures/fake_limen.py"), "--port", "0"], { cwd: ROOT });
+  try {
+    const url = await serverUrl(proc);
+    const { page, errors } = await limenPage();
+    await page.goto(url);
+    await page.waitForSelector(".ex-status .sev.ok");
+    // the project's readings come slowly, so one is under way while the
+    // new experiment is made
+    const reading = (u) => new URL(u).pathname === "/api/experiment";
+    await page.route(reading, async (route) => {
+      if (route.request().method() === "GET") await new Promise(r => setTimeout(r, 2500));
+      await route.continue();
+    });
+    await page.waitForRequest(req => reading(req.url()) && req.method() === "GET", { timeout: 20000 });
+    await page.locator(".ex-tools .btn", { hasText: "New experiment" }).click();
+    await page.locator(".ex-make input").fill("b");
+    await page.locator(".ex-make .btn.primary").click();
+    await page.waitForSelector(".ex-table tr.sel td:has-text('b')", { timeout: 20000 });
+    await page.waitForTimeout(6000);
+    assert.equal(await page.locator(".ex-table tr.sel td.v").innerText(), "b");
+    assert.equal(await page.locator(".ex-mf .mf-file").innerText(), "manifests/b.yaml");
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    proc.kill();
   }
 });

@@ -265,15 +265,28 @@ same in every view:
 Every view opens with a strip of its figures and its blurb behind an (i)
 (a click opens it, and so do five seconds resting on the (i)). A tooltip
 shows after half a second, and the next one at once. Every control has a
-key and a label: the views' own have keys of their own (R and F on the
-Board, S on Pairs, O on Features, X on Trials, N on Gates, K and M on the
-Run), and a control's tip names its key. Every view ends with
+key and a label: the views' own have keys of their own (N on Experiment,
+R and F on the Board, S on Pairs, O on Features, X on Trials, N on Gates,
+K and M on the Run), and a control's tip names its key. Every view ends with
 the experiment's manifest, folded: the copy `limen run` kept, shown as
 written, narrowed to what the view looks at (the pocket, or the context)
 by rewriting only the narrowed parameters' lists, in their own spelling,
 with what each was. What cannot be narrowed is said in the page and in the
-text. A sweep without a manifest has no such section.
+text. A sweep without a manifest has no such section. When Grid serves a
+Limen project, the section also makes a new experiment of the manifest as
+it shows.
 
+0. **Experiment** (a Limen project, `serve --project`): first on the
+   rail. A strip of the project, its limen and what is running; the
+   experiments (each working manifest in `manifests/`, with its last
+   run) and a new one from a template, the run in view or a view's
+   narrowed manifest; the chosen manifest in an editor that `limen
+   validate` checks once typing pauses, its problems on their lines and
+   marked in the margin, the search space counted, and its diff against
+   the manifest its last run started from; then the run's settings
+   (rounds, shards side by side, what each round records), what Run will
+   do or why it cannot, and the runs, each with Analyze, Stop or Resume,
+   and under it why it did not open or why a shard failed.
 1. **Board**: a strip that sums the board up, then one card per param,
    sorted by effect strength on the target; on a needle with halves, each
    value's half means are a 1 and a 2 beside its mark, and a card that
@@ -373,6 +386,38 @@ first new row. Toasts say their kind at their edge, and the Run view keeps
 what they said while the page is open. The board holds its cards' places
 while rows arrive and re-sorts when asked; a new question (the run, the
 needle, the context, the edge) sorts afresh.
+
+## Experiments
+
+Grid makes and runs experiments the way Limen does, through its command
+line only: `limen validate` checks a manifest (its own words, mapped to
+their lines), `limen list-templates` and `limen init` start one, and
+`limen run` runs it, so what Grid runs is what a shell would. A manifest is
+edited as text, so its comments and spelling stay; Grid itself writes only
+plain values of block mappings (a run's seed, rounds, output path and
+recording). A save writes only over the version the page read (the hash
+of its content), so nothing written meanwhile is lost.
+
+A run is a folder, `results/[dev/]<experiment>/<stamp>/`: the manifest as
+started, a copy per shard that differs only in its search seed, its share
+of the rounds and its output path, each shard's result directory and log,
+and the run's record (each shard's process, and how it ended). The shards
+run side by side, each on its share of the cores (the thread pools of a
+round's libraries are pinned to it), and are read as one run, as several
+result directories of one manifest are. Stop is Limen's own (SIGTERM: the
+round in hand finishes and a checkpoint is written; asked again, the
+round is cut short) and Resume is `limen run --resume`. A server started
+again adopts the runs still running, signalling a process only while its
+command line is still the shard's.
+
+The view keeps itself: the project is read every two seconds while it
+shows, and each part is put back only when what it shows has changed; the
+parts typed in (the manifest, the run's settings, a new experiment's name)
+are made once and painted in place, so a refresh never takes the caret,
+the undo or an open menu. A write needs the page's own token, from the
+page's own origin, as JSON; on a project the server answers only requests
+that name it by its address or as localhost, so a page reached by a name
+another site's DNS points here gets neither.
 
 ## Non-goals
 

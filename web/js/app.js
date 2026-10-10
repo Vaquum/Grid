@@ -1,6 +1,8 @@
 // The page: loads a sweep (embedded, live from the server, or a dropped
 // file), keeps the state (in the address), computes what the views need,
-// and routes keys, clicks and live updates.
+// and routes keys, clicks and live updates. Served on a Limen project, it
+// also makes and runs its experiments (the Experiment view), and a sweep
+// may then have no run yet.
 
 import { decodePack, Dataset } from "./pack.js";
 import { buildSchema } from "./schema.js";
@@ -21,6 +23,7 @@ import { renderTrials } from "./view-trials.js";
 import { renderGates } from "./view-gates.js";
 import { renderRun, runHealth, runLog, segmentOf } from "./view-run.js";
 import { renderReference } from "./reference.js";
+import { renderExperiment, experimentKey, startFrom } from "./view-experiment.js";
 
 const VIEWS = [
   { id: "board", label: "Board", icon: "board", key: "1", title: "What moves the needle" },
@@ -31,6 +34,12 @@ const VIEWS = [
   { id: "gates", label: "Gates", icon: "gates", key: "6", title: "Set gates, see what they allow" },
   { id: "run", label: "Run", icon: "run", key: "7", title: "The whole run: its distributions and clusters" },
 ];
+// first on the rail when the server serves a Limen project
+const EXPERIMENT = { id: "experiment", label: "Experiment", icon: "flask", key: "0", title: "Make and run an experiment" };
+
+function views() {
+  return app.config && app.config.experiment ? [EXPERIMENT, ...VIEWS] : VIEWS;
+}
 
 const DEFAULT_STATE = {
   run: null, view: "board", target: null, context: [], pocket: [], pocketB: null,
@@ -174,6 +183,11 @@ function applyMessage(msg) {
       // had, once they are here (they come in the next message, and a
       // draw can fall between the two)
       if (meta.archivedFrom && meta.archivedFrom === app.state.run) app.stayOn = meta.id;
+      // a run of the project's, opened by the Experiment view
+      else if (app.config.experiment && !meta.archivedFrom && meta.id !== app.pendingRun) {
+        note("good", `${meta.label} is open.`, "Its rounds are in the views.", () => openRun(meta.id));
+      }
+      if (!app.state.run) app.state = { ...app.state, run: meta.id };
     } else {
       old.meta = meta;
     }
@@ -183,6 +197,7 @@ function applyMessage(msg) {
     ds.append(msg.lo, msg.hi, msg.columns, msg.arrivals);
     ds.meta = msg.meta;
     if (app.stayOn === ds.id) settleStay();
+    if (app.pendingRun === ds.id) settlePending();
   } else if (msg.type === "rounds") {
     const ds = sw.runs.find(r => r.id === msg.run);
     if (!ds) { console.error("rounds for an unknown run", msg.run); return; }
@@ -205,6 +220,27 @@ function settleStay() {
   if (app.state.run !== ds.meta.archivedFrom) return;
   app.state = { ...app.state, run: id };
   try { history.replaceState(null, "", "#" + encodeState(app.state)); } catch (err) { /* host refused */ }
+}
+
+// A run the Experiment view asked to analyze: the views show it once its
+// first rows are here.
+function openRun(id) {
+  const ds = app.sweep.runs.find(r => r.id === id);
+  app.pendingRun = null;
+  if (ds && ds.n) {
+    setState({ run: id, view: "board", sel: null, context: [], pocket: [], edge: null, clusters: [], clusterK: null });
+    return;
+  }
+  app.pendingRun = id;
+  toast(h("span", null, h("b", { text: "Opening the run. " }), "The views show it once its first rows are here."));
+}
+
+function settlePending() {
+  const ds = app.sweep.runs.find(r => r.id === app.pendingRun);
+  if (!ds || !ds.n) return;
+  app.pendingRun = null;
+  app.state = { ...app.state, run: ds.id, view: "board", sel: null, context: [], pocket: [], edge: null, clusters: [], clusterK: null };
+  try { history.pushState(null, "", "#" + encodeState(app.state)); } catch (err) { /* host refused */ }
 }
 
 function mergeLog(sw, logId, delta) {
@@ -237,8 +273,14 @@ function installSweep(pack, keepState) {
   app.cache = {};
   if (!keepState) {
     const fromUrl = decodeState(location.hash);
-    const st = fromUrl || { ...DEFAULT_STATE };
-    if (!st.run || !runs.some(r => r.id === st.run)) st.run = (runs.find(r => r.id === "r0") || runs.find(r => r.meta.live) || runs[runs.length - 1]).id;
+    // on a Limen project the page opens on the Experiment view
+    const st = fromUrl || { ...DEFAULT_STATE, view: app.config.experiment ? "experiment" : DEFAULT_STATE.view };
+    if (!views().some(v => v.id === st.view)) st.view = DEFAULT_STATE.view;
+    // a project's sweep may have no run yet
+    if (!st.run || !runs.some(r => r.id === st.run)) {
+      const first = runs.find(r => r.id === "r0") || runs.find(r => r.meta.live) || runs[runs.length - 1];
+      st.run = first ? first.id : null;
+    }
     app.state = st;
   }
 }
@@ -330,13 +372,38 @@ function scheduleUpdate() {
 
 function update() {
   if (!app.sweep) return;
-  hideTip();
-  const m = model();
+  const m = app.sweep.runs.length ? model() : null;
   updateTop(m);
   updateRail(m);
   const view = app.els.view;
   const sameView = app.lastView === app.state.view;
   app.lastView = app.state.view;
+  if (app.state.view === "experiment" && app.config.experiment) {
+    // the view keeps itself up to date: drawn again only when entered,
+    // or when the run in view (a new experiment's source) changes
+    const key = experimentKey(m);
+    if (!sameView || key !== app.lastExperiment) {
+      if (!sameView) hideTip();
+      try {
+        renderExperiment(view, m, ACTIONS, !sameView);
+      } catch (err) {
+        console.error(err);
+        clear(view);
+        view.append(h("div", { class: "empty" }, h("b", { text: "This view failed to draw. " }), String(err && err.message || err)));
+      }
+    }
+    app.lastExperiment = key;
+    syncInfo();
+    app.els.root.dataset.insp = "closed";
+    return;
+  }
+  hideTip();
+  if (!m) {
+    redraw(view, sameView, () => renderNoRun(view));
+    syncInfo();
+    app.els.root.dataset.insp = "closed";
+    return;
+  }
   const render = { board: renderBoard, pocket: renderPocket, pairs: renderPairs, features: renderFeatures,
     trials: renderTrials, gates: renderGates, run: renderRun }[app.state.view] || renderBoard;
   redraw(view, sameView, () => {
@@ -348,7 +415,7 @@ function update() {
         const drawn = render(view, m, ACTIONS);
         const spec = (drawn && drawn.manifest) || { conditions: m.context, scope: "the context",
           figure: m.context.length ? figureLine(m, m.base.n, m.base) : null };
-        const manifest = manifestSection(m, spec.conditions, spec.scope, spec.figure, toast);
+        const manifest = manifestSection(m, spec.conditions, spec.scope, spec.figure, toast, app.config.experiment ? ACTIONS.newExperiment : null);
         if (manifest) view.append(manifest);
       }
     } catch (err) {
@@ -386,6 +453,13 @@ function redraw(el, same, draw) {
   if (caret && typeof x.setSelectionRange === "function") x.setSelectionRange(caret[0], caret[1]);
 }
 
+// A project's sweep with no run open yet.
+function renderNoRun(view) {
+  view.append(h("div", { class: "empty" },
+    h("p", null, h("b", { text: "No run is open yet. " }), "Run an experiment, or Analyze one of the project's runs, and it shows here."),
+    h("div", { class: "actions" }, h("button", { class: "btn", type: "button", onclick: () => setState({ view: "experiment" }) }, "Experiment ", h("kbd", { text: "0" })))));
+}
+
 // Nothing to measure: say why, and how to get rows back.
 function renderNoRows(view, m) {
   const why = m.edge === 0 ? "The replay edge is at the first row, so no row has arrived yet."
@@ -417,7 +491,7 @@ function buildTop() {
   t.append(h("div", { class: "sweep" }, h("div", { class: "sweep-line" }, els.name, els.runSel, els.runOne, els.pill), els.progress));
   els.tsel = h("select", { id: "target-pick", "aria-label": "Needle" });
   els.tsel.addEventListener("change", () => setState({ target: els.tsel.value }));
-  const picker = h("label", { class: "picker" }, h("span", { class: "label", text: "Needle" }), els.tsel);
+  const picker = els.picker = h("label", { class: "picker" }, h("span", { class: "label", text: "Needle" }), els.tsel);
   tip(picker, () => {
     const tg = app.top.target;
     if (!tg) return null;
@@ -429,7 +503,7 @@ function buildTop() {
   t.append(h("div", { class: "top-mid" }, picker, els.chips));
   els.play = btnIcon("play", "Replay the rows as they arrived", "Space", togglePlay);
   t.append(h("div", { class: "top-right" },
-    h("div", { class: "group", role: "group", "aria-label": "Replay" },
+    els.replay = h("div", { class: "group", role: "group", "aria-label": "Replay" },
       btnIcon("start", "Start of the run", "Home", () => setState({ edge: 0 }, { replace: true })),
       btnIcon("back", "Step back", "[", () => stepEdge(-1)),
       els.play,
@@ -448,9 +522,20 @@ function setText(el, text) {
 
 function updateTop(m0) {
   if (!app.sweep) return;
-  const m = m0 || model();
   if (!app.top) buildTop();
   const top = app.top, els = top.els;
+  // a project's sweep with no run yet: its name, and nothing of a run
+  const none = !app.sweep.runs.length;
+  for (const el of [els.pill, els.picker, els.chips, els.replay]) el.hidden = none;
+  if (none) {
+    setText(els.name, app.sweep.meta.name || "sweep");
+    els.runSel.hidden = true;
+    els.runOne.hidden = true;
+    setText(els.progress, "");
+    syncTab(null);
+    return;
+  }
+  const m = m0 || model();
   const ds = m.ds, runs = app.sweep.runs;
   setText(els.name, app.sweep.meta.name || "sweep");
   // runs: their options change only when a run is added or renamed; a
@@ -523,12 +608,13 @@ function updateTop(m0) {
 const TAB_INK = "#6a86bd";
 const TAB_DOT = { live: "#6f9a52", quiet: "#d0902e", down: "#d24c5e" };
 function syncTab(st) {
-  const v = VIEWS.find(x => x.id === app.state.view) || VIEWS[0];
-  const trouble = st.kind === "down" || st.kind === "quiet";
+  const list = views();
+  const v = list.find(x => x.id === app.state.view) || list[0];
+  const trouble = !!st && (st.kind === "down" || st.kind === "quiet");
   const title = `${app.sweep.meta.name || "sweep"} · ${trouble ? st.label : v.label} — Grid`;
   if (document.title !== title) document.title = title;
   const link = document.getElementById("favicon");
-  const href = tabIcon(TAB_DOT[st.kind]);
+  const href = tabIcon(st ? TAB_DOT[st.kind] : null);
   if (link && link.getAttribute("href") !== href) link.setAttribute("href", href);
 }
 
@@ -558,9 +644,10 @@ function statusOf(m) {
 function updateRail(m) {
   const rail = app.els.rail;
   clear(rail);
-  const health = runHealth(m);
-  VIEWS.forEach((v, i) => {
-    if (i === 6) rail.append(h("div", { class: "sep" }));
+  const health = m ? runHealth(m) : { issues: 0 };
+  const list = views();
+  list.forEach((v, i) => {
+    if (i > 0 && (v.id === "run" || list[i - 1].id === "experiment")) rail.append(h("div", { class: "sep" }));
     const b = h("button", { "aria-label": v.label, "aria-current": app.state.view === v.id ? "page" : null,
       onclick: () => setState({ view: v.id }) }, icon(v.icon), h("span", { text: v.label }));
     if (v.id === "run" && health.issues) b.append(h("span", { class: "badge", text: String(health.issues) }));
@@ -573,6 +660,7 @@ function updateRail(m) {
 // Replay
 
 function stepEdge(dir) {
+  if (!app.sweep.runs.length) return;
   const ds = currentRun();
   const cur = app.state.edge === null ? ds.n : app.state.edge;
   const step = Math.max(1, Math.round(ds.n / 100));
@@ -582,6 +670,7 @@ function stepEdge(dir) {
 
 function togglePlay() {
   if (app.playback) { stopPlay(); updateTop(); return; }
+  if (!app.sweep.runs.length) return;
   const ds = currentRun();
   if (app.state.edge === null || app.state.edge >= ds.n) app.state.edge = Math.floor(ds.n * 0.5);
   startPlay();
@@ -620,7 +709,7 @@ function stopPlay() {
 // New records as rows arrive (live or replay), once a run has rows enough
 // to rank (its first rows each set one), one toast at a time.
 function notifyRecords() {
-  if (!app.sweep) return;
+  if (!app.sweep || !app.sweep.runs.length) return;
   const m = model();
   if (!m.schema.objective) return;
   const top = objectiveTop(m, m.allRows, 1)[0];
@@ -698,7 +787,7 @@ function onKey(e) {
   // Space on a control presses it, as a browser does; elsewhere (a link
   // too, which Space does not follow) it plays
   if (e.key === " " && e.target.closest && e.target.closest("button, summary, [role=button]")) return;
-  const v = VIEWS.find(x => x.key === e.key);
+  const v = views().find(x => x.key === e.key);
   if (v) { setState({ view: v.id }); e.preventDefault(); return; }
   switch (e.key) {
     case "Escape": {
@@ -786,6 +875,14 @@ export const ACTIONS = {
   rerender: () => update(),
   isLive: () => app.config.mode === "live",
   rowUrl: () => (app.config.mode === "live" ? app.config.row : null),
+  // the Limen project the server serves: its routes and the page's token
+  get project() { return app.config && app.config.experiment ? { url: app.config.experiment, token: app.config.token } : null; },
+  view: () => app.state.view,
+  openRun,
+  newExperiment(text, label, name) {
+    startFrom(text, label, name);
+    setState({ view: "experiment" });
+  },
 };
 
 // ---------------------------------------------------------------------------

@@ -4,8 +4,9 @@
 // written; narrowing rewrites only the value lists of the narrowed
 // parameters (in their own spelling, so 1.0 stays 1.0) and says what each
 // list was. What cannot be narrowed is said, in the page and in the text.
+// When Grid serves a Limen project, it makes a new experiment there.
 
-import { h, icon, fmtInt, fmtT, rangeText, copyAndSay } from "./ui.js";
+import { h, icon, tip, fmtInt, fmtT, rangeText, copyAndSay } from "./ui.js";
 
 // ---------------------------------------------------------------------------
 // Reading YAML values, as far as a manifest's parameter lists need
@@ -133,6 +134,15 @@ function balanced(text) {
   return depth === 0 && !quote;
 }
 
+// The search space a manifest draws from: its parameters (sfd.params) and
+// how many combinations of their values there are.
+export function searchSpace(text) {
+  const spans = paramSpans(text.split("\n"));
+  let combinations = 1n;
+  for (const sp of spans.values()) combinations *= BigInt(sp.kind === "flow" ? sp.tokens.length : sp.kind === "block" ? sp.items.length : 1);
+  return { params: spans.size, combinations };
+}
+
 // ---------------------------------------------------------------------------
 // Narrowing
 
@@ -207,8 +217,10 @@ const openKeys = new Set();   // which views' manifests the reader opened
 
 // `conditions` narrow it (none: the manifest as run); `scope` names them
 // ("the pocket"); `figure` is a line on what the rows say there; `say` is
-// the app's toast, for its copy.
-export function manifestSection(m, conditions, scope, figure, say) {
+// the app's toast, for its copy; `make`, when Grid serves a Limen project,
+// makes a new experiment of it (its text, or null for the manifest as run;
+// what it is; a name).
+export function manifestSection(m, conditions, scope, figure, say, make) {
   const exp = m.ds.meta.experiment;
   if (!exp || exp.kind !== "limen") return null;
   if (typeof exp.manifestText !== "string") throw new Error("this run's experiment has no manifest text; pack or serve it again with this Grid");
@@ -249,13 +261,22 @@ export function manifestSection(m, conditions, scope, figure, say) {
     : res.problems.length ? `as run · ${scope} could not be narrowed` : "as run";
   const copy = h("button", { class: "btn small", type: "button",
     onclick: () => copyAndSay(text, say, "Manifest copied.", { select: pre, then: res.changed.length ? `Narrowed to ${scope}.` : "" }) }, icon("copy"), "Copy");
+  let made = null;
+  if (make) {
+    const narrowed = res.changed.length > 0;
+    made = h("button", { class: "btn small", type: "button",
+      onclick: () => make(narrowed ? text : null, `The manifest of ${m.ds.meta.label}${narrowed ? `, narrowed to ${scope}` : ""}`, name) }, icon("flask"), "New experiment");
+    tip(made, narrowed ? `A new experiment in the project from this manifest, as narrowed to ${scope}: a sweep drawn only there.`
+      : "A new experiment in the project from the manifest this run used.");
+  }
   const details = h("details", { class: "manifest", open: openKeys.has(key) ? true : null },
     h("summary", null, icon("fwd", "mf-chev"), h("span", { class: "mf-title", text: "Manifest" }), h("span", { class: "mf-file mono", text: exp.manifestFile }),
       h("span", { class: "mf-note", text: note })),
     h("div", { class: "mf-body" },
       res.problems.length ? h("ul", { class: "mf-problems" }, res.problems.map(p => h("li", null, icon("alert"), h("span", { text: p })))) : null,
       h("div", { class: "mf-tools" },
-        h("span", { class: "muted num", text: `${fmtCount(res.after)} combinations${res.changed.length ? ` of ${fmtCount(res.before)}` : ""}` }), copy),
+        h("span", { class: "muted num", text: `${fmtCount(res.after)} combinations${res.changed.length ? ` of ${fmtCount(res.before)}` : ""}` }),
+        h("span", { class: "mf-acts" }, made, copy)),
       pre));
   details.addEventListener("toggle", () => { if (details.open) openKeys.add(key); else openKeys.delete(key); });
   return h("section", { class: "manifest-sec", "aria-label": "The experiment's manifest" }, details);

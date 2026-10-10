@@ -12,6 +12,10 @@ const TOPICS = [
     purpose: "Give each view in one line of figures, say what the view is, and take it away as notes.",
     read: "Every view opens with its strip: a label over each figure, and beside it what the figure is of or against (95% and an interval, of how many, which value). A figure that is missing reads –, one still being worked out …, and a count of nothing 0. Rest on a figure for what it is and how it was worked out. The (i) at the strip's end says what the view is; the copy button beside it copies the view as notes.",
     use: "Choose a figure that names a parameter, a value or a row to open it. Click the (i), or rest on it for five seconds, for the view's blurb; Escape closes it. The copy button copies the view for the research notes." },
+  { id: "experiment", title: "Experiment",
+    purpose: "Make and run a Limen experiment, from its manifest to its runs, and take what a view finds into the next one.",
+    read: "When Grid serves a Limen project (python3 -m grid serve --project DIR), the Experiment view comes first on the rail (0). Its strip names the project, the limen command and its version, the experiments and runs, and what is running. Experiments lists each working manifest in manifests/ with its last run. The manifest is the chosen experiment's, as written: limen validate checks it once typing pauses, and its problems show under it, each on its line (marked in the margin), with the search space it draws from (sfd.params: its parameters and their combinations). Diff with the last run compares it, as it stands, with the manifest its last run started from. Run takes the rounds (the manifest's uel.n_permutations unless set here), the shards (limen run side by side, each on its share of the rounds and of the cores, their search seeds apart, which needs a random search) and what each round records; the line under it says what Run will do, or why it cannot. The runs are listed newest first: when each started, its rounds of those planned, its shards, its state (Running, Stopping, Stopped, Failed, Finished; Incomplete for a run made outside Grid that has not written its planned rounds), and under it why it could not open, a shard that ended without a round, and the end of a failed shard's log.",
+    use: "New experiment (N) starts one from a template or from the manifest of the run in view; New experiment under any view's manifest starts one from that manifest as the view narrowed it (the pocket, the context). Save (⌘ S) writes the manifest, never over a file changed on disk since it was opened; Run saves it, then runs it. A run opens in the other views once each shard has written a round, and Analyze shows it there. Stop asks Limen to stop: the round in hand finishes and a checkpoint is written (Stop now cuts that round short); Resume runs on from the checkpoints." },
   { id: "board", title: "Board",
     purpose: "Rank every sampled parameter by how much it moves the needle, and show the needle at each of its values.",
     read: "The strip on top sums the board up: the needle over the rows in view with its 95% interval, the rows, how many parameters move it after correcting for testing them all (q < 0.05), the strongest, the best single value, the dead values, and how many parameters act only under a condition. Below it, one card per parameter, strongest first; the parameters with no detectable effect have their own section. Top right on a card is ω², the share of the needle's variance the parameter explains on its own (inside its scope for a nested parameter), with a bar against the strongest on the board, and under it the corrected q. Tags at the bottom say where it acts, which values are dead, whether the sampler drew it together with another parameter, and how many values have too few rows to show. On a needle measured on each half of the test window (a Limen run that recorded its execution), a parameter moves the needle only when its effect shows in both halves: detectable over the whole window and in each half, its values ordered alike. The strip counts the parameters that show otherwise, and their cards say where they show (first half only, second half only, the halves disagree, neither half alone).",
@@ -63,7 +67,7 @@ const TOPICS = [
   { id: "manifest", title: "The manifest",
     purpose: "Take what a view looks at to the next sweep, as the experiment's own manifest.",
     read: "On a Limen run every view ends with the manifest the run used, folded: the copy limen run kept, as written. When the view looks at part of the sweep (the pocket, or the context), the manifest is narrowed to it: only the narrowed parameters' lists are rewritten, in their own spelling, each marked with what it was, and its head says how many combinations are left of how many. What cannot be narrowed is said in the page and in the text.",
-    use: "Open it at the foot of a view; it stays open while rows arrive. Its Copy button copies it as it stands, ready for the next limen run." },
+    use: "Open it at the foot of a view; it stays open while rows arrive. Its Copy button copies it as it stands, ready for the next limen run; when Grid serves a Limen project, New experiment makes an experiment of it there (Experiment)." },
   { id: "live", title: "Live and replay",
     purpose: "Follow a sweep while it writes, or replay how it arrived.",
     read: "Live: python3 -m grid serve follows the results file and the log, locally or with --ssh on the sweep's host (it runs tail -F there; nothing is installed). A results file that starts over (a relaunch) keeps the rows already read as a run of its own, archived; the page stays on them if you were reading that run, and offers the run from its first new row. Replay hides every row after an edge in every view, so you see what the sweep knew then.",
@@ -71,6 +75,7 @@ const TOPICS = [
 ];
 
 const KEYS = [
+  ["0", "Experiment, when Grid serves a Limen project"],
   ["1 – 7", "Board, Pocket, Pairs, Features, Trials, Gates, Run"],
   ["T", "Choose the needle"],
   ["/", "Find a parameter or value (Pocket)"],
@@ -91,7 +96,9 @@ const KEYS = [
   ["S", "Pairs: the next number of parameters at once (Shift S, the one before)"],
   ["O", "Features: order by effect or by name"],
   ["X", "Trials: the column toggles (← → between them, Space turns one on or off)"],
+  ["N", "Experiment: a new experiment"],
   ["N", "Gates: a new gate's needle"],
+  ["⌘ S", "Experiment: save the manifest (in its editor)"],
   ["K", "Run: the next number of clusters (Shift K, the one before)"],
   ["M", "Run: Compare two, on or off"],
 ];

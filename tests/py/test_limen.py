@@ -683,6 +683,19 @@ class Shards(unittest.TestCase):
                                     "uel.n_permutations 500, then 900"):
             read(self.a, self.b)
 
+    def test_their_output_paths_may_differ(self) -> None:
+        # a run the Experiment view starts writes each shard to its own
+        # directory: s1, s2, ...
+        shard(self.b, range(20, 40), 2)
+        for d, label in ((self.a, "s1"), (self.b, "s2")):
+            path = os.path.join(d, "metadata.json")
+            with open(path, encoding="utf-8") as f:
+                meta = json.load(f)
+            meta["yaml_reference"]["uel"]["output_path"] = "x/1/" + label
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(meta, f)
+        self.assertEqual(read(self.a, self.b).store.rows, 40)
+
     def test_one_seed_twice_is_refused(self) -> None:
         shard(self.b, range(20, 40), 1)
         with self.assertRaisesRegex(SystemExit, "share the search seed 1"):

@@ -22,8 +22,9 @@ read back as such, and every other field stays text.
 
 Several result directories of one manifest, run side by side with
 different search seeds (``uel.search_strategy.seed``), read as one run:
-their manifests must be the same but for the seed, and their draws must
-differ (a grid search, or one seed twice, draws the same rounds again).
+their manifests must be the same but for the seed and where each wrote
+its rows (``uel.output_path``), and their draws must differ (a grid
+search, or one seed twice, draws the same rounds again).
 """
 
 from __future__ import annotations
@@ -101,10 +102,14 @@ def _search(manifest: Json) -> Json:
 
 
 def without_seed(manifest: Json) -> Json:
-    """A manifest less its search seed, the one thing in which several runs
-    of it side by side differ."""
+    """A manifest less what several runs of it side by side differ in: the
+    search seed, and the output path (a run the Experiment view starts
+    gives each shard its own directory)."""
     out = cast(Json, json.loads(json.dumps(manifest)))
     _search(out).pop("seed", None)
+    uel: Any = out.get("uel")
+    if isinstance(uel, dict):
+        cast(Json, uel).pop("output_path", None)
     return out
 
 
@@ -136,8 +141,8 @@ def _short(v: Any) -> str:
 
 def shards_problem(labels: list[str], experiments: list[Json]) -> str | None:
     """Why several result directories cannot be read as one run, or None:
-    their manifests differ in more than the search seed, or their draws
-    are the same."""
+    their manifests differ in more than the search seed and the output
+    path, or their draws are the same."""
     first = cast(Json, experiments[0]["manifest"])
     base = without_seed(first)
     for label, exp in zip(labels[1:], experiments[1:], strict=True):
