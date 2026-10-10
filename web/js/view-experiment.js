@@ -717,7 +717,7 @@ function runsTable(p, e) {
   }
   return h("div", { class: "table-wrap" }, h("table", { class: "vals ex-runs", "aria-label": `Runs of ${e.name}` },
     h("thead", null, h("tr", null, h("th", { text: "Started" }), h("th", { class: "r", text: "Rounds" }), h("th", { class: "r", text: "Shards" }),
-      h("th", { text: "State" }), h("th", null, h("span", { class: "sr", text: "Actions" })))), tbody));
+      h("th", { text: "State" }), h("th", { "aria-label": "Actions" }))), tbody));
 }
 
 // A button that says why it does nothing now, rather than being disabled
