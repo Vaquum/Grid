@@ -209,6 +209,15 @@ def remote_size(host: str, path: str) -> int:
     return int(_ssh(host, "stat", "-c", "%s", _quote(path)).strip())
 
 
+def remote_mtimes(host: str, paths: list[str]) -> list[float]:
+    """The modification times of those of these remote files that
+    exist (a missing one is skipped, not an error)."""
+    out = _ssh(host, "stat", "-c", "%Y", *[_quote(p) for p in paths],
+               "2>/dev/null", "||", "true")
+    return [float(t) for t in out.decode("ascii", errors="replace").split()
+            if t.isdigit()]
+
+
 def list_remote(host: str, directory: str) -> list[str]:
     """The names in a remote directory (a Limen result directory's)."""
     out = _ssh(host, "ls", "-1A", "--", _quote(directory))

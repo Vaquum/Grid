@@ -8,7 +8,7 @@ import { limenProfile } from "./profiles.js";
 import { rowsIn, summarize, board, boardOrder, MIN_N } from "./engine.js";
 import { boardDims, objectiveTop, objectiveKeys } from "./model.js";
 import { h, clear, icon, installTips, hideTip, syncInfo, fmtInt, fmtRowValue, runName, tip } from "./ui.js";
-import { runStatus, rowsSince } from "./status.js";
+import { runStatus, rowsSince, lastRowAt } from "./status.js";
 import { manifestSection, figureLine } from "./manifest.js";
 import { applyGates } from "./gates.js";
 import { renderBoard } from "./view-board.js";
@@ -546,7 +546,7 @@ function btnIcon(name, label, key, fn) {
 function statusOf(m) {
   const ds = m.ds, log = runLog(m);
   return runStatus({ meta: ds.meta, n: ds.n, edge: app.state.edge, mode: app.config.mode, connected: !!(app.live && app.live.connected),
-    playing: !!app.playback, seg: segmentOf(m), writing: !!(log && log.openTraceback), lastRow: ds.n ? ds.arrivals[ds.n - 1] : NaN,
+    playing: !!app.playback, seg: segmentOf(m), writing: !!(log && log.openTraceback), lastRow: lastRowAt(ds),
     since: rowsSince(Number.isFinite(app.sweep.meta.started) ? app.sweep.meta.started : app.started / 1000, ds.meta), now: Date.now() / 1000 });
 }
 

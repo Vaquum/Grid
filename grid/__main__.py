@@ -30,6 +30,7 @@ import gzip
 import json
 import os
 import posixpath
+import subprocess
 import sys
 import threading
 import time
@@ -44,6 +45,7 @@ from .follow import (
     SSHFollower,
     list_remote,
     read_remote,
+    remote_mtimes,
 )
 from .limen import ROUND_LOG, experiment_name, manifest_copy, read_experiment
 from .server import serve
@@ -147,6 +149,21 @@ class Wiring:
                 return shown + where[len(local):]
         return where
 
+    def written_at(self, paths: list[str]) -> float | None:
+        """When the latest of these files (those that exist) was last
+        written, or None when that cannot be read. Rows read when the
+        server starts have no arrival time; this is the nearest the files
+        say of when the last of them was written."""
+        try:
+            if self.args.ssh:
+                times = remote_mtimes(self.args.ssh, paths)
+            else:
+                times = [os.stat(p).st_mtime for p in paths
+                         if os.path.exists(p)]
+        except (OSError, RuntimeError, subprocess.SubprocessError):
+            return None
+        return max(times) if times else None
+
     def _follower(self, path: str, on_line: LineFn,
                   on_reset: ResetFn) -> FileFollower | SSHFollower:
         if self.args.ssh:
@@ -163,6 +180,7 @@ class Wiring:
                 experiment: Json | None = None) -> Run:
         run = Run(run_id, label, self.shown(path), segment, live, log_id,
                   fmt, experiment)
+        run.written_at = self.written_at([path])
         self.sweep.add_run(run)
         sweep = self.sweep
         self.followers.append(self._follower(
@@ -216,6 +234,12 @@ class Wiring:
             run = self.add_run("r0", label, self.results_path(), None, True,
                                main_log, "csv", self.experiment)
             self.add_round_log(run, a.limen)
+            # a round is written after its row, the checkpoint and the
+            # feedback audit after some rounds: the latest of them all
+            join = posixpath.join if a.ssh else os.path.join
+            run.written_at = self.written_at(
+                [self.results_path()] + [join(a.limen, n) for n in (
+                    ROUND_LOG, "checkpoint.json", "audit.jsonl")])
         else:
             self.add_run("r0", a.label or "current", a.results, None, True,
                          main_log)
