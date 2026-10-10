@@ -103,7 +103,8 @@ def differences(a: Any, b: Any, path: str = "") -> list[str]:
             else:
                 out.extend(differences(da[k], db[k], here))
         return out
-    if a == b and type(a) is type(b):
+    # as JSON text, so that true is not 1, nor 1 the same as 1.0
+    if json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True):
         return []
     return ["%s %s, then %s" % (path or "the manifest", _short(a),
                                 _short(b))]
