@@ -30,7 +30,9 @@ makes and runs its experiments (the Experiment view, grid/experiment.py)
 with its ``limen`` command (``--limen-cli``, by default the project's own
 ``.venv/bin/limen``, else the one on the PATH). The newest run opens at
 once, and each run started from the page once each of its shards has
-written a round; any other opens as it is asked for.
+written a round; any other opens as it is asked for. A predictor made
+in the Cohort view is trained in the Python Limen is installed in
+(``--limen-python``; by default the one the limen command runs in).
 
     python3 -m grid serve --project ~/limen-lab
 """
@@ -543,6 +545,31 @@ def limen_cli(project: str, given: str | None) -> str:
     return found
 
 
+def limen_python(project: str, cli: str, given: str | None) -> str:
+    """The Python Limen is installed in, which makes the project's
+    predictors (grid/limen_cohort.py): the one given, else the interpreter
+    the limen command's script names (its #! line), else the project's
+    own environment's, else the python3 on the PATH."""
+    if given:
+        return given
+    try:
+        with open(cli, "rb") as f:
+            first = f.readline(512).decode("utf-8", "replace")
+    except OSError:
+        first = ""
+    if first.startswith("#!"):
+        words = first[2:].split()
+        if words and os.path.basename(words[0]).startswith("python"):
+            return words[0]
+        if len(words) > 1 and os.path.basename(words[0]) == "env" and \
+                words[1].startswith("python"):
+            return shutil.which(words[1]) or words[1]
+    own = os.path.join(os.path.abspath(project), ".venv", "bin", "python")
+    if os.path.isfile(own):
+        return own
+    return shutil.which("python3") or "python3"
+
+
 def cmd_serve(a: argparse.Namespace) -> int:
     project: Project | None = None
     if a.project:
@@ -562,6 +589,7 @@ def cmd_serve(a: argparse.Namespace) -> int:
         token = secrets.token_urlsafe(24)
         config.update(experiment="api/experiment", token=token)
         project.opener = w.open_limen
+        project.python = limen_python(a.project, project.cli, a.limen_python)
         project.follow()
     page = LivePage(config)
     page()  # fail now, not on the first request, when the page is missing
@@ -641,6 +669,11 @@ def main(argv: list[str] | None = None) -> int:
                            help="the limen command a --project runs "
                                 "(default: its .venv/bin/limen, else limen "
                                 "on the PATH)")
+            p.add_argument("--limen-python", metavar="PATH",
+                           help="the Python with Limen in it, which makes a "
+                                "--project's predictors (default: the one "
+                                "the limen command runs in, else the "
+                                "project's .venv/bin/python, else python3)")
         else:
             p.add_argument("--out", required=True)
     a = ap.parse_args(argv)
