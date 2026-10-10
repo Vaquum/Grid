@@ -101,9 +101,60 @@ of all rows, which includes real differences between configurations, so
 a record inside the line is no evidence of an edge, and a record above it
 is evidence only when the trials are independent.
 
+## A round's execution
+
+A Limen round recorded with `uel.record_execution` gives each test bar's
+position, gross and net return (times its notional rate), and from Limen
+5.20 the market's return on it; the server reads them as each round's line
+arrives (`grid/limen.py` `execution_summary`) and keeps, for the whole test
+window and each half of it, read as a window of its own:
+
+- net return, cost and deployed notional per bar, and the share of
+  winning bars, as Limen's ledger has them (on a real round they
+  reproduce its results.csv figures);
+- the trades: runs of bars in the market, each one's net return
+  compounded over its bars (Limen's per-trade summary); their count, their
+  mean, and from 30 trades the per-trade t, the mean over its standard
+  error s/√k. Under 30 trades no t is read: its spread is too wide, and
+  trades stopped at one level have all but one return (on a 10,000-round
+  run, |t| reached 10¹⁴ under 10 trades and 19 from 30). Trades of one
+  return have none either;
+- timing per bar: over the bars with a market return, the mean gross
+  return less the mean deployed notional times the market's mean return
+  (Limen's reading example), so that riding the market is not read as
+  choosing its bars; and the market's own return, compounded.
+
+## Halves
+
+The halves are Limen's ordinal ones: the first ⌊n/2⌋ bars of the test
+window and the rest (an odd middle bar in the second). They are two
+stretches of the market that do not overlap, so what holds on both is not
+the luck of one.
+
+- **An effect counts only when it shows in both halves**: detectable over
+  the whole window (q < 0.05, as above), and in each half (the same test on
+  that half's values, corrected across the board on that half), its values
+  ordered alike: the correlation of the two halves' lifts over the values
+  with 30 rows in both, each value weighted by the rows of the fewer, is
+  above 0. A difference (a feature group added, a column kept) counts when
+  it is detectable over the whole window and in each half, of one sign in
+  all three.
+- **Reliability**: Spearman's ρ of the rows' needle on the first half
+  against the second (ties at their mean rank), with a 95% interval from
+  Fisher's z and the standard error √(1.06 / (n − 3)) of Fieller,
+  Hartley and Pearson.
+- **Lead kept**: the rows ranked by the needle on the first half; the best
+  tenth (at least 30 rows, over 60 rows with both halves) against every
+  row on each half; their lead on the second half over their lead on the
+  first. 1: the order holds; 0: the second half returns them to the mean,
+  the lead was luck. The chart gives each tenth's mean second half with
+  its interval.
+
 ## Gates
 
-Each gate's pass rate with its Wilson interval. A gate that never passed
+Each gate's pass rate with its Wilson interval. Grid sets two on a run
+that recorded its trades: entries at least 30 and per-trade t at least 2.
+A gate that never passed
 in n rows has a true rate under 3/n (95%, the rule of three). The outcome
 most correlated with a gate's value (excluding outcomes that are the value
 itself, |r| > 0.999) is reported when |r| > 0.8: the gate is bounded by

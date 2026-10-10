@@ -54,7 +54,15 @@ round by round, how near its test probabilities came to its threshold,
 and its Run view sets apart the rounds that never traded: those the
 threshold held back, their models still ranking the test bars, and those
 that found nothing. LightGBM's and XGBoost's `best_iteration` is a fit
-diagnostic.
+diagnostic. A run recorded with `uel.record_execution` (Limen 5.16) says
+what each round's test window did, bar by bar: its trades (with their
+mean and per-trade t, and Grid's gates at 30 entries and a t of 2), and
+each half of the window read as a window of its own, so an effect counts
+only when it shows in both, Trials sets every row's first-half rank
+against its second half, and the Run view gives the halves' rank
+agreement as the run's reliability. From Limen 5.20, which records the
+market's return on each bar too, each round's timing: its gross return
+beyond its deployed notional times the market's.
 
 ```sh
 python3 -m grid serve --limen ~/dev/Limen/results/dev/lightgbm_binary_full_20261009_091248 --open

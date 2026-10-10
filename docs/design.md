@@ -77,9 +77,16 @@ mean %/mo descending (Limen: net PnL per bar descending).
 
 A profile also says what each metric tells about a row's score: the
 activity it rests on (signal days; Limen's entries, the entries per bar
-times the test window's bars, and its deployed notional), the risk that
-came with it (drawdowns, losses), its model's skill (AUC, log-loss,
-precision, recall), or the compute it took (seconds per row).
+times the test window's bars, its per-trade t and its deployed notional),
+the risk that came with it (drawdowns, losses), its model's skill (AUC,
+log-loss, precision, recall; a Limen round's timing), or the compute it
+took (seconds per row).
+
+A Limen run that recorded its execution (`uel.record_execution`) has more
+needles from each round's bars: the mean trade, the per-trade t and, with
+the market's returns (Limen 5.20), timing per bar; and each half of the
+test window for the per-bar figures and these needles. Grid's gates stand
+on them: entries at least 30 and per-trade t at least 2.
 
 ## Statistics
 
@@ -181,6 +188,14 @@ pocket, see below) and up to the replay edge.
   ranking, 4=) and keep their arrival order; a tie that runs past the
   list is not listed but told as one group, since inside it the order
   means nothing.
+- **Halves**: on a needle measured on each half of the test window, a
+  parameter, a feature group or a column counts only when its effect
+  shows in both halves (detectable over the whole window and in each,
+  ordered alike); Trials sets each row's first-half rank against its
+  second half and measures the luck line as the share of the best
+  tenth's first-half lead the second half keeps; the Run view gives the
+  halves' rank agreement (Spearman) as the run's reliability. Formulas in
+  `docs/statistics.md`.
 - **Recorded precision**: one row's value is printed no finer than the
   decimals its target was written with (Limen writes net PnL per bar to
   0.1 bps: a row's 0.7, not 0.700); means keep the shown digits.
@@ -260,7 +275,9 @@ with what each was. What cannot be narrowed is said in the page and in the
 text. A sweep without a manifest has no such section.
 
 1. **Board**: a strip that sums the board up, then one card per param,
-   sorted by effect strength on the target.
+   sorted by effect strength on the target; on a needle with halves, each
+   value's half means are a 1 and a 2 beside its mark, and a card that
+   shows in one half only says so.
 2. **Pocket**: a strip of the pocket's figures; the stack, read bottom up
    as a path from the rows in view, each block saying whether it earns its
    place; and the blocks to add, ranked and every one, under one search.
@@ -275,14 +292,17 @@ text. A sweep without a manifest has no such section.
    and the effect of keeping each column its ablation dropped; on a sweep
    that draws subsets of a pool, every member's inclusion effect.
 5. **Trials**: a strip that sets the best row against the luck line and
-   the rows like it; the best rows ranked with their ties, and toggles that
-   add column sets (the parameters that move the needle, the other
-   parameters, the rows like each row, and the activity, risk, model
-   skill and run time behind each score); any row in full in the
-   inspector, with its replay command.
+   the rows like it, and on a needle with halves the lead kept; the best
+   rows ranked with their ties, and toggles that add column sets (the
+   parameters that move the needle, the other parameters, the rows like
+   each row, each row's halves, and the activity, risk, model skill and
+   run time behind each score); the first half against the second, by
+   tenths; any row in full in the inspector, with its replay command.
 6. **Gates**: a gate factory. Its first card sets a gate on any measured
    needle (a comparison and a need, the needle's rows against it as it is
-   typed); each gate, set here or the runner's, gets a card with its pass
+   typed); each gate, set here, Grid's (entries at least 30 and per-trade
+   t at least 2, on a run that recorded its trades) or the runner's, gets
+   a card with its pass
    rate, its needle's rows against the need, what bounds it when it never
    passed, and what moves it. A strip reads them together, and the foot
    lists what the rows passing the most fail together. Gates set here live
@@ -291,15 +311,17 @@ text. A sweep without a manifest has no such section.
    all only when each is decided).
 7. **Run**: the whole run on one page. A strip of the rows (of those
    planned, and their pace while live), the needle, the best row against
-   the luck line, the clusters and anything broken; the rows' clusters as
+   the luck line, the reliability on a needle with halves, the clusters
+   and anything broken; the rows' clusters as
    toggles; a card per outcome's distribution (the needle, the outcomes
    the clusters are drawn on, compute cost), for every row by default,
    for the chosen clusters together against every row, or with Compare
    for one cluster against another; what makes each cluster (the
    parameters it holds more of than every row does, or with a choice,
    every parameter's values inside it against every row or the other
-   cluster); then the best against luck, pace and segments, problems,
-   the sampler and warnings.
+   cluster); the halves of the test window (the market on each, and how
+   alike the rows rank on them, needle by needle); then the best against
+   luck, pace and segments, problems, the sampler and warnings.
 
 ## A card
 
