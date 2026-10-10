@@ -16,7 +16,7 @@
 
 import { summarize, ALPHA } from "./engine.js";
 import { bhQ, zP } from "./stats.js";
-import { roundKey } from "./pack.js";
+import { rowRounds } from "./pack.js";
 
 const Z95 = 1.959963984540054;
 // Fewer rows than this dropped a column: its term would rest on a handful
@@ -85,14 +85,10 @@ export function groupContrasts(design, dim, target, rows) {
 // value. `perRow[i]` lists the members row i dropped, or is null when the
 // round log has no record of row i's round.
 export function ablationMembers(ds, schema, design, rows) {
-  const ri = ds.col("_round_index");
-  if (!ri || ri.kind !== "num") throw new Error("a Limen run needs its _round_index column to read its round log");
+  // a row's round: its index (in its directory, for a run read from several)
+  const roundOf = rowRounds(ds);
+  if (!roundOf) throw new Error("a Limen run needs its _round_index column to read its round log");
   const n = ds.n;
-  // a run read from several result directories: a round is its index in
-  // its directory (shard)
-  const exp = ds.meta && ds.meta.experiment;
-  const shard = exp && exp.shards ? ds.col("shard") : null;
-  const roundOf = (i) => (ri.state[i] === 0 ? roundKey(ri.vals[i], shard ? shard.value(i) : null) : NaN);
   const valueOf = (p, i) => { const d = schema.dimById.get(p); return d && d.codes[i] >= 0 ? String(d.levels[d.codes[i]].value) : null; };
   // the naming parameters each raw column name matches in every round that dropped it
   const seen = new Map();

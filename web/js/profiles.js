@@ -156,7 +156,20 @@ export const LIMEN_METRICS = {
   backtest_cost_per_bar_bps: { label: "Mean cost per bar", unit: BPS, better: -1, digits: 2 },
   execution_time: { label: "Seconds per row", unit: "s", better: -1, digits: 2, cost: true },
   optimal_threshold: { label: "Chosen threshold", unit: "", better: 0, digits: 3 },
+  // LightGBM's and XGBoost's, with uel.record_model_outputs (Limen 5.17)
+  best_iteration: { label: "Boosting iterations used", unit: "", better: 0, digits: 0 },
 };
+
+// What a round's test probabilities say of its threshold, joined to its row
+// from the round log (uel.record_model_outputs, Limen 5.17; the server
+// sums the probabilities up as limen.model_outputs). Fit diagnostics: they
+// say why a round traded or did not, not how well.
+export const LIMEN_ROUND = [
+  { id: "probs_margin", key: "margin", label: "Highest probability over the threshold", unit: "", better: 0, digits: 3,
+    definition: "the round's largest test probability less the threshold it applied: below 0, no bar passed it" },
+  { id: "probs_reach", key: "reach", label: "Bars within reach of the threshold", unit: "share of bars", better: 0, digits: 3,
+    definition: "the share of the test bars whose probability passed the threshold or came within 0.05 of it" },
+];
 
 // What Limen's metrics give once combined. Entries: Limen writes entries
 // per bar (to five decimals), and its confusion counts cover the same test
@@ -191,10 +204,10 @@ export function limenProfile(experiment) {
     params: Object.fromEntries([...Object.keys(sfd.params || {}), ...(shards ? ["shard"] : [])].map(k => [k, null])),
     nested: {}, effective: {}, alias: {}, setSize: {},
     ids: ["_round_index"],
-    diagnostic: ["execution_time", "optimal_threshold", "_generation_index", "_injected"],
+    diagnostic: ["execution_time", "optimal_threshold", "best_iteration", "_generation_index", "_injected"],
     text: ["id", "_id", "_warnings", "_search_strategy", "strict_mode_error"],
     metrics: LIMEN_METRICS,
-    derived: LIMEN_DERIVED, gates: [], gatesPrefix: null, invariants: [],
+    derived: LIMEN_DERIVED, roundTargets: LIMEN_ROUND, gates: [], gatesPrefix: null, invariants: [],
     defaultTarget: "backtest_pnl_per_bar_bps",
     objective: [["backtest_pnl_per_bar_bps", -1]],
     objectiveLabel: "net PnL per bar",

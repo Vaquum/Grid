@@ -15,6 +15,7 @@ import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { limenOutputsRun } from "../fixtures/limen_outputs.mjs";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const PW = process.env.GRID_PLAYWRIGHT;
@@ -950,6 +951,33 @@ test("live: a run that stopped before the server started reads quiet at once, an
     assert.ok((await page.locator(".stat .k").allInnerTexts()).includes("Last row written"));
     appendFileSync(path, rows[400] + "\n");
     await page.waitForFunction(() => document.querySelector(".sweep-line .status").dataset.kind === "live", null, { timeout: 20000 });
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    proc.kill();
+  }
+});
+
+test("live: a Limen run with its model outputs sets apart the rounds that never traded", async () => {
+  const run = limenOutputsRun(join(mkdtempSync(join(tmpdir(), "grid-outputs-")), "run"));
+  const proc = spawn("python3", ["-m", "grid", "serve", "--limen", run, "--port", "0"], { cwd: ROOT });
+  try {
+    const url = await serverUrl(proc);
+    const { page, errors } = await limenPage();
+    await page.goto(url);
+    await page.waitForSelector(".pcard");
+    // best_iteration is no card, and a fit diagnostic among the needles
+    assert.ok(!(await page.locator(".pcard .pc-name").allInnerTexts()).includes("best_iteration"));
+    const diagnostics = await page.$$eval('#target-pick optgroup[label="Fit diagnostics"] option', os => os.map(o => o.textContent));
+    for (const name of ["Boosting iterations used", "Highest probability over the threshold", "Bars within reach of the threshold"]) {
+      assert.ok(diagnostics.includes(name), `${name} in ${diagnostics.join(", ")}`);
+    }
+    await page.keyboard.press("7");
+    const island = page.locator('section[aria-label="Rounds that never traded"]');
+    await island.waitFor({ timeout: 20000 });
+    assert.equal(await island.locator(".isl-count").innerText(), "14 of 40 rounds");
+    const ks = await island.locator(".stat .k").allInnerTexts();
+    assert.deepEqual(ks, ["Held back by the threshold", "Found nothing", "Short of the threshold", "Within reach"]);
     assert.deepEqual(errors, []);
     await page.close();
   } finally {

@@ -49,6 +49,12 @@ directory. Its `metadata.json` holds the manifest, whose `sfd.params` are
 the parameters; every other column of `results.csv` is one of Limen's
 round metrics (named and given a direction once, in
 `web/js/profiles.js`) or the round's bookkeeping. Nothing is inferred.
+A run recorded with `uel.record_model_outputs` (Limen 5.17) also says,
+round by round, how near its test probabilities came to its threshold,
+and its Run view sets apart the rounds that never traded: those the
+threshold held back, their models still ranking the test bars, and those
+that found nothing. LightGBM's and XGBoost's `best_iteration` is a fit
+diagnostic.
 
 ```sh
 python3 -m grid serve --limen ~/dev/Limen/results/dev/lightgbm_binary_full_20261009_091248 --open

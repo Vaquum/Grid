@@ -16,6 +16,7 @@ import { limenProfile } from "./profiles.js";
 import { independence, moderatorParents, boardDims, background, setName, TOGETHER, together, togetherWhy } from "./model.js";
 import { clusterJob, clusterOutcomes, mannWhitney, composition, MIN_SILHOUETTE } from "./clusters.js";
 import { bhQ, rankAt } from "./stats.js";
+import { heldBack } from "./outputs.js";
 
 // The log a run's runner writes.
 export function runLog(m) {
@@ -104,6 +105,8 @@ export function renderRun(view, m, A) {
   view.append(clusterIsland(m, A, res, sel));
   view.append(distIsland(m, res, sel));
   if (res && res.clusters.length) view.append(apartIsland(m, A, res, sel));
+  const never = neverIsland(m);
+  if (never) view.append(never);
   view.append(h("div", { class: "rn-pair" }, recordIsland(m), paceIsland(m, health)));
   if (m.sweep.runs.length > 1) view.append(runsIsland(m, A));
   view.append(h("div", { class: "rn-pair" }, problemsIsland(m, A, health), samplerIsland(m)));
@@ -607,6 +610,33 @@ function recordIsland(m) {
   const above = (rec.last.best - rec.last.luck) * (rec.t.better < 0 ? -1 : 1) > 0;
   isl.append(h("p", { class: "isl-note" }, h("b", { text: above ? "Above the luck line" : "Inside the luck line" }),
     `: the best row reaches ${fmtRowValue(rec.t, rec.last.best)}; noise alone would give about ${fmtT(rec.t, rec.last.luck)} at ${fmtInt(rec.last.n)} rows. The dashed line is that expectation; a record that only tracks it is harvesting noise.`));
+  return isl;
+}
+
+// ---------------------------------------------------------------------------
+// The rounds that never traded, on a Limen run that recorded its test
+// probabilities (outputs.js): the ones the threshold held back, their
+// models ranking the test bars, and the ones that found nothing.
+
+function neverIsland(m) {
+  const hb = heldBack(m.ds, m.rows);
+  if (!hb || !hb.never) return null;
+  const isl = h("section", { class: "island", "aria-label": "Rounds that never traded" },
+    h("header", { class: "isl-head" }, h("h2", { class: "isl-title", text: "Rounds that never traded" }),
+      h("span", { class: "isl-count num", text: `${fmtInt(hb.never)} of ${fmtInt(hb.rounds)} rounds` })));
+  const stats = h("div", { class: "stat-row" });
+  const stat = (k, v, d, tp) => { const el = h("div", { class: "stat has-tip" }, h("div", { class: "k", text: k }), h("div", { class: "v num", text: v }), h("div", { class: "d", text: d })); tip(el, tp); stats.append(el); };
+  stat("Held back by the threshold", fmtInt(hb.held), "their models rank the test bars",
+    "No test bar's probability passed the round's threshold, yet its model ranks the bars: its AUC's 95% interval lies above 0.5.");
+  stat("Found nothing", fmtInt(hb.nothing), "no ranking beyond chance",
+    "No test bar's probability passed the round's threshold, and its model's ranking of the bars is not told apart from chance (AUC).");
+  if (hb.unknown) stat("Not told apart", fmtInt(hb.unknown), "no AUC or counts", "These rounds record no AUC, or no counts of positive and negative test bars to weigh it by.");
+  stat("Short of the threshold", fmtNum(hb.shortMedian, 3), "median, highest probability",
+    "How far each round's highest test probability fell below its threshold: the median over the rounds that never traded.");
+  stat("Within reach", fmtInt(hb.reach), "a bar within 0.05 of it",
+    "The rounds that never traded with at least one test bar whose probability came within 0.05 of the threshold.");
+  isl.append(stats);
+  isl.append(h("p", { class: "isl-note", text: "From each round's test probabilities, which Limen records with uel.record_model_outputs: a round never traded when no test bar passed its threshold. Highest probability over the threshold and Bars within reach of the threshold are needles among the fit diagnostics, round by round." }));
   return isl;
 }
 

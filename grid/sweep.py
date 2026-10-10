@@ -12,6 +12,9 @@ round's index and the feature columns its ablation dropped, joined to the
 rows by ``_round_index`` on the page (a round's line comes after its row,
 and never for a round that failed).
 
+A round of a run recorded with ``uel.record_model_outputs`` also carries
+what its test probabilities say of its threshold (limen.model_outputs).
+
 A run can be read from several Limen result directories of one manifest
 (shards: ``limen run`` side by side with different search seeds). Each
 file's rows are tagged with their directory's label in ``shard``, and
@@ -195,7 +198,7 @@ class Run:
         if not text.strip():
             return
         try:
-            index, dropped = round_record(text)
+            index, dropped, outputs = round_record(text)
         except ValueError as exc:
             self.rounds_bad_count += 1
             if len(self.rounds_bad) < BAD_KEEP:
@@ -205,10 +208,16 @@ class Run:
                     bad[SHARD] = self.shards[shard]
                 self.rounds_bad.append(bad)
             return
-        if shard is not None and self.shards is not None:
-            self.rounds.append([index, dropped, self.shards[shard]])
-        else:
-            self.rounds.append([index, dropped])
+        # [index, dropped], then its directory's label (or None) and its
+        # outputs, each only when there is something after it
+        entry: list[Any] = [index, dropped]
+        label = self.shards[shard] if shard is not None and \
+            self.shards is not None else None
+        if label is not None or outputs is not None:
+            entry.append(label)
+        if outputs is not None:
+            entry.append(outputs)
+        self.rounds.append(entry)
 
     def rounds_restart(self, shard: int | None = None) -> None:
         """Empty (of the shard-th round log's rounds only, for a run read

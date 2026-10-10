@@ -23,6 +23,7 @@ from grid.limen import (
     csv_value,
     differences,
     manifest_copy,
+    model_outputs,
     read_experiment,
     round_record,
 )
@@ -90,9 +91,10 @@ class RoundLog(unittest.TestCase):
             "round_id": "x", "_round_index": 7, "preds": [1, 0],
             "round_params": {"feature_drop_count": 2,
                              "_dropped_features": ["roc_24", "minute_cos"]}})
-        self.assertEqual(round_record(line), (7, ["minute_cos", "roc_24"]))
+        self.assertEqual(round_record(line),
+                         (7, ["minute_cos", "roc_24"], None))
         # a round that dropped nothing has no _dropped_features at all
-        self.assertEqual(round_record(self.EMPTY), (0, []))
+        self.assertEqual(round_record(self.EMPTY), (0, [], None))
 
     def test_a_line_that_is_not_a_round_is_refused(self) -> None:
         cases = [
@@ -147,6 +149,52 @@ class RoundLog(unittest.TestCase):
         self.assertEqual(rounds(), [{"type": "rounds", "run": "r0",
                                      "reset": True, "entries": [[0, []]]}])
         self.assertEqual(sweep.delta_text(cursor), [])
+
+
+class ModelOutputs(unittest.TestCase):
+    """A round recorded with uel.record_model_outputs: what its test
+    probabilities say of its threshold, without keeping them."""
+
+    def outputs(self, probs: Any, threshold: Any = 0.5,
+                rule: Any = ">=") -> Json | None:
+        return model_outputs({"probs": probs, "optimal_threshold": threshold,
+                              "threshold_rule": rule}, 3)
+
+    def test_the_share_that_passed_the_share_within_reach_and_the_margin(
+            self) -> None:
+        self.assertEqual(self.outputs([0.2, 0.47, 0.6]),
+                         {"fired": round(1 / 3, 6), "reach": round(2 / 3, 6),
+                          "margin": 0.1})
+        # > lets nothing at the threshold pass: one bar there is within reach
+        self.assertEqual(self.outputs([0.2, 0.6], 0.6, ">"),
+                         {"fired": 0.0, "reach": 0.5, "margin": 0.0})
+
+    def test_a_round_that_recorded_none_has_none(self) -> None:
+        self.assertIsNone(model_outputs({"round_params": {}}, 0))
+        self.assertIsNone(self.outputs(None))
+
+    def test_what_is_not_a_probability_or_a_rule_is_refused(self) -> None:
+        with self.assertRaisesRegex(ValueError, "round 3: probs"):
+            self.outputs([0.2, "x"])
+        with self.assertRaisesRegex(ValueError, "round 3: probs"):
+            self.outputs([])
+        with self.assertRaisesRegex(ValueError, "threshold_rule"):
+            self.outputs([0.2], 0.5, "<")
+        with self.assertRaisesRegex(ValueError, "optimal_threshold"):
+            self.outputs([0.2], None)
+
+    def test_the_round_carries_them_to_the_page(self) -> None:
+        line = json.dumps({"_round_index": 2, "round_params": {},
+                           "probs": [0.1, 0.55], "optimal_threshold": 0.5,
+                           "threshold_rule": ">="})
+        self.assertEqual(round_record(line),
+                         (2, [], {"fired": 0.5, "reach": 0.5,
+                                  "margin": 0.05}))
+        run = Run("r0", "current", "x", None, True, None, "csv", {})
+        run.add_round_line(line)
+        self.assertEqual(run.rounds, [[2, [], None, {"fired": 0.5,
+                                                    "reach": 0.5,
+                                                    "margin": 0.05}]])
 
 
 class Experiment(unittest.TestCase):
