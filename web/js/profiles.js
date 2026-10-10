@@ -156,7 +156,20 @@ export const LIMEN_METRICS = {
   backtest_cost_per_bar_bps: { label: "Mean cost per bar", unit: BPS, better: -1, digits: 2 },
   execution_time: { label: "Seconds per row", unit: "s", better: -1, digits: 2, cost: true },
   optimal_threshold: { label: "Chosen threshold", unit: "", better: 0, digits: 3 },
+  // LightGBM's and XGBoost's, with uel.record_model_outputs (Limen 5.17)
+  best_iteration: { label: "Boosting iterations used", unit: "", better: 0, digits: 0 },
 };
+
+// What a round's test probabilities say of its threshold, joined to its row
+// from the round log (uel.record_model_outputs, Limen 5.17; the server
+// sums the probabilities up as limen.model_outputs). Fit diagnostics: they
+// say why a round traded or did not, not how well.
+export const LIMEN_ROUND = [
+  { id: "probs_margin", key: "margin", label: "Highest probability over the threshold", unit: "", better: 0, digits: 3,
+    definition: "the round's largest test probability less the threshold it applied: below 0, no bar passed it" },
+  { id: "probs_reach", key: "reach", label: "Bars within reach of the threshold", unit: "share of bars", better: 0, digits: 3,
+    definition: "the share of the test bars whose probability passed the threshold or came within 0.05 of it" },
+];
 
 // What Limen's metrics give once combined. Entries: Limen writes entries
 // per bar (to five decimals), and its confusion counts cover the same test
@@ -171,36 +184,42 @@ export const LIMEN_DERIVED = [
 
 // A Limen experiment's profile, read from its own manifest: the manifest's
 // sfd.params are the sampled parameters; the rest are Limen's metrics and
-// the round's bookkeeping.
+// the round's bookkeeping. A run read from several result directories of
+// the manifest (shards) has each row's directory as a parameter too, so
+// the checks on how parameters were drawn say whether the shards drew
+// alike, and each round replays from its own directory.
 export function limenProfile(experiment) {
   const m = experiment.manifest || {};
   const sfd = m.sfd || {};
   const uel = m.uel || {};
   const meta = m.metadata || {};
+  // [label, directory] for each, in the order read
+  const shards = Array.isArray(experiment.shards) ? new Map(experiment.shards) : null;
+  const dirOf = row => (shards ? shards.get(row.shard) : experiment.dir);
   return {
     id: "limen",
     name: meta.name || "Limen experiment",
     describes: meta.description || "a Limen experiment",
     families: [],
-    params: Object.fromEntries(Object.keys(sfd.params || {}).map(k => [k, null])),
+    params: Object.fromEntries([...Object.keys(sfd.params || {}), ...(shards ? ["shard"] : [])].map(k => [k, null])),
     nested: {}, effective: {}, alias: {}, setSize: {},
     ids: ["_round_index"],
-    diagnostic: ["execution_time", "optimal_threshold", "_generation_index", "_injected"],
+    diagnostic: ["execution_time", "optimal_threshold", "best_iteration", "_generation_index", "_injected"],
     text: ["id", "_id", "_warnings", "_search_strategy", "strict_mode_error"],
     metrics: LIMEN_METRICS,
-    derived: LIMEN_DERIVED, gates: [], gatesPrefix: null, invariants: [],
+    derived: LIMEN_DERIVED, roundTargets: LIMEN_ROUND, gates: [], gatesPrefix: null, invariants: [],
     defaultTarget: "backtest_pnl_per_bar_bps",
     objective: [["backtest_pnl_per_bar_bps", -1]],
     objectiveLabel: "net PnL per bar",
-    planned: Number.isInteger(uel.n_permutations) ? uel.n_permutations : null,
+    planned: Number.isInteger(uel.n_permutations) ? uel.n_permutations * (shards ? shards.size : 1) : null,
     // A round is replayed from its result directory by Limen's Trainer,
     // which rebuilds it from the manifest and checks its metrics against
     // results.csv (docs/Trainer.md); a pack made before the page knew the
     // directory has no command.
-    replay: typeof experiment.dir === "string" ? {
+    replay: typeof experiment.dir === "string" || shards ? {
       title: `Replay it exactly (with Limen${experiment.host ? `, on ${experiment.host}` : ""}; it checks the round's metrics)`,
-      python: (row) => (typeof row.id === "string"
-        ? `from limen.inference import Trainer\n\ntrainer = Trainer(${JSON.stringify(experiment.dir)})\nsensor, = trainer.train([${JSON.stringify(row.id)}])`
+      python: (row) => (typeof row.id === "string" && typeof dirOf(row) === "string"
+        ? `from limen.inference import Trainer\n\ntrainer = Trainer(${JSON.stringify(dirOf(row))})\nsensor, = trainer.train([${JSON.stringify(row.id)}])`
         : null),
     } : null,
   };

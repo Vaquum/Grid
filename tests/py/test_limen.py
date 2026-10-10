@@ -7,17 +7,23 @@ line also holds)."""
 
 from __future__ import annotations
 
+import argparse
+import csv
 import gzip
+import io
 import json
 import os
 import tempfile
 import unittest
+from typing import Any
 
-from grid.__main__ import main
+from grid.__main__ import Wiring, main
 from grid.limen import (
     CsvRecords,
     csv_value,
+    differences,
     manifest_copy,
+    model_outputs,
     read_experiment,
     round_record,
 )
@@ -85,9 +91,10 @@ class RoundLog(unittest.TestCase):
             "round_id": "x", "_round_index": 7, "preds": [1, 0],
             "round_params": {"feature_drop_count": 2,
                              "_dropped_features": ["roc_24", "minute_cos"]}})
-        self.assertEqual(round_record(line), (7, ["minute_cos", "roc_24"]))
+        self.assertEqual(round_record(line),
+                         (7, ["minute_cos", "roc_24"], None))
         # a round that dropped nothing has no _dropped_features at all
-        self.assertEqual(round_record(self.EMPTY), (0, []))
+        self.assertEqual(round_record(self.EMPTY), (0, [], None))
 
     def test_a_line_that_is_not_a_round_is_refused(self) -> None:
         cases = [
@@ -142,6 +149,52 @@ class RoundLog(unittest.TestCase):
         self.assertEqual(rounds(), [{"type": "rounds", "run": "r0",
                                      "reset": True, "entries": [[0, []]]}])
         self.assertEqual(sweep.delta_text(cursor), [])
+
+
+class ModelOutputs(unittest.TestCase):
+    """A round recorded with uel.record_model_outputs: what its test
+    probabilities say of its threshold, without keeping them."""
+
+    def outputs(self, probs: Any, threshold: Any = 0.5,
+                rule: Any = ">=") -> Json | None:
+        return model_outputs({"probs": probs, "optimal_threshold": threshold,
+                              "threshold_rule": rule}, 3)
+
+    def test_the_share_that_passed_the_share_within_reach_and_the_margin(
+            self) -> None:
+        self.assertEqual(self.outputs([0.2, 0.47, 0.6]),
+                         {"fired": round(1 / 3, 6), "reach": round(2 / 3, 6),
+                          "margin": 0.1})
+        # > lets nothing at the threshold pass: one bar there is within reach
+        self.assertEqual(self.outputs([0.2, 0.6], 0.6, ">"),
+                         {"fired": 0.0, "reach": 0.5, "margin": 0.0})
+
+    def test_a_round_that_recorded_none_has_none(self) -> None:
+        self.assertIsNone(model_outputs({"round_params": {}}, 0))
+        self.assertIsNone(self.outputs(None))
+
+    def test_what_is_not_a_probability_or_a_rule_is_refused(self) -> None:
+        with self.assertRaisesRegex(ValueError, "round 3: probs"):
+            self.outputs([0.2, "x"])
+        with self.assertRaisesRegex(ValueError, "round 3: probs"):
+            self.outputs([])
+        with self.assertRaisesRegex(ValueError, "threshold_rule"):
+            self.outputs([0.2], 0.5, "<")
+        with self.assertRaisesRegex(ValueError, "optimal_threshold"):
+            self.outputs([0.2], None)
+
+    def test_the_round_carries_them_to_the_page(self) -> None:
+        line = json.dumps({"_round_index": 2, "round_params": {},
+                           "probs": [0.1, 0.55], "optimal_threshold": 0.5,
+                           "threshold_rule": ">="})
+        self.assertEqual(round_record(line),
+                         (2, [], {"fired": 0.5, "reach": 0.5,
+                                  "margin": 0.05}))
+        run = Run("r0", "current", "x", None, True, None, "csv", {})
+        run.add_round_line(line)
+        self.assertEqual(run.rounds, [[2, [], None, {"fired": 0.5,
+                                                    "reach": 0.5,
+                                                    "margin": 0.05}]])
 
 
 class Experiment(unittest.TestCase):
@@ -236,6 +289,212 @@ class PackLimen(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "holds no YAML file"):
                 main(["pack", "--limen", tmp, "--out",
                       os.path.join(tmp, "p.json")])
+
+
+def shard(directory: str, rows: range, seed: Any,
+          n_permutations: int = 500) -> None:
+    """A result directory made from some of the fixture's rounds, as one of
+    several ``limen run`` side by side writes it: its rounds counted from
+    0, under its own search seed."""
+    os.makedirs(directory)
+    with open(os.path.join(FIXTURE, "results.csv"), encoding="utf-8") as f:
+        records = list(csv.reader(f))
+    at = records[0].index("_round_index")
+    out = io.StringIO()
+    w = csv.writer(out, lineterminator="\n")
+    w.writerow(records[0])
+    for k, i in enumerate(rows):
+        record = list(records[i + 1])
+        record[at] = str(k)
+        w.writerow(record)
+    with open(os.path.join(directory, "results.csv"), "w",
+              encoding="utf-8") as f:
+        f.write(out.getvalue())
+    with open(os.path.join(FIXTURE, "round_data.jsonl"),
+              encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    with open(os.path.join(directory, "round_data.jsonl"), "w",
+              encoding="utf-8") as f:
+        for k, i in enumerate(rows):
+            rec = json.loads(lines[i])
+            rec["_round_index"] = k
+            f.write(json.dumps(rec) + "\n")
+    with open(os.path.join(FIXTURE, "metadata.json"), encoding="utf-8") as f:
+        meta = json.load(f)
+    uel = meta["yaml_reference"]["uel"]
+    uel["search_strategy"]["seed"] = seed
+    uel["n_permutations"] = n_permutations
+    with open(os.path.join(directory, "metadata.json"), "w",
+              encoding="utf-8") as f:
+        json.dump(meta, f)
+    copy = "lightgbm_binary_full.yaml"
+    with open(os.path.join(FIXTURE, copy), "rb") as src, \
+            open(os.path.join(directory, copy), "wb") as dst:
+        dst.write(src.read())
+
+
+def read(*limen: str) -> Run:
+    args = argparse.Namespace(limen=list(limen), ssh=None, name=None,
+                              label=None, log=None, run=None, as_=None,
+                              results=None)
+    w = Wiring(args, follow=False)
+    sweep = w.build()
+    w.read_once()
+    return sweep.runs[0]
+
+
+class Shards(unittest.TestCase):
+    """Several result directories of one manifest, run side by side with
+    different search seeds, read as one run."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.a = os.path.join(self.tmp.name, "runs", "a")
+        self.b = os.path.join(self.tmp.name, "runs", "b")
+        shard(self.a, range(0, 20), 1)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_their_rows_are_one_run_joined_by_round_index(self) -> None:
+        shard(self.b, range(20, 40), 2)
+        run = read(self.a, self.b)
+        self.assertEqual(run.label, "2 result directories")
+        rows = [run.store.row_object(i) for i in range(run.store.rows)]
+        self.assertEqual(len(rows), 40)
+        # the history of each joined by round index, as they ran side by side
+        self.assertEqual([r["shard"] for r in rows[:4]], ["a", "b", "a", "b"])
+        self.assertEqual([r["_round_index"] for r in rows[:4]], [0, 0, 1, 1])
+        assert run.experiment is not None
+        self.assertIsNone(run.experiment["dir"])
+        self.assertEqual(run.experiment["shards"],
+                         [["a", os.path.abspath(self.a)],
+                          ["b", os.path.abspath(self.b)]])
+        # each round is its directory's
+        self.assertEqual(len(run.rounds), 40)
+        self.assertEqual(sorted({r[2] for r in run.rounds}), ["a", "b"])
+        self.assertEqual(run.rounds[0][:1] + run.rounds[0][2:], [0, "a"])
+
+    def test_pack_takes_them_given_again(self) -> None:
+        shard(self.b, range(20, 40), 2)
+        out = os.path.join(self.tmp.name, "pack.json")
+        self.assertEqual(main(["pack", "--limen", self.a, "--limen", self.b,
+                               "--out", out]), 0)
+        with open(out, encoding="utf-8") as f:
+            run = json.load(f)["runs"][0]
+        self.assertEqual(run["rows"], 40)
+        self.assertEqual([s[0] for s in run["experiment"]["shards"]],
+                         ["a", "b"])
+        self.assertEqual(len(run["rounds"]), 40)
+
+    def test_a_folder_of_them_reads_the_same(self) -> None:
+        shard(self.b, range(20, 40), 2)
+        run = read(os.path.join(self.tmp.name, "runs"))
+        self.assertEqual(run.label, "runs")
+        self.assertEqual(run.store.rows, 40)
+        assert run.experiment is not None
+        self.assertEqual([s[0] for s in run.experiment["shards"]],
+                         ["a", "b"])
+
+    def test_a_later_row_joins_as_it_arrives(self) -> None:
+        shard(self.b, range(20, 40), 2)
+        s = Sweep("t")
+        run = Run("r0", "two", "x", None, True, None, "csv", {},
+                  ["a", "b"])
+        s.add_run(run)
+        with open(os.path.join(self.a, "results.csv"), encoding="utf-8") as f:
+            a = f.read().splitlines()
+        with open(os.path.join(self.b, "results.csv"), encoding="utf-8") as f:
+            b = f.read().splitlines()
+        for line in a[:3]:
+            s.run_line(run, line, True, 0)
+        s.run_line(run, b[0], True, 1)
+        s.run_line(run, a[3], False, 0)   # live before b's history is read
+        s.run_line(run, b[1], True, 1)
+        self.assertEqual(run.store.rows, 0)   # held until every file is read
+        s.merge(run)
+        got = [(run.store.row_object(i)["shard"],
+                run.store.row_object(i)["_round_index"])
+               for i in range(run.store.rows)]
+        self.assertEqual(got, [("a", 0), ("b", 0), ("a", 1), ("a", 2)])
+        s.run_line(run, b[2], False, 1)
+        self.assertEqual(run.store.rows, 5)
+        self.assertEqual(run.store.row_object(4)["shard"], "b")
+
+    def test_one_file_starting_over_leaves_the_others_rows(self) -> None:
+        shard(self.b, range(20, 40), 2)
+        s = Sweep("t")
+        run = Run("r0", "two", "x", None, True, None, "csv", {},
+                  ["a", "b"])
+        s.add_run(run)
+        with open(os.path.join(self.a, "results.csv"), encoding="utf-8") as f:
+            a = f.read().splitlines()
+        with open(os.path.join(self.b, "results.csv"), encoding="utf-8") as f:
+            b = f.read().splitlines()
+        for line in a[:3]:
+            s.run_line(run, line, True, 0)
+        for line in b[:3]:
+            s.run_line(run, line, True, 1)
+        s.merge(run)
+        s.run_reset(run, "truncated", 1)
+        # the archive keeps every row; the run goes on with a's
+        old = s.runs[0]
+        self.assertEqual((old.store.rows, old.archived_shard), (4, "b"))
+        self.assertEqual(run.store.rows, 2)
+        self.assertEqual({run.store.row_object(i)["shard"]
+                          for i in range(run.store.rows)}, {"a"})
+        self.assertEqual(run.resets[-1]["shard"], "b")
+        # b reads its header again; a goes on
+        s.run_line(run, b[0], False, 1)
+        s.run_line(run, b[1], False, 1)
+        s.run_line(run, a[3], False, 0)
+        self.assertEqual([run.store.row_object(i)["shard"]
+                          for i in range(run.store.rows)],
+                         ["a", "a", "b", "a"])
+        self.assertEqual(run.bad_count, 0)
+
+    def test_a_bad_round_line_names_its_directory(self) -> None:
+        run = Run("r0", "two", "x", None, True, None, "csv", {}, ["a", "b"])
+        run.add_round_line(self.round(0), 0)
+        run.add_round_line(self.round(0), 1)
+        run.add_round_line("not a round", 1)
+        bad = run.rounds_bad[0]
+        self.assertEqual((bad["line"], bad["shard"]), (2, "b"))
+
+    def round(self, index: int) -> str:
+        return json.dumps({"_round_index": index, "round_params": {}})
+
+    def test_a_manifest_parameter_named_shard_is_refused(self) -> None:
+        path = os.path.join(self.a, "metadata.json")
+        with open(path, encoding="utf-8") as f:
+            meta = json.load(f)
+        meta["yaml_reference"]["sfd"]["params"]["shard"] = [1, 2]
+        for d, seed in ((self.a, 1), (self.b, 2)):
+            if d == self.b:
+                shard(self.b, range(20, 40), 2)
+            meta["yaml_reference"]["uel"]["search_strategy"]["seed"] = seed
+            with open(os.path.join(d, "metadata.json"), "w",
+                      encoding="utf-8") as f:
+                json.dump(meta, f)
+        with self.assertRaisesRegex(SystemExit, "a parameter named shard"):
+            read(self.a, self.b)
+
+    def test_manifests_compare_as_json(self) -> None:
+        self.assertEqual(differences({"x": [True]}, {"x": [True]}), [])
+        self.assertEqual(differences({"x": [True]}, {"x": [1]}),
+                         ["x [true], then [1]"])
+        self.assertEqual(differences({"x": 1}, {"x": 1.0}), ["x 1, then 1.0"])
+
+    def test_another_manifest_is_refused_with_where_it_differs(self) -> None:
+        shard(self.b, range(20, 40), 2, n_permutations=900)
+        with self.assertRaisesRegex(SystemExit,
+                                    "uel.n_permutations 500, then 900"):
+            read(self.a, self.b)
+
+    def test_one_seed_twice_is_refused(self) -> None:
+        shard(self.b, range(20, 40), 1)
+        with self.assertRaisesRegex(SystemExit, "share the search seed 1"):
+            read(self.a, self.b)
 
 
 if __name__ == "__main__":

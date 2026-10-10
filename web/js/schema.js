@@ -10,6 +10,7 @@
 
 import { matchProfile } from "./profiles.js";
 import { spanText } from "./ui.js";
+import { rowRounds } from "./pack.js";
 
 const MAX_LEVELS = 32;      // more distinct values than this: binned
 const BINS = 10;
@@ -384,6 +385,20 @@ export function buildSchema(ds, opts = {}) {
       cost: !!m.cost, group: m.group || null, values,
       source: P.metrics[f.name] ? "profile" : "inferred",
       diagnostic: f.role === "diagnostic" });
+  }
+
+  // what each row's round says beside its row (a Limen round log), joined
+  // to the rows by round
+  const keyOf = (P.roundTargets || []).length && ds.outputs && ds.outputs.size ? rowRounds(ds) : null;
+  for (const d of keyOf ? P.roundTargets : []) {
+    const values = new Float64Array(n).fill(NaN);
+    for (let i = 0; i < n; i++) {
+      const o = ds.outputs.get(keyOf(i));
+      if (o && Number.isFinite(o[d.key])) values[i] = o[d.key];
+    }
+    targets.push({ id: d.id, label: d.label, unit: d.unit, kind: "cont", better: d.better, definition: d.definition,
+      digits: shownDigits(values, d.digits, "cont"), decimals: recordedDecimals(values), group: null, values,
+      source: "profile", diagnostic: true });
   }
 
   // gates

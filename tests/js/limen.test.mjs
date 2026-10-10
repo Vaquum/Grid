@@ -79,6 +79,21 @@ test("net PnL per bar is written to 0.1 bps, so a round shows 0.7, not 0.700", (
   assert.equal(schema.targetById.get("backtest_pnl_per_bar_bps").decimals, 1);
 });
 
+test("a run read from several result directories has its directory as a parameter, plans their rounds together and replays each from its own", () => {
+  const exp = { manifest: { sfd: { params: { a: [1, 2] } }, uel: { n_permutations: 500 } }, dir: null, host: null,
+    shards: [["s1", "/runs/s1"], ["s2", "/runs/s2"]] };
+  const p = limenProfile(exp);
+  assert.deepEqual(Object.keys(p.params), ["a", "shard"]);
+  assert.equal(p.planned, 1000);
+  assert.match(p.replay.python({ id: "abc", shard: "s2" }), /^from limen\.inference import Trainer\n\ntrainer = Trainer\("\/runs\/s2"\)/);
+  assert.equal(p.replay.python({ id: "abc", shard: "s3" }), null);
+  // one directory: no such parameter
+  const one = limenProfile({ ...exp, dir: "/runs/s1", shards: undefined });
+  assert.deepEqual(Object.keys(one.params), ["a"]);
+  assert.equal(one.planned, 500);
+  assert.match(one.replay.python({ id: "abc" }), /Trainer\("\/runs\/s1"\)/);
+});
+
 test("what a score rests on: activity, risk, model skill and the time it took", () => {
   const ids = g => schema.targets.filter(t => t.group === g).map(t => t.id).sort();
   assert.deepEqual(ids("activity"), ["backtest_inventory_per_bar", "entries"]);

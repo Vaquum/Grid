@@ -226,6 +226,9 @@ export function manifestSection(m, conditions, scope, figure, say) {
   const name = ((exp.manifest.metadata || {}).name) || "the experiment";
   const nperm = (exp.manifest.uel || {}).n_permutations;
   const head = [];
+  // a run read from several result directories: the first one's copy
+  const shards = Array.isArray(exp.shards) ? exp.shards.map(([label]) => label) : [];
+  if (shards.length > 1) head.push(`# ${name}, read from ${shards.length} result directories that differ only in uel.search_strategy.seed; this is the copy in ${shards[0]}.`);
   if (res.changed.length) {
     head.push(`# ${name}, narrowed to ${scope} in Grid:`);
     for (const c of res.changed) head.push(`#   ${c.param}: [${c.kept.join(", ")}]  (of ${c.tokens.length})`);

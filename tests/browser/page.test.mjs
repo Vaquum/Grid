@@ -9,12 +9,13 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { appendFileSync, copyFileSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { limenOutputsRun } from "../fixtures/limen_outputs.mjs";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const PW = process.env.GRID_PLAYWRIGHT;
@@ -877,6 +878,53 @@ test("live: a Limen run's rounds arrive after its rows, and Features reads them"
   }
 });
 
+test("live: several result directories of one manifest read as one run, live while any is written", async () => {
+  // the fixture's rounds in two directories, as two limen run side by
+  // side with different search seeds write them; the second still running
+  const runs = mkdtempSync(join(tmpdir(), "grid-shards-"));
+  const fx = join(ROOT, "tests/fixtures/limen_run");
+  const csv = readFileSync(join(fx, "results.csv"), "utf8").trimEnd().split("\n");
+  const rounds = readFileSync(join(fx, "round_data.jsonl"), "utf8").trimEnd().split("\n");
+  const meta = JSON.parse(readFileSync(join(fx, "metadata.json"), "utf8"));
+  const make = (name, from, to, seed) => {
+    const d = join(runs, name);
+    mkdirSync(d);
+    writeFileSync(join(d, "results.csv"), [csv[0], ...csv.slice(from + 1, to + 1)].join("\n") + "\n");
+    writeFileSync(join(d, "round_data.jsonl"), rounds.slice(from, to).join("\n") + "\n");
+    const m = structuredClone(meta);
+    m.yaml_reference.uel.search_strategy.seed = seed;
+    writeFileSync(join(d, "metadata.json"), JSON.stringify(m));
+    copyFileSync(join(fx, "lightgbm_binary_full.yaml"), join(d, "lightgbm_binary_full.yaml"));
+    return d;
+  };
+  const a = make("a", 0, 20, 1), b = make("b", 20, 39, 2);
+  const proc = spawn("python3", ["-m", "grid", "serve", "--limen", runs, "--port", "0"], { cwd: ROOT });
+  try {
+    const url = await serverUrl(proc);
+    const { page, errors } = await limenPage();
+    await page.goto(url);
+    await page.waitForSelector(".pcard");
+    await page.waitForFunction(() => document.querySelector(".progress-text").textContent.startsWith("39 rows"), null, { timeout: 20000 });
+    // each row's directory is a parameter, so the board and the checks on
+    // how parameters were drawn cover it
+    assert.ok((await page.locator(".pcard .pc-name").allInnerTexts()).includes("shard"));
+    // live while any of them is written
+    appendFileSync(join(b, "results.csv"), csv[40] + "\n");
+    appendFileSync(join(b, "round_data.jsonl"), rounds[39] + "\n");
+    await page.waitForFunction(() => document.querySelector(".progress-text").textContent.startsWith("40 rows"), null, { timeout: 20000 });
+    // a round replays from its own directory
+    await page.keyboard.press("5");
+    await page.locator("table.trials tbody tr").first().click();
+    await page.waitForSelector("#inspector .code-head");
+    const replay = await page.locator("#inspector pre.code").first().innerText();
+    assert.ok([a, b].some(d => replay.includes(`Trainer(${JSON.stringify(d)})`)), replay);
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    proc.kill();
+  }
+});
+
 test("live: a run that stopped before the server started reads quiet at once, and live when a row arrives", async () => {
   // a results file last written an hour ago: its rows are read at the
   // start, with no arrival of their own
@@ -903,6 +951,33 @@ test("live: a run that stopped before the server started reads quiet at once, an
     assert.ok((await page.locator(".stat .k").allInnerTexts()).includes("Last row written"));
     appendFileSync(path, rows[400] + "\n");
     await page.waitForFunction(() => document.querySelector(".sweep-line .status").dataset.kind === "live", null, { timeout: 20000 });
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    proc.kill();
+  }
+});
+
+test("live: a Limen run with its model outputs sets apart the rounds that never traded", async () => {
+  const run = limenOutputsRun(join(mkdtempSync(join(tmpdir(), "grid-outputs-")), "run"));
+  const proc = spawn("python3", ["-m", "grid", "serve", "--limen", run, "--port", "0"], { cwd: ROOT });
+  try {
+    const url = await serverUrl(proc);
+    const { page, errors } = await limenPage();
+    await page.goto(url);
+    await page.waitForSelector(".pcard");
+    // best_iteration is no card, and a fit diagnostic among the needles
+    assert.ok(!(await page.locator(".pcard .pc-name").allInnerTexts()).includes("best_iteration"));
+    const diagnostics = await page.$$eval('#target-pick optgroup[label="Fit diagnostics"] option', os => os.map(o => o.textContent));
+    for (const name of ["Boosting iterations used", "Highest probability over the threshold", "Bars within reach of the threshold"]) {
+      assert.ok(diagnostics.includes(name), `${name} in ${diagnostics.join(", ")}`);
+    }
+    await page.keyboard.press("7");
+    const island = page.locator('section[aria-label="Rounds that never traded"]');
+    await island.waitFor({ timeout: 20000 });
+    assert.equal(await island.locator(".isl-count").innerText(), "14 of 40 rounds");
+    const ks = await island.locator(".stat .k").allInnerTexts();
+    assert.deepEqual(ks, ["Held back by the threshold", "Found nothing", "Short of the threshold", "Within reach"]);
     assert.deepEqual(errors, []);
     await page.close();
   } finally {
