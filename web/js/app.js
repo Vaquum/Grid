@@ -11,6 +11,7 @@ import { h, clear, icon, installTips, hideTip, syncInfo, fmtInt, fmtRowValue, ru
 import { runStatus, rowsSince, lastRowAt } from "./status.js";
 import { manifestSection, figureLine } from "./manifest.js";
 import { applyGates } from "./gates.js";
+import { halfTargets, twice } from "./halves.js";
 import { renderBoard } from "./view-board.js";
 import { renderInspector } from "./inspector.js";
 import { renderPocket } from "./view-pocket.js";
@@ -34,7 +35,7 @@ const VIEWS = [
 const DEFAULT_STATE = {
   run: null, view: "board", target: null, context: [], pocket: [], pocketB: null,
   sel: null, edge: null, show: { flat: true }, pair: null, order: 2, featSort: "effect",
-  trialCols: ["movers"], gates: [], clusters: [], compare: false, clusterK: null,
+  trialCols: ["movers", "halves"], gates: [], clusters: [], compare: false, clusterK: null,
 };
 
 const app = {
@@ -288,6 +289,10 @@ export function model() {
     c.base = summarize(target, c.rows);
     const dims = boardDims(schema);
     c.board = board(schema, target, c.rows, dims);
+    // a needle measured on each half of the test window (a Limen run that
+    // recorded its execution): an effect counts only when it shows in both
+    const halves = halfTargets(target);
+    if (halves) twice(c.board, halves.map(ht => board(schema, ht, c.rows, dims)));
     c.order = boardOrder(c.board.effects);
     c.record = null;
   }

@@ -1,6 +1,7 @@
 // Run: the whole run on one page. The strip says what matters: the rows
 // (of those planned, and their pace while live), the needle, the best row
-// against luck, the clusters, and anything broken. Then the rows' clusters
+// against luck, how reliably the rows rank when the needle is measured on
+// each half of the test window, the clusters, and anything broken. Then the rows' clusters
 // as toggles; each outcome's distribution, for every row, for the
 // clusters chosen against every row, or for two clusters against each
 // other; what sets the chosen rows apart (the parameters that put rows
@@ -17,6 +18,8 @@ import { independence, moderatorParents, boardDims, background, setName, TOGETHE
 import { clusterJob, clusterOutcomes, mannWhitney, composition, MIN_SILHOUETTE } from "./clusters.js";
 import { bhQ, rankAt } from "./stats.js";
 import { heldBack } from "./outputs.js";
+import { rankAgreement, HALF_NAMES } from "./halves.js";
+import { rowRounds } from "./pack.js";
 
 // The log a run's runner writes.
 export function runLog(m) {
@@ -105,6 +108,8 @@ export function renderRun(view, m, A) {
   view.append(clusterIsland(m, A, res, sel));
   view.append(distIsland(m, res, sel));
   if (res && res.clusters.length) view.append(apartIsland(m, A, res, sel));
+  const halves = halvesIsland(m);
+  if (halves) view.append(halves);
   const never = neverIsland(m);
   if (never) view.append(never);
   view.append(h("div", { class: "rn-pair" }, recordIsland(m), paceIsland(m, health)));
@@ -538,6 +543,14 @@ function runStrip(m, A, health, res, sel) {
       () => h("div", null, h("b", { text: `The best ${inText(rec.t.label)} so far, against luck` }),
         h("div", { class: "k", text: "The luck line is what the best of as many rows would reach if every configuration were equally good and all spread were noise." }))));
   }
+  const rel = reliabilityOf(m, t);
+  if (rel) {
+    cells.push(stripCell("Reliability", Number.isFinite(rel.rho) ? fmtNum(rel.rho, 2) : "–", Number.isFinite(rel.rho) ? `the halves' ranks, 95% ${spanText(fmtNum(rel.lo, 2), fmtNum(rel.hi, 2))}` : "too few rows",
+      () => h("div", null, h("b", { text: `How alike the rows rank on the two halves of the test window` }),
+        h("div", { text: `Spearman's correlation of each row's ${inText(t.label)} on the first half of its test window with its second half, two stretches of the market that do not overlap: 1, the rows keep their order; 0, a row's standing on one half says nothing of the other. The share of the ranking that repeats, not luck.` }),
+        h("div", { class: "k", text: `${fmtInt(rel.n)} rows with both halves. Every needle with halves is in The halves of the test window below.` })),
+      () => { const el = document.getElementById("rn-halves"); if (el) el.scrollIntoView({ block: "start" }); }));
+  }
   cells.push(stripCell("Clusters", !res ? "…" : res.clusters.length ? String(res.k) : "0",
     !res ? "being found" : res.clusters.length ? `silhouette ${fmtNum(res.silhouette, 2)}, ${res.grade}` : res.reason === "weak" ? "the rows do not group" : "too few rows",
     () => h("div", null, h("b", { text: "The rows grouped by what they did" }), h("div", { class: "k", text: res && !res.clusters.length ? whyNone(res) : "Their toggles are under the strip; the cards follow what is chosen." }))));
@@ -552,7 +565,7 @@ function runStrip(m, A, health, res, sel) {
 
 function runAbout() {
   return about("The run",
-    "The whole run on one page. The strip gives the rows, the pace while it runs, the needle, the best row against luck, the clusters and anything broken.",
+    "The whole run on one page. The strip gives the rows, the pace while it runs, the needle, the best row against luck, the clusters and anything broken; where the needle is measured on each half of the test window (a Limen run that recorded its execution), its reliability: how alike the rows rank on the two halves.",
     "Clusters group the rows by what they did: their score, the activity it rests on, the risk that came with it and their model's skill, each read by its rank among the rows and the four kinds weighed alike. k-means tries 2 to 7 clusters and keeps the clearest (the best silhouette); any other with structure can be chosen. No cluster is drawn when the rows do not fall into groups (silhouette under 0.26) or a cluster would hold fewer than 30 rows.",
     "Each card is an outcome's distribution: every row by default; with clusters chosen, those rows (together) against every row; with Compare and two chosen, the first against the second. Bars are each group's share of its own rows; under them, each group's middle half, 5th to 95th percentile and median. The clusters differ on the outcomes they are drawn on by construction, so only the other outcomes are tested (Mann-Whitney, q across the cards).",
     "What makes each cluster tests the parameters, which the clusters are not drawn on: the G test of each parameter's values inside the cluster against every row, q across the parameters.");
@@ -568,6 +581,8 @@ function runNotes(m, health, res) {
   }
   const rec = recordOf(m);
   if (rec) lines.push(`Best ${inText(rec.t.label)}: ${fmtRowValue(rec.t, rec.last.best)}; noise alone would give about ${fmtT(rec.t, rec.last.luck)}`);
+  const rel = reliabilityOf(m, t);
+  if (rel && Number.isFinite(rel.rho)) lines.push(`Reliability: the rows' ${inText(t.label)} on the two halves of the test window rank alike at ${fmtNum(rel.rho, 2)} (Spearman, 95% ${spanText(fmtNum(rel.lo, 2), fmtNum(rel.hi, 2))}, ${fmtInt(rel.n)} rows)`);
   if (res && res.clusters.length) {
     lines.push(`Clusters: ${res.k} (silhouette ${fmtNum(res.silhouette, 2)}, ${res.grade}), drawn on ${res.outcomes.map(o => o.t.label).join(", ")}`);
     const comp = apartOf(m, res, { mode: "whole", pick: [] });
@@ -610,6 +625,74 @@ function recordIsland(m) {
   const above = (rec.last.best - rec.last.luck) * (rec.t.better < 0 ? -1 : 1) > 0;
   isl.append(h("p", { class: "isl-note" }, h("b", { text: above ? "Above the luck line" : "Inside the luck line" }),
     `: the best row reaches ${fmtRowValue(rec.t, rec.last.best)}; noise alone would give about ${fmtT(rec.t, rec.last.luck)} at ${fmtInt(rec.last.n)} rows. The dashed line is that expectation; a record that only tracks it is harvesting noise.`));
+  return isl;
+}
+
+// ---------------------------------------------------------------------------
+// The halves of the test window, on a Limen run that recorded its
+// execution: how alike the rows rank on the two halves, needle by needle,
+// and what the market did in each.
+
+// A needle's rank agreement between the halves over the rows in view
+// (halves.js rankAgreement), cached on the model's key; null for a needle
+// with no halves.
+function reliabilityOf(m, t) {
+  if (!t || !t.halves) return null;
+  const c = m.cache;
+  if (!c.reliability || c.reliability.key !== c.key) c.reliability = { key: c.key, by: new Map() };
+  if (!c.reliability.by.has(t.id)) c.reliability.by.set(t.id, rankAgreement(t, m.rows));
+  return c.reliability.by.get(t.id);
+}
+
+// The market's compounded return on each half of the rows' test windows:
+// the median over the rows that recorded it (windows can differ by a few
+// bars between rounds), and how many did.
+function marketHalves(m) {
+  const keyOf = rowRounds(m.ds);
+  if (!keyOf || !m.ds.execution || !m.ds.execution.size) return null;
+  const vals = [[], []];
+  for (let j = 0; j < m.rows.length; j++) {
+    const s = m.ds.execution.get(keyOf(m.rows[j]));
+    if (!s || !s.halves) continue;
+    s.halves.forEach((x, k) => { if (Number.isFinite(x.market)) vals[k].push(x.market); });
+  }
+  if (!vals[0].length) return null;
+  return vals.map(v => ({ median: rankAt(Float64Array.from(v).sort(), 0.5), n: v.length }));
+}
+
+function halvesIsland(m) {
+  const ts = m.schema.targets.filter(t => t.halves);
+  if (!ts.length || !m.rows.length) return null;
+  const rows = ts.map(t => ({ t, r: reliabilityOf(m, t), s: [0, 1].map(k => summarize({ ...t, values: t.halves[k] }, m.rows)) }))
+    .sort((a, b) => (Number.isFinite(b.r.rho) ? b.r.rho : -2) - (Number.isFinite(a.r.rho) ? a.r.rho : -2));
+  const isl = h("section", { class: "island", id: "rn-halves", "aria-labelledby": "rn-halves-title" },
+    h("header", { class: "isl-head" }, h("h2", { class: "isl-title", id: "rn-halves-title", text: "The halves of the test window" }),
+      h("span", { class: "isl-count num", text: `${fmtInt(ts.length)} needles measured on each half` })));
+  const mk = marketHalves(m);
+  if (mk) {
+    const stats = h("div", { class: "stat-row" });
+    mk.forEach((x, k) => {
+      const el = h("div", { class: "stat has-tip" }, h("div", { class: "k", text: `The market, ${HALF_NAMES[k]}` }),
+        h("div", { class: "v num", text: fmtPct(x.median, 1) }), h("div", { class: "d", text: `compounded, median of ${fmtInt(x.n)} rows` }));
+      tip(el, `The market's own return over the ${HALF_NAMES[k]} of the test window, compounded over its bars (Limen records each bar's return from 5.20). Rounds can differ by a few bars, so this is the median over the rows in view.`);
+      stats.append(el);
+    });
+    isl.append(stats);
+  }
+  const tbl = h("table", { class: "vals" }, h("thead", null, h("tr", null,
+    h("th", { text: "Needle" }), h("th", { class: "r", text: "Ranks agree" }), h("th", { text: "95% interval" }),
+    h("th", { class: "r", text: "First half" }), h("th", { class: "r", text: "Second half" }), h("th", { class: "r", text: "Rows" }))));
+  const tb = h("tbody");
+  for (const { t, r, s } of rows) {
+    tb.append(h("tr", null, h("td", { text: t.label }),
+      h("td", { class: "r num", text: Number.isFinite(r.rho) ? fmtNum(r.rho, 2) : "–" }),
+      h("td", { class: "num", text: Number.isFinite(r.rho) ? spanText(fmtNum(r.lo, 2), fmtNum(r.hi, 2)) : "–" }),
+      s.map(x => h("td", { class: "r num", text: x.n ? fmtT(t, x.mean) : "–" })),
+      h("td", { class: "r num", text: fmtInt(r.n) })));
+  }
+  tbl.append(tb);
+  isl.append(h("div", { class: "table-wrap" }, tbl));
+  isl.append(h("p", { class: "isl-note", text: "Each round's test window split in two, as Limen splits it, each half read as a window of its own: two stretches of the market that do not overlap. Ranks agree is Spearman's correlation of the rows' values on the first half with their second (1: the same order; 0: none), with its 95% interval: a needle the rows rank alike on both halves repeats; one they do not is the luck of a stretch of the market. The halves' means are over the rows in view." }));
   return isl;
 }
 

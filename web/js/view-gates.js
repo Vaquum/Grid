@@ -25,10 +25,11 @@ export function renderGates(view, m, A) {
   const stats = new Map(gateStats(sc, m.rows).map(s => [s.id, s]));
   const together = readTogether(m);
   view.append(gatesStrip(m, A, stats, together));
-  const set = sc.gatesSet.length, runner = sc.gates.length - set;
+  const set = sc.gatesSet.length, standing = (sc.gatesStanding || []).length, runner = sc.gates.length - set - standing;
+  const whose = [[runner, "the runner's"], [standing, "Grid's"], [set, "set here"]].filter(([k]) => k);
   view.append(h("h2", { class: "sec-title" }, h("span", { text: "Gates" }),
     h("span", { class: "count num", text: fmtInt(sc.gates.length) }),
-    h("span", { class: "note", text: runner && set ? `${fmtInt(runner)} the runner's, ${fmtInt(set)} set here` : runner ? "the runner's" : set ? "set here" : "set the first one" })));
+    h("span", { class: "note", text: whose.length > 1 ? whose.map(([k, w]) => `${fmtInt(k)} ${w}`).join(", ") : whose.length ? whose[0][1] : "set the first one" })));
   const grid = h("div", { class: "gt-grid", role: "list" });
   if (!d.editing) grid.append(maker(m, A, null));
   for (const g of sc.gates) grid.append(d.editing === g.id ? maker(m, A, g) : gateCard(m, A, g, stats.get(g.id)));
@@ -113,12 +114,14 @@ function gatesStrip(m, A, stats, tg) {
 }
 
 function gatesAbout(m) {
-  const runner = m.schema.gates.length > m.schema.gatesSet.length;
+  const standing = (m.schema.gatesStanding || []).length;
+  const runner = m.schema.gates.length > m.schema.gatesSet.length + standing;
   return about("Gates",
     "A gate is a need on a needle: a row passes it when its value meets the need (net PnL per bar above 0 bps, entries at least 30, AUC at least 0.55). The first card sets one: choose a needle, a comparison and a need, and its rows show against the need as you type.",
     "Each gate gets a card: how often rows pass it, with a 95% interval; its needle's rows, the passing ones in blue; and for a gate that never passed, the most its true rate can be (the rule of three) and the outcome that holds it back.",
     "A gate is a needle too: What moves it opens the board on it. With gates set, Passes every gate and Gates passed are needles as well, so the board can say which parameters make rows pass them all.",
-    runner ? "The runner's gates come with the sweep; the ones set here sit beside them and are kept in the page's address." : "Gates set here are kept in the page's address.");
+    standing ? `Grid's gates come with a run that recorded its trades (a Limen run that recorded its execution): at least 30 trades, and a mean trade at least two of its standard errors above 0 (per-trade t at least 2). A score that rests on fewer trades, or on trades whose mean is within that of 0, is mostly luck.` : null,
+    runner || standing ? `${runner ? "The runner's gates come with the sweep" : "Grid's gates come with the run"}; the ones set here sit beside them and are kept in the page's address.` : "Gates set here are kept in the page's address.");
 }
 
 function gatesNotes(m, stats, tg) {
@@ -126,7 +129,7 @@ function gatesNotes(m, stats, tg) {
   const lines = [`${m.sweep.meta.name} · ${runName(m.ds.meta)} · ${fmtInt(m.rows.length)} rows: gates`];
   for (const g of sc.gates) {
     const s = stats.get(g.id);
-    lines.push(`- ${g.label}${g.set ? "" : " (the runner's)"}: ${s.n ? `${rate(s.rate)} pass (${fmtInt(s.passed)} of ${fmtInt(s.n)}; 95% ${pctRange(s.lo, s.hi, 2)})` : "no row has a value"}${s.never ? `; never passed, under ${fmtPct(s.ruleOfThree, 3)} (95%)` : ""}`);
+    lines.push(`- ${g.label}${g.set ? "" : g.standing ? " (Grid's)" : " (the runner's)"}: ${s.n ? `${rate(s.rate)} pass (${fmtInt(s.passed)} of ${fmtInt(s.n)}; 95% ${pctRange(s.lo, s.hi, 2)})` : "no row has a value"}${s.never ? `; never passed, under ${fmtPct(s.ruleOfThree, 3)} (95%)` : ""}`);
   }
   lines.push(`Pass every gate: ${fmtInt(tg.all)} of ${fmtInt(tg.decided)} rows.`);
   const stop = tg.cf ? tg.cf.combos.find(c => c.failing.length) : null;
@@ -251,12 +254,12 @@ function removeGate(m, A, id) {
 // ---------------------------------------------------------------------------
 // A gate's card.
 
-// A gate's value: a gate set here reads as its needle does; the runner's
-// as written, whole numbers whole, dollars as dollars, and a 0/1 value no
-// or yes.
+// A gate's value: a gate on a needle (set here, or Grid's) reads as its
+// needle does; the runner's as written, whole numbers whole, dollars as
+// dollars, and a 0/1 value no or yes.
 function gateValueText(g, v) {
   if (!Number.isFinite(v)) return "–";
-  if (g.set) return fmtRowValue(g.target, v);
+  if (g.target) return fmtRowValue(g.target, v);
   if (g.yesNo) return v === 1 ? "yes" : v === 0 ? "no" : fmtNum(v, 2);
   if (g.unit === "$") return fmtRowValue({ kind: "cont", unit: "$", digits: 0 }, v);
   return `${fmtNum(v, Number.isInteger(v) ? 0 : 2)}${unitSuffix(g.unit)}`;
@@ -270,22 +273,23 @@ function gateCard(m, A, g, s) {
   card.append(h("div", { class: "gt-sub" },
     h("span", { class: "num", text: s.n ? `${fmtInt(s.passed)} of ${fmtInt(s.n)} rows pass · 95% ${pctRange(s.lo, s.hi, s.rate > 0 && s.rate < 0.01 ? 2 : 1)}` : "No row has a value." }),
     s.never ? h("span", { class: "sev crit" }, icon("alert"), "never passed") : s.always ? h("span", { class: "sev ok" }, icon("check"), "always passes") : null,
-    g.set ? null : h("span", { class: "tag", text: "the runner's" })));
+    g.set ? null : g.standing ? tip(h("span", { class: "tag has-tip", text: "Grid's" }), "Grid sets this gate on every run that records its trades: a score that rests on fewer than 30 trades, or on trades whose mean is within two of its standard errors of 0, is mostly luck.")
+      : h("span", { class: "tag", text: "the runner's" })));
   if (!g.set) card.append(h("div", { class: "gt-need-line", text: `Need: ${g.need}` }));
   // the needle's rows against the need
-  const sign = g.set && g.def.op[0] === "<" ? -1 : 1;
+  const sign = g.def && g.def.op[0] === "<" ? -1 : 1;
   let lo = Infinity, hi = -Infinity;
   const vals = [];
   for (let j = 0; j < m.rows.length; j++) { const v = g.value[m.rows[j]]; if (v === v) { vals.push(v); if (v < lo) lo = v; if (v > hi) hi = v; } }
   if (vals.length) {
     vals.sort((a, b) => a - b);
-    const unit = g.set ? g.target.unit : g.unit;
-    const chart = passHistogram(g.value, i => g.pass[i], m.rows, { kind: "gate", need: g.needAt, needLabel: g.needAt !== undefined ? `need ${needText(g.set ? g.target : { unit }, g.needAt)}` : undefined,
+    const unit = g.target ? g.target.unit : g.unit;
+    const chart = passHistogram(g.value, i => g.pass[i], m.rows, { kind: "gate", need: g.needAt, needLabel: g.needAt !== undefined ? `need ${needText(g.target || { unit }, g.needAt)}` : undefined,
       unit, labels: g.yesNo ? [[0, "no"], [1, "yes"]] : undefined, label: `${g.label}: rows against the need` });
     card.append(h("div", { class: "gt-chart" }, chart.svg));
-    // a gate set here knows which way is better; the runner's says only its
-    // need; a yes or no gate's pass line above says it all
-    const extreme = g.set ? `best ${gateValueText(g, sign > 0 ? hi : lo)}` : `max ${gateValueText(g, hi)}`;
+    // a gate on a needle knows which way is better; the runner's says only
+    // its need; a yes or no gate's pass line above says it all
+    const extreme = g.target ? `best ${gateValueText(g, sign > 0 ? hi : lo)}` : `max ${gateValueText(g, hi)}`;
     if (!g.yesNo) card.append(h("div", { class: "gt-cap num", text: `median ${gateValueText(g, vals[Math.floor(vals.length / 2)])} · ${extreme}${chart.outside ? ` · ${fmtInt(chart.outside)} beyond what is drawn` : ""}` }));
   }
   if (s.never) {

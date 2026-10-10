@@ -92,7 +92,9 @@ export function numericPlaces(levels) {
 // mean, lo, hi, withheld); opts: kind ("num" or "cat"), target, domain,
 // ref (the reference line), on (the parameter moves the needle), best and
 // worst keys to label, selected key, pick(key), tone(level) for a bar's
-// own state (set members), rows (for the tooltips' share).
+// own state (set members), rows (for the tooltips' share), and halves:
+// each half of the test window's levels by key, whose means sit as a 1
+// left of a value's mark and a 2 right of it.
 export function effectPlot(levels, opts) {
   const { target, domain, ref } = opts;
   const Y = v => (Math.min(domain.y1, Math.max(domain.y0, v)) - domain.y0) / (domain.y1 - domain.y0) * 100;
@@ -171,12 +173,20 @@ export function effectPlot(levels, opts) {
           s("path", { d: past === "hi" ? "M5 .75 9.25 7.25H.75z" : "M5 7.25 9.25 .75H.75z" }))
           : h("i", { class: "pt", style: { left: `${inner}%`, bottom: `${Y(m)}%` } }));
       }
+      // the value's mean on each half of the test window, 1 left of its
+      // mark and 2 right (beside a bar, outside it)
+      for (let k = 0; k < 2 && opts.halves; k++) {
+        const hl = opts.halves[k] ? opts.halves[k].get(l.key) : null;
+        if (!hl || hl.withheld || !Number.isFinite(hl.mean)) continue;
+        const off = opts.kind === "cat" ? "(min(31%, 15px) + 6px)" : "10px";
+        col.append(h("span", { class: "hm", style: { left: `calc(${inner}% ${k ? "+" : "-"} ${off})`, bottom: `${Y(hl.mean)}%` }, text: String(k + 1) }));
+      }
       if (opts.on && !l.withheld && (l.key === opts.best || l.key === opts.worst)) {
         const top = Number.isFinite(l.hi) ? Y(l.hi) : Y(m);
         col.append(h("span", { class: "dl" + (l.key === opts.best ? " best" : ""), style: { left: `${inner}%`, bottom: `${top}%` }, text: fmtT(target, m, { unit: false }) }));
       }
     }
-    tip(col, () => levelTip(l, target, ref, past));
+    tip(col, () => levelTip(l, target, ref, past, opts.halves ? opts.halves.map(x => (x ? x.get(l.key) : null)) : null));
     if (opts.pick) col.addEventListener("click", (ev) => { ev.stopPropagation(); opts.pick(l.key); });
     area.append(col);
     // its label on x, with a priority for the fitting pass

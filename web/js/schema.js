@@ -401,6 +401,40 @@ export function buildSchema(ds, opts = {}) {
       source: "profile", diagnostic: true });
   }
 
+  // what each row's round says its test window did (a Limen round log that
+  // records the round's execution): needles of its own, and each half of
+  // the window (`halves`, two arrays of values) for the needles that have
+  // one; and with them, the gates a score resting on trades should pass
+  const exOf = P.execution && ds.execution && ds.execution.size ? rowRounds(ds) : null;
+  let standingGates = [];
+  if (exOf) {
+    const spanValues = (pick, key) => {
+      const values = new Float64Array(n).fill(NaN);
+      for (let i = 0; i < n; i++) {
+        const s = ds.execution.get(exOf(i));
+        const w = s ? pick(s) : null;
+        const v = w ? (typeof key === "function" ? key(w) : w[key]) : null;
+        if (Number.isFinite(v)) values[i] = v;
+      }
+      return values;
+    };
+    for (const d of P.execution.needles) {
+      if (targets.some(t => t.id === d.id)) continue;
+      const values = spanValues(s => s.whole, d.key);
+      if (!values.some(Number.isFinite)) continue;
+      targets.push({ id: d.id, label: d.label, unit: d.unit, kind: "cont", better: d.better, definition: d.definition,
+        digits: shownDigits(values, d.digits, "cont"), decimals: recordedDecimals(values), group: d.group || null, values,
+        source: "profile" });
+    }
+    for (const t of targets) {
+      const key = Object.hasOwn(P.execution.halves, t.id) ? P.execution.halves[t.id] : null;
+      if (!key) continue;
+      const halves = [0, 1].map(k => spanValues(s => (s.halves ? s.halves[k] : null), key));
+      if (halves.every(v => v.some(Number.isFinite))) t.halves = halves;
+    }
+    standingGates = P.execution.gates;
+  }
+
   // gates
   for (const g of P.gates || []) {
     const pre = `${P.gatesPrefix}${g.id}.`;
@@ -447,7 +481,7 @@ export function buildSchema(ds, opts = {}) {
 
   return {
     profile, n, fields, dims, dimById, targets, targetById: new Map(targets.map(t => [t.id, t])),
-    gates, families, invariants,
+    gates, families, invariants, standingGates,
     // the runner's ranking, when every key of it is a measured target
     objective: P.objective && P.objective.every(([c]) => targets.some(t => t.id === c)) ? P.objective : null,
     objectiveLabel: P.objectiveLabel || null,

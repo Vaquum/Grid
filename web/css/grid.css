@@ -418,6 +418,13 @@ button.sc:hover { background: var(--hover); }
   white-space: nowrap; font-variant-numeric: tabular-nums; pointer-events: none;
 }
 .dl.best { color: var(--ink); font-weight: 600; }
+/* a value's mean on each half of the test window: a 1 left of its mark,
+   a 2 right of it */
+.col .hm {
+  position: absolute; transform: translate(-50%, 50%); font-size: 9px; font-weight: 600; line-height: 1;
+  color: var(--ink-2); font-variant-numeric: tabular-nums; pointer-events: none;
+}
+.pcard.off .col .hm { color: var(--muted); }
 .pcard.off .bar, .col.off .bar { background: var(--off-bar); }
 .pcard.off .pt { background: var(--off); }
 .pcard.off .ci, .col.off .ci { border-left-color: var(--off); }

@@ -6,7 +6,8 @@ import { miniBar, lineChart, needleDomain } from "./charts.js";
 import { dimEffect, uniformity } from "./engine.js";
 import { rowObject } from "./pack.js";
 import { ensureModerators, independence, bestRows, objectiveKeys, effectOf, setName, TOGETHER, together, togetherWhy } from "./model.js";
-import { actsPhrase, strengthText, scopeText } from "./view-board.js";
+import { actsPhrase, strengthText, scopeText, quietText, halvesText } from "./view-board.js";
+import { showsIn, HALF_NAMES } from "./halves.js";
 
 const KIND_TEXT = { cat: "Category", num: "Number", bool: "Switch", member: "Set member", scoped: "Nested number", size: "Subset size" };
 
@@ -58,6 +59,7 @@ function dimDetail(box, m, A, d, levelKey) {
   fact("Test", e.test === "G" ? `G = ${fmtNum(e.G, 1)}, ${e.k - 1} df, ${fmtP(e.p, "p")}` : `F(${e.df1}, ${e.df2}) = ${fmtNum(e.F, 2)}, ${fmtP(e.p, "p")}`,
     e.test === "G" ? "Likelihood-ratio test that every value has the same rate." : "One-way analysis of variance.");
   fact("After correction", `${fmtP(e.q)} (Benjamini–Hochberg over ${family})`);
+  if (e.halves) fact("On each half", halvesText(e), "The same test on each half of the test window, corrected across the board on that half; and whether the two order its values alike (the correlation of their lifts). It moves the needle only when it shows in both, ordered alike.");
   fact("Rows", `${fmtInt(e.N)} with a value${e.na ? ` · ${fmtInt(e.na)} where it does not apply` : ""}`);
   const uni = uniformity(d, m.allRows);
   if (Number.isFinite(uni.p)) {
@@ -101,7 +103,9 @@ function dimDetail(box, m, A, d, levelKey) {
   const tbl = h("table", { class: "vals" },
     h("thead", null, h("tr", null, h("th", { text: "Value" }), h("th", { class: "r", text: "Rows" }), h("th", { class: "r", text: target.label }),
       tip(h("th", { class: "r has-tip", text: "Difference" }), `Each value's ${inText(target.label)} against the base, ${fmtT(target, base.mean)} over the rows in view.`),
+      e.halves ? HALF_NAMES.map(name => tip(h("th", { class: "r has-tip", text: name.charAt(0).toUpperCase() + name.slice(1) }), `Each value's ${inText(target.label)} on the ${name} of the test window.`)) : null,
       h("th", { class: "iv", text: "95% interval" }))));
+  const halfOf = e.halves ? e.halves.map(x => (x ? new Map(x.levels.map(l => [l.key, l])) : new Map())) : null;
   const tb = h("tbody");
   const shareOf = new Map(d.levels.map((l, j) => [l.key, uni.shares ? uni.shares[j] : NaN]));
   for (const l of e.levels) {
@@ -115,9 +119,10 @@ function dimDetail(box, m, A, d, levelKey) {
       h("td", { class: "r num has-tip", text: fmtInt(l.n) }),
       h("td", { class: "r num", text: l.withheld ? "–" : fmtT(target, l.mean) }),
       h("td", { class: "r num", text: l.withheld ? "–" : fmtDelta(target, l.lift) }),
+      halfOf ? halfOf.map(hm => { const x = hm.get(l.key); return h("td", { class: "r num", text: x && !x.withheld && Number.isFinite(x.mean) ? fmtT(target, x.mean) : "–" }); }) : null,
       h("td", null, miniBar(l, domain, base.mean)));
     tip(tr.children[1], `${fmtPct(shareOf.get(l.key), 1)} of the rows where ${d.label} applies drew this value`);
-    tip(tr.children[4], l.withheld ? "Fewer than 30 rows: no interval." : `95% ${rangeText(target, l.lo, l.hi)}`);
+    tip(tr.lastChild, l.withheld ? "Fewer than 30 rows: no interval." : `95% ${rangeText(target, l.lo, l.hi)}`);
     tb.append(tr);
   }
   tbl.append(tb);
@@ -138,6 +143,13 @@ function dimDetail(box, m, A, d, levelKey) {
 function verdict(m, d, e) {
   const t = m.target;
   const p = h("p", { class: "verdict" });
+  const where = showsIn(e);
+  if (!e.detectable && where) {
+    // detectable somewhere, but not in both halves of the test window
+    p.append(h("b", { text: quietText(e) }), ` on ${inText(t.label)}: ${halvesText(e)}; over the whole window ${fmtP(e.q)}. `,
+      "Its effect does not show in both stretches of the market, so it does not count as moving the needle.");
+    return p;
+  }
   if (!e.detectable) {
     const shown = e.levels.filter(l => !l.withheld && l.n > 0);
     const spread = shown.length > 1 ? Math.max(...shown.map(l => l.mean)) - Math.min(...shown.map(l => l.mean)) : NaN;
@@ -148,7 +160,7 @@ function verdict(m, d, e) {
   const b = e.best, w = e.worst;
   p.append("Moves ", inText(t.label), " from ", h("b", { text: fmtT(t, w.mean) }), " (", h("span", { class: "mono", text: w.label }), ") to ",
     h("b", { text: fmtT(t, b.mean) }), " (", h("span", { class: "mono", text: b.label }), "). ",
-    `It explains ${strengthText(e)} of the variance on its own, ${fmtP(e.q)}.`);
+    `It explains ${strengthText(e)} of the variance on its own, ${fmtP(e.q)}${where ? `, and shows in both halves of the test window (${halvesText(e)})` : ""}.`);
   if (e.dead.length) p.append(" ", h("b", { text: `Dead value${e.dead.length > 1 ? "s" : ""}: ${e.dead.map(k => (e.levels.find(l => l.key === k) || {}).label).join(", ")}.` }));
   return p;
 }
@@ -203,10 +215,11 @@ function rowDetail(box, m, A, i) {
     const tb = h("tbody");
     for (const g of sc.gates) {
       const pass = g.pass[i];
-      // a gate set here reads its needle; the runner's, the value it wrote
-      const raw = g.set ? null : obj.gates_detail && obj.gates_detail[g.id] ? obj.gates_detail[g.id].v : null;
-      const value = g.set ? fmtRowValue(g.target, g.value[i]) : raw === null ? "–" : Array.isArray(raw) ? raw.join(" / ") : String(raw);
-      tb.append(h("tr", null, h("td", { class: g.set ? null : "v", text: g.set ? inText(g.target.label) : g.id }), h("td", { class: "v", text: value }),
+      // a gate on a needle (set here, or the profile's) reads its needle;
+      // the runner's, the value it wrote
+      const raw = g.target ? null : obj.gates_detail && obj.gates_detail[g.id] ? obj.gates_detail[g.id].v : null;
+      const value = g.target ? fmtRowValue(g.target, g.value[i]) : raw === null ? "–" : Array.isArray(raw) ? raw.join(" / ") : String(raw);
+      tb.append(h("tr", null, h("td", { class: g.target ? null : "v", text: g.target ? g.target.label : g.id }), h("td", { class: "v", text: value }),
         h("td", { class: "muted", text: g.need }),
         h("td", null, pass === pass ? h("span", { class: "sev " + (pass ? "ok" : "crit") }, icon(pass ? "check" : "close"), pass ? "pass" : "fail")
           : h("span", { class: "sev off", text: "no value" }))));
@@ -219,7 +232,12 @@ function rowDetail(box, m, A, i) {
   for (const t of sc.targets.filter(x => !x.gate)) {
     const v = t.values[i];
     if (!Number.isFinite(v)) continue;
-    outs.append(h("dt", { text: t.label }), h("dd", { class: "num", text: fmtRowValue(t, v) }));
+    const dd = h("dd", { class: "num", text: fmtRowValue(t, v) });
+    // on each half of the test window too, where the needle has them
+    if (t.halves && t.halves.some(x => Number.isFinite(x[i]))) {
+      dd.append(h("span", { class: "muted", text: ` · halves ${t.halves.map(x => (Number.isFinite(x[i]) ? fmtRowValue(t, x[i], { unit: false }) : "–")).join(", ")}` }));
+    }
+    outs.append(h("dt", { text: t.label }), dd);
   }
   box.append(part("Outcomes", outs));
   // its parameters
