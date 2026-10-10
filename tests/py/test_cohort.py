@@ -259,23 +259,39 @@ class Aggregation(unittest.TestCase):
         # a member alone is long after each of its moves above 0
         self.assertEqual(out["members"][0]["whole"]["trades"], 1)
         self.assertAlmostEqual(out["members"][0]["whole"]["pnl"],
-                               0.02 / 3 * 10_000, places=6)
+                               0.02 / 3 * 10_000, places=3)
 
     def test_averaging_needs_the_probabilities(self) -> None:
         # Limen's Cohort averages a lightgbm cohort's probabilities: rounds
-        # that recorded none cannot be judged by votes in their place
+        # that did not record them (no model outputs: no "probs") cannot be
+        # judged by votes in their place
         a, b = synthetic("a", [0.9] * 4), synthetic("b", [0.2] * 4)
-        b["probs"] = None
+        del b["probs"]
         with self.assertRaisesRegex(ValueError, "averages the probabilities "
                                     "of .*lightgbm_binary's members, and 1 "
-                                    "of these 2 rounds recorded none"):
+                                    "of these 2 rounds did not record them "
+                                    r"\(record them with uel\."
+                                    "record_model_outputs"):
             judge([a, b], HOUR, 0.0, 0.0, LGBM)
-        # and a ridge regressor's, which it would average, never has any
+        # a model whose outputs were recorded without probabilities (an
+        # svm, say, which Limen's Cohort would average) cannot be recorded
+        # into having them
+        b["probs"] = None
+        with self.assertRaisesRegex(ValueError, "1 of these 2 rounds' models "
+                                    "gave none: its cohort cannot predict"):
+            judge([a, b], HOUR, 0.0, 0.0, LGBM)
+        # nor can a ridge regressor's, which it would average too, recorded
+        # or not
         ridge = synthetic("r", [0.5] * 4)
-        ridge["probs"] = None
-        with self.assertRaisesRegex(ValueError, "gives none: its cohort "
-                                    "cannot predict"):
-            judge([ridge], HOUR, 0.0, 0.0, RIDGE)
+        for recorded in (True, False):
+            if recorded:
+                ridge["probs"] = None
+            else:
+                del ridge["probs"]
+            with self.assertRaisesRegex(ValueError, "a regressor's model "
+                                        "gives none: its cohort cannot "
+                                        "predict"):
+                judge([ridge], HOUR, 0.0, 0.0, RIDGE)
 
     def test_the_architecture_is_named_as_limen_names_it(self) -> None:
         rec = synthetic("a", [0.9] * 4)

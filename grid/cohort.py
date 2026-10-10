@@ -315,17 +315,23 @@ def judge(records: list[Json], step: int, fee_bps: float,
         times = bar_times(rec, step)
         series.append((times, _preds(rec), _probs(rec),
                        _market(rec, len(times))))
-    bare = sum(1 for s in series if s[2] is None)
-    if weighted and bare:
-        if cut_at == 0.0:
-            raise ValueError("Limen's Cohort averages the probabilities of "
-                             "%s's members, and the architecture gives "
-                             "none: its cohort cannot predict" % architecture)
+    # Limen records a round's probabilities with its model outputs (a
+    # null for a model that gives none), and its predictions always
+    unrecorded = sum(1 for rec in records if "probs" not in rec)
+    none = sum(1 for rec in records if "probs" in rec
+               and rec["probs"] is None)
+    if weighted and (none or (unrecorded and cut_at == 0.0)):
         raise ValueError("Limen's Cohort averages the probabilities of %s's "
-                         "members, and %d of these %d rounds recorded none "
-                         "(record them with uel.record_model_outputs, "
+                         "members, and %s: its cohort cannot predict"
+                         % (architecture, "a regressor's model gives none"
+                            if cut_at == 0.0 else "%d of these %d rounds' "
+                            "models gave none" % (none, len(records))))
+    if weighted and unrecorded:
+        raise ValueError("Limen's Cohort averages the probabilities of %s's "
+                         "members, and %d of these %d rounds did not record "
+                         "them (record them with uel.record_model_outputs, "
                          "Limen 5.17 or later)"
-                         % (architecture, bare, len(records)))
+                         % (architecture, unrecorded, len(records)))
     shared: set[int] = set(series[0][0])
     for s in series[1:]:
         shared &= set(s[0])
