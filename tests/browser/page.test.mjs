@@ -1189,7 +1189,7 @@ test("experiment: on a Limen project, one is made, checked as it is typed, run i
     await page.locator(".ex-make .btn.primary").click();
     // its manifest, checked by limen validate as it is typed
     await page.waitForSelector(".ex-status .sev.ok");
-    assert.match(await page.locator(".ex-status").innerText(), /Valid · 45 parameters, 3\.76 × 10¹⁸ combinations/);
+    assert.match(await page.locator(".ex-status").innerText(), /^Valid\s+· 45 parameters, 3\.76 × 10¹⁸ combinations$/);
     await page.locator(".ed-text").evaluate(t => { t.focus(); t.setSelectionRange(t.value.length, t.value.length); });
     await page.keyboard.type("# BAD_VALUE\n");
     await page.waitForSelector(".ex-status .sev.crit");

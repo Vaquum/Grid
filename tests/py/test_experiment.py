@@ -381,10 +381,16 @@ class ProjectRuns(unittest.TestCase):
         with open(path, "a") as f:
             f.write(' and\nhalf"\n6,x\n')
         self.assertEqual(self.p._rows(path), 4)
-        # written again from the start: counted again
+        # written again from the start: counted again, shorter or not
         with open(path, "w") as f:
             f.write("a,b\n1,2\n")
         self.assertEqual(self.p._rows(path), 1)
+        with open(path, "w") as f:
+            f.write("a,b\n7,8\n9,10\n11,12\n")
+        self.assertEqual(self.p._rows(path), 3)
+        with open(path, "w") as f:
+            f.write('a,b\n"x\ny",1\n13,14\n15,16\n17,18\n')
+        self.assertEqual(self.p._rows(path), 4)
 
     def test_a_run_removed_while_listed_is_passed_over(self) -> None:
         gone = os.path.join(self.root, "results", "dev", "gone")
@@ -392,6 +398,25 @@ class ProjectRuns(unittest.TestCase):
         with mock.patch.object(self.p, "_run_folders",
                                new=lambda: [(gone, "limen"), *folders]):
             self.assertEqual(self.p.runs(), [])
+
+    def test_a_shard_stopped_from_outside_grid_resumes(self) -> None:
+        self.p.create("exp", template="lightgbm_binary")
+        os.environ["FAKE_LIMEN_PACE"] = "0.2"
+        rid = self.p.start("exp", 20, 1, False, False)
+        wait(lambda: self.run_of(rid)["rows"] >= 2)
+        # a SIGTERM that is not Grid's: Limen stops cleanly (exit 0) with
+        # a checkpoint, its rounds not all written
+        pid = self.p.procs[(rid, "s1")].pid
+        os.kill(pid, signal.SIGTERM)
+        wait(lambda: self.run_of(rid)["state"] != "running")
+        run = self.run_of(rid)
+        self.assertEqual((run["state"], run["shards"][0]["exit"]),
+                         ("stopped", 0))
+        self.assertLess(run["rows"], 20)
+        os.environ["FAKE_LIMEN_PACE"] = "0.01"
+        self.p.resume(rid)
+        wait(lambda: self.run_of(rid)["state"] == "finished")
+        self.assertEqual(self.run_of(rid)["rows"], 20)
 
     def test_a_run_is_opened_once_when_asked_at_once(self) -> None:
         self.p.create("exp", template="lightgbm_binary")

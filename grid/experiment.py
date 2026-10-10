@@ -389,8 +389,9 @@ class Project:
         self.open_lock = threading.Lock()
         self.notes: dict[str, str] = {}
         self.procs: dict[tuple[str, str], subprocess.Popen[bytes]] = {}
-        # results.csv -> (bytes read, mtime, inode, records, in a quote)
-        self.counts: dict[str, tuple[int, float, int, int, bool]] = {}
+        # results.csv -> (bytes read, mtime, inode, records, in a quote,
+        # the bytes read last)
+        self.counts: dict[str, tuple[int, float, int, int, bool, bytes]] = {}
         # manifest -> (mtime_ns, size, version)
         self.versions: dict[str, tuple[int, int, str]] = {}
         self.names: dict[str, tuple[float, str | None, int | None]] = {}
@@ -575,24 +576,32 @@ class Project:
     # -- runs ---------------------------------------------------------------
     def _rows(self, results: str) -> int:
         """The rounds a results.csv holds: its whole records less the
-        header (a line break inside a quoted field ends no record), read
-        on from where the last count stopped while the file grows."""
+        header (a line break inside a quoted field ends no record). Read
+        on from where the last count stopped while the file grows; counted
+        again when what was counted has changed (the file shortened,
+        replaced, or written again in place: the bytes read last are no
+        longer where they were)."""
         try:
             st = os.stat(results)
         except OSError:
             return 0
-        pos, records, quoted = 0, 0, False
         seen = self.counts.get(results)
-        if seen is not None and seen[2] == st.st_ino:
-            if seen[0] == st.st_size and seen[1] == st.st_mtime:
-                return max(0, seen[3] - 1)
-            if st.st_size >= seen[0]:
-                pos, records, quoted = seen[0], seen[3], seen[4]
+        if seen is not None and seen[2] == st.st_ino and \
+                seen[0] == st.st_size and seen[1] == st.st_mtime:
+            return max(0, seen[3] - 1)
         try:
             with open(results, "rb") as f:
+                pos, records, quoted, last = 0, 0, False, b""
+                if seen is not None and seen[2] == st.st_ino and \
+                        st.st_size >= seen[0]:
+                    f.seek(seen[0] - len(seen[5]))
+                    if f.read(len(seen[5])) == seen[5]:
+                        pos, records, quoted, last = seen[0], seen[3], \
+                            seen[4], seen[5]
                 f.seek(pos)
                 for chunk in iter(lambda: f.read(1 << 20), b""):
                     pos += len(chunk)
+                    last = (last + chunk)[-64:]
                     parts = chunk.split(b"\n")
                     for part in parts[:-1]:
                         if part.count(b'"') % 2:
@@ -603,7 +612,8 @@ class Project:
                         quoted = not quoted
         except OSError:
             return 0
-        self.counts[results] = (pos, st.st_mtime, st.st_ino, records, quoted)
+        self.counts[results] = (pos, st.st_mtime, st.st_ino, records, quoted,
+                                last)
         return max(0, records - 1)
 
     def _meta(self, directory: str) -> tuple[str | None, int | None]:
@@ -902,9 +912,11 @@ class Project:
         threading.Thread(target=wait, daemon=True).start()
 
     def _ended(self, folder: str, label: str, code: int | None) -> None:
-        """A shard's process has ended: stopped when a stop was asked for,
-        else finished or failed by its exit code (or, for a process this
-        server did not start, by its rounds against its share)."""
+        """A shard's process has ended: stopped when a stop was asked for;
+        failed when it exited with an error; else (a clean exit, or one
+        this server did not see) finished when its rounds are all written
+        and stopped when not, as a SIGTERM from outside Grid stops it,
+        with a checkpoint to resume from."""
         with self.lock:
             path = os.path.join(folder, RECORD)
             record = _read_json(path)
@@ -915,14 +927,14 @@ class Project:
                     continue
                 if s.get("stopping"):
                     s["state"] = "stopped"
-                elif code is None:
+                elif code is None or code == 0:
                     done = self._rows(os.path.join(folder, label,
                                                    "results.csv"))
                     planned = s.get("rounds")
                     s["state"] = "finished" if isinstance(planned, int) and \
                         done >= planned else "stopped"
                 else:
-                    s["state"] = "finished" if code == 0 else "failed"
+                    s["state"] = "failed"
                 s["exit"] = code
                 s["stopping"] = False
             _write_json(path, record)

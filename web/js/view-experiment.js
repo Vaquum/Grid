@@ -524,12 +524,12 @@ function paint(d) {
   }
   const space = searchSpace(d.text);
   const unsaved = d.text !== d.saved;
-  d.status.replaceChildren(
+  d.status.replaceChildren(...[
     !current ? h("span", { class: "muted", text: "Checking…" })
       : current.length ? h("span", { class: "sev crit" }, icon("alert"), `${fmtInt(current.length)} problem${current.length === 1 ? "" : "s"}`)
         : h("span", { class: "sev ok" }, icon("check"), "Valid"),
-    h("span", { class: "muted num", text: space.params ? ` · ${fmtInt(space.params)} parameters, ${fmtCount(space.combinations)} combinations` : " · no parameters in sfd.params" }),
-    unsaved ? h("span", { class: "ex-unsaved", text: " · unsaved" }) : null);
+    h("span", { class: "muted num", text: space.params ? `· ${fmtInt(space.params)} parameters, ${fmtCount(space.combinations)} combinations` : "· no parameters in sfd.params" }),
+    unsaved ? h("span", { class: "ex-unsaved", text: "· unsaved" }) : null].filter(Boolean));
   d.again.hidden = d.disk === d.version;
   d.saveBtn.disabled = !!lab.busy || !unsaved;
   d.diffBtn.disabled = !!lab.busy;

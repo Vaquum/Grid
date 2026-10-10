@@ -966,7 +966,7 @@ tr.sel td { background: var(--on); }
 .ex-why { flex-basis: 100%; color: var(--warning-ink); font-size: var(--fs-m); }
 .ex-why:empty { display: none; }
 /* the manifest: a margin of line numbers beside the text, scrolled with it */
-.ex-status { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 0 2px; font-size: var(--fs-m); }
+.ex-status { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 0 var(--sp-1); font-size: var(--fs-m); }
 .ex-unsaved { color: var(--warning-ink); font-weight: 600; }
 .ed {
   display: grid; grid-template-columns: max-content minmax(0, 1fr); border: 1px solid var(--border);
