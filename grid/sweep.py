@@ -57,6 +57,9 @@ class Run:
         self.bad: list[Json] = []   # first BAD_KEEP bad lines
         self.bad_count = 0
         self.arrivals = array("d")  # wall time a row arrived; NaN = history
+        # when the run's files were last written, as they said when the
+        # server began reading them: the rows read then have no arrival
+        self.written_at: float | None = None
         self.archived_from: str | None = None
         self.archived_at: float | None = None    # wall time it was kept
         self.archived_reason: str | None = None  # truncated or replaced
@@ -70,7 +73,7 @@ class Run:
     def meta(self) -> Json:
         return {"id": self.id, "label": self.label, "source": self.source,
                 "logId": self.log_id, "segment": self.segment,
-                "live": self.live,
+                "live": self.live, "writtenAt": self.written_at,
                 "generation": self.generation, "rows": self.store.rows,
                 "lines": self.lines, "badCount": self.bad_count,
                 "bad": self.bad, "schemaEvents": self.store.events,
@@ -143,6 +146,7 @@ class Run:
         self.lines = 0
         self.bad, self.bad_count = [], 0
         self.arrivals = array("d")
+        self.written_at = None   # the new generation's rows all arrive
 
 
 class Sweep:
@@ -174,6 +178,14 @@ class Sweep:
             run.add_line(text, None if preload else time.time())
             self._bump()
 
+    def run_written(self, run: Run, mtime: float) -> None:
+        """One of the run's files was last written at ``mtime``, as the
+        look that bounded its history saw it."""
+        with self.lock:
+            run.written_at = mtime if run.written_at is None \
+                else max(run.written_at, mtime)
+            self._bump()
+
     def run_reset(self, run: Run, reason: str) -> None:
         with self.lock:
             if run.store.rows or run.bad_count:
@@ -187,6 +199,7 @@ class Sweep:
                 old.store, old.lines = run.store, run.lines
                 old.bad, old.bad_count = run.bad, run.bad_count
                 old.arrivals, old.generation = run.arrivals, run.generation
+                old.written_at = run.written_at
                 old.archived_from = run.id
                 # the rounds are the experiment's, read again only when
                 # the round log itself starts over

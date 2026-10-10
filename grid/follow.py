@@ -4,8 +4,10 @@ A follower calls ``on_line(text, preload)`` for every complete line and
 ``on_reset(reason)`` when the file starts over (it was truncated or
 replaced, as a relaunched sweep does when it reopens its results file for
 writing). ``preload`` is True for lines that were already in the file when
-following began: they are history, and get no arrival time. An incomplete
-last line waits until its newline arrives.
+following began: they are history, and get no arrival time. The same look
+at the file that bounds the history gives its modification time to
+``on_history(mtime)``: when the last of those lines was written. An
+incomplete last line waits until its newline arrives.
 
 ``FileFollower`` polls the local file. ``SSHFollower`` runs
 ``tail -c +1 -F <path>`` on the remote host, so nothing is installed there;
@@ -23,6 +25,7 @@ from typing import IO, Callable
 LineFn = Callable[[str, bool], None]
 ResetFn = Callable[[str], None]
 ErrorFn = Callable[[str], None]
+HistoryFn = Callable[[float], None]
 SSH_BASE = ("ssh", "-o", "BatchMode=yes", "-o", "ServerAliveInterval=15")
 CHUNK = 4 << 20
 
@@ -63,11 +66,13 @@ class FileFollower:
 
     def __init__(self, path: str, on_line: LineFn, on_reset: ResetFn,
                  on_error: ErrorFn, interval: float = 0.5,
-                 follow: bool = True) -> None:
+                 follow: bool = True,
+                 on_history: HistoryFn | None = None) -> None:
         self.path = path
         self.buffer = _LineBuffer(on_line)
         self.on_reset = on_reset
         self.on_error = on_error
+        self.on_history = on_history
         self.interval = interval
         self.follow = follow
         self.pos = 0
@@ -80,6 +85,8 @@ class FileFollower:
         st = os.stat(self.path)
         if self.ino is None:
             self.buffer.preload_end = st.st_size
+            if self.on_history is not None:
+                self.on_history(st.st_mtime)
         elif st.st_ino != self.ino or st.st_size < self.pos:
             reason = "replaced" if st.st_ino != self.ino else "truncated"
             self.pos = 0
@@ -130,12 +137,14 @@ class SSHFollower:
     """Follow a file on another host with ``ssh HOST tail -c +1 -F PATH``."""
 
     def __init__(self, host: str, path: str, on_line: LineFn,
-                 on_reset: ResetFn, on_error: ErrorFn) -> None:
+                 on_reset: ResetFn, on_error: ErrorFn,
+                 on_history: HistoryFn | None = None) -> None:
         self.host = host
         self.path = path
         self.buffer = _LineBuffer(on_line)
         self.on_reset = on_reset
         self.on_error = on_error
+        self.on_history = on_history
         self.proc: subprocess.Popen[bytes] | None = None
         self.stopped = threading.Event()
         self.caught_up = threading.Event()
@@ -158,7 +167,10 @@ class SSHFollower:
 
     def run(self) -> None:
         try:
-            self.buffer.preload_end = remote_size(self.host, self.path)
+            size, mtime = remote_stat(self.host, self.path)
+            self.buffer.preload_end = size
+            if self.on_history is not None:
+                self.on_history(mtime)
             self.proc = subprocess.Popen(
                 self.command(), stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, stdin=subprocess.DEVNULL)
@@ -205,8 +217,19 @@ def _ssh(host: str, *argv: str, timeout: float = 30.0) -> bytes:
     return res.stdout
 
 
-def remote_size(host: str, path: str) -> int:
-    return int(_ssh(host, "stat", "-c", "%s", _quote(path)).strip())
+def remote_stat(host: str, path: str) -> tuple[int, float]:
+    """A remote file's size and modification time, from one look."""
+    size, mtime = _ssh(host, "stat", "-c", "'%s %Y'", _quote(path)).split()
+    return int(size), float(mtime)
+
+
+def remote_mtimes(host: str, paths: list[str]) -> list[float]:
+    """The modification times of those of these remote files that
+    exist (a missing one is skipped, not an error)."""
+    out = _ssh(host, "stat", "-c", "%Y", *[_quote(p) for p in paths],
+               "2>/dev/null", "||", "true")
+    return [float(t) for t in out.decode("ascii", errors="replace").split()
+            if t.isdigit()]
 
 
 def list_remote(host: str, directory: str) -> list[str]:

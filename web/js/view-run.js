@@ -636,6 +636,10 @@ function paceIsland(m, health) {
       "Rows per second times seconds per row: about how many workers are kept busy. Far below the worker count means the pool is starved (waiting on I/O, stopped, or contended).");
   }
   if (Number.isFinite(ds.arrivals[ds.n - 1])) stat("Last row read", fmtAgo(Date.now() / 1000 - ds.arrivals[ds.n - 1]), "by this server");
+  else if (ds.n && Number.isFinite(ds.meta.writtenAt)) {
+    stat("Last row written", fmtAgo(Date.now() / 1000 - ds.meta.writtenAt), "by its files' time",
+      "The rows read when this server started have no arrival time of their own: this is when the run's files were last written.");
+  }
   if (stats.childNodes.length) isl.append(stats);
   if (log && log.segments.length) {
     const longest = Math.max(0, ...log.segments.map(s => (s.progress.length ? s.progress[s.progress.length - 1][2] || 0 : 0)));
