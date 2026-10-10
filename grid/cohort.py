@@ -64,6 +64,10 @@ def bar_times(rec: Json, step: int) -> list[int]:
     less those it dropped; refused when they do not number its arrays."""
     raw: Any = rec.get("alignment")
     if not isinstance(raw, dict):
+        if rec.get("preds") is None:
+            raise ValueError("round %s recorded no model outputs (record "
+                             "them with uel.record_model_outputs, Limen "
+                             "5.17 or later)" % _rid(rec))
         raise ValueError("round %s recorded no alignment" % _rid(rec))
     a = cast(Json, raw)
     first = _epoch(a.get("first_test_datetime"), "first_test_datetime")

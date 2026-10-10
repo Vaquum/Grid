@@ -173,6 +173,14 @@ class Alignment(unittest.TestCase):
         rec["preds"] = rec["preds"][:4]
         with self.assertRaisesRegex(ValueError, "a gap in the data"):
             bar_times(rec, HOUR)
+        # a round of a run that did not record its model outputs (before
+        # Limen 5.17, or with uel.record_model_outputs off) says so
+        bare = {"round_id": "9bbfc39e316c", "round_params": {}}
+        with self.assertRaisesRegex(ValueError, "round 9bbfc39e316c recorded "
+                                    "no model outputs .*record_model_outputs"):
+            bar_times(bare, HOUR)
+        with self.assertRaisesRegex(ValueError, "recorded no alignment"):
+            bar_times({**bare, "preds": [1, 0]}, HOUR)
 
     def test_members_meet_on_the_bars_they_share(self) -> None:
         # three bars more on one; a bar dropped by the other
