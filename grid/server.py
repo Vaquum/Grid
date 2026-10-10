@@ -8,6 +8,9 @@ Routes:
 - ``/api/stream``   server-sent events that bring a page holding the cursor
                     up to date, as rows and log lines arrive;
 - ``/api/row``      one row rebuilt from its columns (``?run=ID&i=N``);
+- ``/api/cohort``   a cohort of a Limen run's rounds judged on what the run
+                    recorded (``?run=ID&rows=I,J,...[&fee=BPS&slip=BPS]``,
+                    grid/cohort.py);
 - ``/api/health``   rows per run and recent errors.
 
 A cursor token is used by one stream. A page that loses its stream fetches
@@ -43,8 +46,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, cast
 from urllib.parse import parse_qs, urlparse
 
+from .cohort import RoundLines, bar_step, costs_of, judge
 from .experiment import Project
-from .sweep import Cursor, Sweep
+from .sweep import SHARD, Cursor, Json, Sweep
 
 CURSOR_TTL = 600.0
 PING_EVERY = 15.0
@@ -84,6 +88,7 @@ class Server:
         self.token = token          # the page's own, for the project's POSTs
         self.cursors: dict[str, tuple[float, Cursor]] = {}
         self.lock = threading.Lock()
+        self.round_lines = RoundLines()
 
     def save_cursor(self, cursor: Cursor) -> str:
         token = secrets.token_urlsafe(12)
@@ -99,6 +104,59 @@ class Server:
         with self.lock:
             got = self.cursors.pop(token, None)
         return got[1] if got else None
+
+    def cohort(self, q: dict[str, str]) -> Json:
+        """The cohort of a Limen run's rows (``rows``, their indexes in the
+        run), judged on what the run recorded, at the fee and slippage
+        given (``fee``, ``slip``, in bps) or the members' own."""
+        try:
+            rows = [int(x) for x in q.get("rows", "").split(",") if x]
+        except ValueError as err:
+            raise ValueError("rows are row numbers, comma separated") from err
+        if not rows or len(set(rows)) != len(rows):
+            raise ValueError("a cohort names its rows, each once")
+        s = self.sweep
+        with s.lock:
+            run = next((r for r in s.runs if r.id == q.get("run")), None)
+            if run is None:
+                raise ValueError("no run %r" % q.get("run"))
+            exp = run.experiment
+            if not exp or exp.get("kind") != "limen":
+                raise ValueError("a cohort is made of a Limen run's rounds")
+            if exp.get("host"):
+                raise ValueError("a run read over SSH has its rounds' "
+                                 "records on its host")
+            try:
+                found = [run.store.row_object(i) for i in rows]
+            except IndexError as err:
+                raise ValueError(str(err)) from err
+            shards: Any = exp.get("shards")
+            dirs: dict[str, str] = ({str(lb): str(d) for lb, d in shards}
+                                    if isinstance(shards, list) else {})
+            single: Any = exp.get("dir")
+        records: list[Json] = []
+        where: list[str] = []
+        for i, obj in zip(rows, found, strict=True):
+            rid: Any = obj.get("id")
+            if not isinstance(rid, str):
+                raise ValueError("row %d has no round id" % i)
+            label = obj.get(SHARD)
+            directory = dirs.get(str(label)) if dirs else single
+            if not isinstance(directory, str):
+                raise ValueError("row %d's result directory is unknown" % i)
+            records.append(self.round_lines.get(directory, rid))
+            where.append(str(label) if dirs else "")
+        fee, slip = costs_of(records)
+        if q.get("fee") or q.get("slip"):
+            try:
+                fee = float(q.get("fee", fee))
+                slip = float(q.get("slip", slip))
+            except ValueError as err:
+                raise ValueError("fee and slip are basis points") from err
+        out = judge(records, bar_step(exp), fee, slip)
+        out["rows"] = rows
+        out["dirs"] = sorted(set(where)) if dirs else []
+        return out
 
 
 def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
@@ -174,6 +232,11 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
                 return self.stream(cursor)
             if url.path == "/api/row":
                 return self.row(q)
+            if url.path == "/api/cohort":
+                try:
+                    return self.send_json(server.cohort(q))
+                except (ValueError, OSError) as exc:
+                    return self.fail(400, str(exc))
             if url.path == "/api/experiment" and server.project:
                 return self.send_json(server.project.state())
             if url.path == "/api/experiment/manifest" and server.project:
