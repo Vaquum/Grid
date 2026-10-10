@@ -74,6 +74,28 @@ directories: give each with `--limen`, or the folder that holds them, and
 they read as one run, each row with its directory in `shard`. Directories
 whose manifests differ in more than the seed are refused.
 
+On a Limen project (a folder with `limen.toml`, as `limen new` makes),
+Grid also makes and runs its experiments. The Experiment view (0) edits
+each working manifest in `manifests/`, checked by `limen validate` as you
+type, with its problems on their lines and the size of its search space;
+starts a new one from a template, from the run in view, or from any
+view's manifest narrowed to the pocket; compares it with the manifest its
+last run started from; and runs it in shards side by side (`limen run` on
+copies whose search seeds differ, each on its share of the rounds and the
+cores, recording each round's execution and model outputs), with Limen's
+own stop and resume. A run opens in the analysis views once each shard
+has written a round.
+
+```sh
+python3 -m grid serve --project ~/limen-lab --open
+```
+
+Grid reaches Limen only through its command line (`--limen-cli`, by
+default the project's own `.venv/bin/limen`, else the one on the PATH).
+A write needs the page's own token, from the page's own origin; on a
+project the server answers only requests that name it by its address or
+as `localhost`.
+
 A static snapshot, for reading offline or sharing:
 
 ```sh
@@ -95,6 +117,7 @@ python3 tools/live_demo.py --out /tmp/grid-live --port 8765
 
 | Key | View | What it answers |
 | --- | --- | --- |
+| 0 | Experiment | On a Limen project: its experiments, a manifest checked as it is typed, a run in shards, stopped and resumed |
 | 1 | Board | Which parameters move the needle, where each of their values puts it, where each acts |
 | 2 | Pocket | What a stack of values holds, what a sweep inside it would hit, its code |
 | 3 | Pairs | Which parameters change each other's effect; which the sampler drew together |

@@ -937,6 +937,90 @@ tr.sel td { background: var(--on); }
 .rn-rest { margin-top: var(--sp-3); font-size: var(--fs-m); }
 .rn-rest p { margin: var(--sp-2) 0 0; overflow-wrap: anywhere; }
 
+/* ---- experiment --------------------------------------------------------- */
+/* the parts in one column; a part's slot makes no box of its own */
+.ex { display: flex; flex-direction: column; gap: var(--sp-4); }
+.ex .slot { display: contents; }
+.ex .strip { margin-bottom: var(--sp-1); }
+.ex-tools { display: inline-flex; align-items: center; gap: var(--sp-1); margin-left: auto; }
+.tag.live { color: var(--good-ink); background: color-mix(in oklab, var(--good) 14%, var(--surface)); }
+.btn[aria-disabled="true"] { opacity: 0.5; cursor: default; }
+.btn[aria-disabled="true"]:hover { background: var(--surface); }
+/* a new experiment: its name, what it starts from, and why not yet */
+.ex-make {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-3);
+  padding: var(--sp-3); border: 1px solid var(--line); border-radius: var(--r-m); background: var(--surface-2);
+}
+.ex-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ex-field .k { color: var(--muted); font-size: var(--fs-s); }
+.ex-grow { flex: 1 1 260px; }
+.ex-grow select { width: 100%; font-size: var(--fs-m); }
+.ex-input, .ex-num {
+  min-height: var(--h-m); padding: 0 var(--sp-2); border: 1px solid var(--border); border-radius: var(--r-m);
+  background: var(--surface); color: var(--ink); font-size: var(--fs-m);
+}
+.ex-input { width: 32ch; max-width: 100%; }
+.ex-num { width: 12ch; font-variant-numeric: tabular-nums; }
+.ex-input[aria-invalid="true"], .ex-num[aria-invalid="true"] { border-color: var(--critical); }
+.ex-acts { display: inline-flex; gap: var(--sp-2); }
+.ex-why { flex-basis: 100%; color: var(--warning-ink); font-size: var(--fs-m); }
+.ex-why:empty { display: none; }
+/* the manifest: a margin of line numbers beside the text, scrolled with it */
+.ex-status { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 0 2px; font-size: var(--fs-m); }
+.ex-unsaved { color: var(--warning-ink); font-weight: 600; }
+.ed {
+  display: grid; grid-template-columns: max-content minmax(0, 1fr); border: 1px solid var(--border);
+  border-radius: var(--r-m); background: var(--surface-2); overflow: hidden;
+}
+.ed:focus-within { outline: 2px solid var(--ink); outline-offset: 2px; }
+.ed-gutter, .ed-text { font-family: var(--mono); font-size: var(--fs-m); line-height: 18px; }
+/* the margin takes the text's height, not its own (contain: size), and
+   room for the text's scroll bar at its foot */
+.ed-gutter {
+  contain: size; margin: 0; padding: var(--sp-2) var(--sp-2) calc(var(--sp-2) + 24px) var(--sp-3); overflow: hidden;
+  text-align: right; color: var(--muted); background: var(--panel); border-right: 1px solid var(--line); user-select: none;
+}
+.ed-gutter span { display: block; min-width: 2ch; }
+.ed-gutter .bad { color: var(--critical-ink); font-weight: 700; }
+.ed-text {
+  display: block; width: 100%; height: min(62vh, 560px); min-height: 180px; margin: 0; padding: var(--sp-2) var(--sp-3);
+  border: 0; outline: none; resize: vertical; background: transparent; color: var(--ink); white-space: pre; overflow: auto; tab-size: 2;
+}
+.ed-text:focus-visible { outline: none; }
+.ex-problems { display: grid; gap: 4px; margin: var(--sp-2) 0 0; padding: 0; list-style: none; font-size: var(--fs-m); }
+.ex-problems:empty { display: none; }
+.ex-problems li { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px var(--sp-2); color: var(--critical-ink); }
+.ex-where {
+  flex: none; padding: 0; border: 0; background: transparent; color: inherit; font-weight: 600;
+  text-decoration: underline; text-underline-offset: 2px;
+}
+.ex-msg { flex: 1 1 320px; min-width: 0; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* the diff against the last run, marked as a narrowed manifest's lines are */
+.ex-diff { max-height: 360px; overflow: auto; }
+.ex-diff .df { display: block; min-height: 1.55em; }
+.ex-diff .df-add { margin: 0 -12px; padding: 0 12px; background: color-mix(in oklab, var(--data) 16%, transparent); }
+.ex-diff .df-del { margin: 0 -12px; padding: 0 12px; color: var(--muted); background: var(--surface-3); }
+.ex-diff .df-at, .ex-diff .df-hd { color: var(--muted); }
+/* running it: the settings, Run, and what it will do */
+.ex-run-form { margin-bottom: var(--sp-4); }
+.ex-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--sp-3) var(--sp-4); }
+.ex-checks { display: flex; flex-direction: column; gap: 2px; }
+.ex-check { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-m); }
+.ex-form .btn.primary { margin-left: auto; min-width: 84px; justify-content: center; }
+.ex-sum { margin: var(--sp-2) 0 0; }
+.ex-sum.warn { color: var(--warning-ink); }
+table.vals td.ex-do { white-space: nowrap; text-align: right; }
+td.ex-do .btn + .btn { margin-left: var(--sp-1); }
+table.vals tr.has-note td { border-bottom: 0; }
+table.vals tr.ex-note-row td { padding-top: 0; }
+table.vals tr.ex-note-row:hover td { background: transparent; }
+.ex-note { display: flex; align-items: flex-start; gap: var(--sp-2); color: var(--warning-ink); font-size: var(--fs-m); }
+.ex-note > svg { width: 14px; height: 14px; flex: none; margin-top: 2px; fill: none; stroke: currentColor; stroke-width: 2; }
+.ex-note > div { min-width: 0; }
+.ex-note p { margin: 0; }
+.ex-note pre.code { margin: var(--sp-1) 0 var(--sp-2); max-height: 160px; overflow: auto; color: var(--ink); white-space: pre-wrap; }
+.mf-acts { display: inline-flex; gap: var(--sp-1); }
+
 /* ---- narrow screens ----------------------------------------------------- */
 /* the pocket's and the pairs' two columns need room; with the inspector open they stack */
 @media (max-width: 1100px) {
@@ -980,4 +1064,6 @@ tr.sel td { background: var(--on); }
   .sc-v small { flex-basis: 100%; }
   .sc:last-child:nth-child(odd) { grid-column: span 2; }
   .strip-tools { position: absolute; top: 6px; right: 6px; margin: 0; }
+  .ex-form .btn.primary { margin-left: 0; }
+  .ed-text { height: 52vh; }
 }

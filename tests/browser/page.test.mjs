@@ -1164,3 +1164,77 @@ test("live: a relaunch keeps the reader on the rows they had, and the Run view t
     sweep.stop();
   }
 });
+
+test("experiment: on a Limen project, one is made, checked as it is typed, run in shards, analyzed, and the next made from its run", async () => {
+  // a project with no experiment yet, served with a stand-in limen
+  const project = mkdtempSync(join(tmpdir(), "grid-project-"));
+  writeFileSync(join(project, "limen.toml"), "[store]\n");
+  mkdirSync(join(project, "manifests"));
+  const proc = spawn("python3", ["-m", "grid", "serve", "--project", project, "--limen-cli", join(ROOT, "tests/fixtures/fake_limen.py"), "--port", "0"],
+    { cwd: ROOT, env: { ...process.env, FAKE_LIMEN_PACE: "0.05" } });
+  try {
+    const url = await serverUrl(proc);
+    const { page, errors } = await limenPage();
+    await page.goto(url);
+    // it opens on the Experiment view, ready to make the first
+    await page.waitForSelector(".ex-make");
+    assert.equal(await page.locator(".rail button[aria-current=page]").getAttribute("aria-label"), "Experiment");
+    assert.match(await page.locator(".strip").innerText(), /Limen\s+5\.20\.0/);
+    assert.equal(await page.locator(".ex-make select").inputValue(), "t:lightgbm_binary");
+    // the other views have no run to show yet
+    await page.keyboard.press("1");
+    await page.waitForSelector("text=No run is open yet.");
+    await page.keyboard.press("0");
+    await page.locator(".ex-make input").fill("first");
+    await page.locator(".ex-make .btn.primary").click();
+    // its manifest, checked by limen validate as it is typed
+    await page.waitForSelector(".ex-status .sev.ok");
+    assert.match(await page.locator(".ex-status").innerText(), /Valid · 45 parameters, 3\.76 × 10¹⁸ combinations/);
+    await page.locator(".ed-text").evaluate(t => { t.focus(); t.setSelectionRange(t.value.length, t.value.length); });
+    await page.keyboard.type("# BAD_VALUE\n");
+    await page.waitForSelector(".ex-status .sev.crit");
+    const line = await page.evaluate(() => document.querySelector(".ed-text").value.split("\n").findIndex(l => l.trim().startsWith("n_permutations:")) + 1);
+    assert.equal(await page.locator(".ed-gutter .bad").innerText(), String(line));
+    assert.match(await page.locator(".ex-problems li").innerText(), new RegExp(`Line ${line}\\s+uel\\.n_permutations\\s+'n_permutations' must be a int`));
+    assert.equal(await page.locator(".ex-run-form .btn.primary").isDisabled(), true);
+    for (let i = 0; i < "# BAD_VALUE\n".length; i++) await page.keyboard.press("Backspace");
+    await page.waitForSelector(".ex-status .sev.ok");
+    // run in two shards side by side
+    await page.locator("input[aria-label='Rounds']").fill("10");
+    await page.locator("input[aria-label='Shards side by side']").fill("2");
+    assert.match(await page.locator(".ex-sum").innerText(), /^2 limen runs side by side, 5 rounds each/);
+    await page.locator(".ex-run-form .btn.primary").click();
+    await page.waitForSelector("text=Started.");
+    await page.waitForFunction(() => /Finished/.test((document.querySelector(".ex-runs tbody tr") || {}).textContent || ""), null, { timeout: 30000 });
+    // analyzed in the views, both shards' rounds as one run
+    await page.waitForFunction(() => { const b = [...document.querySelectorAll(".ex-runs tbody tr:first-child .btn")].find(x => x.textContent === "Analyze"); return b && !b.hasAttribute("aria-disabled"); }, null, { timeout: 30000 });
+    await page.locator(".ex-runs tbody tr").first().locator("button", { hasText: "Analyze" }).click();
+    await page.waitForSelector(".pcard", { timeout: 20000 });
+    await page.waitForFunction(() => document.querySelector(".progress-text").textContent.startsWith("10 rows"), null, { timeout: 20000 });
+    // the run's manifest starts the next experiment
+    await page.locator(".manifest summary").click();
+    await page.locator(".mf-acts button", { hasText: "New experiment" }).click();
+    await page.waitForSelector(".ex-make");
+    assert.equal(await page.locator(".ex-make input").inputValue(), "first_2");
+    assert.equal(await page.locator(".ex-make select").inputValue(), "run");
+    await page.locator(".ex-make .btn.primary").click();
+    await page.waitForSelector(".ex-table tr.sel td:has-text('first_2')");
+    await page.waitForSelector(".ex-status .sev.ok");
+    // a longer run stops as Limen stops, and resumes from its checkpoints
+    await page.locator("input[aria-label='Rounds']").fill("400");
+    await page.locator("input[aria-label='Shards side by side']").fill("2");
+    await page.locator(".ex-run-form .btn.primary").click();
+    const state = (s) => page.waitForFunction(s => (document.querySelector(".ex-runs tbody tr .tag") || {}).textContent === s, s, { timeout: 30000 });
+    await state("Running");
+    await page.locator(".ex-runs tbody tr").first().locator("button", { hasText: "Stop" }).click();
+    await state("Stopped");
+    await page.locator(".ex-runs tbody tr").first().locator("button", { hasText: "Resume" }).click();
+    await state("Running");
+    await page.locator(".ex-runs tbody tr").first().locator("button", { hasText: "Stop" }).click();
+    await state("Stopped");
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    proc.kill();
+  }
+});
