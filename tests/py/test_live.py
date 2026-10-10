@@ -1,6 +1,7 @@
 import gzip
 import json
 import os
+import shutil
 import sys
 import tempfile
 import threading
@@ -9,11 +10,14 @@ import unittest
 import urllib.error
 import urllib.request
 
+from grid.__main__ import main
 from grid.follow import FileFollower
 from grid.logparse import parse_text
 from grid.server import serve
 from grid.sweep import Cursor, Run, Sweep
 
+LIMEN_FIXTURE = os.path.join(os.path.dirname(__file__), "..", "fixtures",
+                             "limen_run")
 TOOLS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))), "tools")
 
@@ -219,6 +223,60 @@ class ServerTest(unittest.TestCase):
 
     def test_cursor_type(self):
         self.assertEqual(Cursor().version, -1)
+
+
+class WrittenAtTest(unittest.TestCase):
+    """Rows read when the server starts have no arrival time; the run says
+    when its files were last written instead."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.hour_ago = time.time() - 3600
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def pack(self, *args):
+        out = os.path.join(self.dir.name, "pack.json")
+        self.assertEqual(main(["pack", *args, "--out", out]), 0)
+        with open(out, encoding="utf-8") as f:
+            return json.load(f)["runs"][0]
+
+    def test_a_results_file_gives_its_modification_time(self):
+        path = os.path.join(self.dir.name, "results.jsonl")
+        with open(path, "w") as f:
+            f.write('{"a": 1}\n{"a": 2}\n')
+        os.utime(path, (self.hour_ago, self.hour_ago))
+        run = self.pack("--results", path)
+        self.assertAlmostEqual(run["writtenAt"], self.hour_ago, places=3)
+        self.assertEqual(run["arrivals"], [None, None])
+
+    def test_a_limen_run_gives_the_latest_of_its_files(self):
+        d = os.path.join(self.dir.name, "run")
+        shutil.copytree(LIMEN_FIXTURE, d)
+        for name, ago in (("results.csv", 7200), ("round_data.jsonl", 3600)):
+            t = time.time() - ago
+            os.utime(os.path.join(d, name), (t, t))
+        # the feedback audit was written last; there is no checkpoint, and
+        # the metadata and the manifest's copy are not the run's writing
+        audit = os.path.join(d, "audit.jsonl")
+        with open(audit, "w") as f:
+            f.write('{"round": 100}\n')
+        last = time.time() - 60
+        os.utime(audit, (last, last))
+        run = self.pack("--limen", d)
+        self.assertAlmostEqual(run["writtenAt"], last, places=3)
+
+    def test_a_file_that_starts_over_drops_its_time(self):
+        s = Sweep("t")
+        run = Run("r0", "current", "x", None, True)
+        run.written_at = self.hour_ago
+        s.add_run(run)
+        s.run_line(run, json.dumps({"a": 1}), True)
+        s.run_reset(run, "truncated")
+        self.assertIsNone(run.written_at)
+        # the rows kept keep it
+        self.assertEqual(s.runs[0].written_at, self.hour_ago)
 
 
 class DemoTest(unittest.TestCase):
