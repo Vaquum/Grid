@@ -123,8 +123,11 @@ class Wiring:
         self.opened = 0                      # runs opened while serving
         self.open_lock = threading.Lock()
         name = args.name
-        if args.project:
-            name = name or os.path.basename(os.path.abspath(args.project))
+        # a project's runs are opened later (open_limen); callers that read
+        # result directories give no project
+        self.project: str | None = getattr(args, "project", None)
+        if self.project:
+            name = name or os.path.basename(os.path.abspath(self.project))
         if args.limen:
             self.dirs = self.limen_dirs(args.limen)
             experiments = [self.read_experiment(d) for d in self.dirs]
@@ -449,7 +452,7 @@ class Wiring:
             live = r.get("live") == "1" or ("log" in r and "segment" not in r)
             self.add_run("r%d" % (i + 1), r["label"], r["results"], seg, live,
                          log_id)
-        if a.project:
+        if self.project:
             # the project's runs open as they are asked for (open_limen)
             return self.sweep
         if a.limen and self.shards is not None:
@@ -539,8 +542,9 @@ def limen_cli(project: str, given: str | None) -> str:
         return own
     found = shutil.which("limen")
     if not found:
-        raise SystemExit("no limen command: the project has no .venv/bin/limen "
-                         "and none is on the PATH; give --limen-cli")
+        raise SystemExit("no limen command: the project has no "
+                         ".venv/bin/limen and none is on the PATH; give "
+                         "--limen-cli")
     return found
 
 

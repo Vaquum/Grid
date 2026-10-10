@@ -82,7 +82,8 @@ class ManifestText(unittest.TestCase):
             "output_path"), 0)
 
     def test_comments_stay_and_a_missing_mapping_is_added(self) -> None:
-        text = "metadata:\n  name: a  # its name\nuel:\n  n_permutations: 5 # five\n"
+        text = ("metadata:\n  name: a  # its name\n"
+                "uel:\n  n_permutations: 5 # five\n")
         out = set_values(text, {"uel.n_permutations": 9,
                                 "uel.search_strategy.seed": 3,
                                 "metadata.name": "b"})
@@ -313,7 +314,8 @@ class Routes(unittest.TestCase):
             with urllib.request.urlopen(req) as res:
                 return res.status, json.loads(res.read())
         except urllib.error.HTTPError as err:
-            return err.code, json.loads(err.read())
+            with err:
+                return err.code, json.loads(err.read())
 
     def test_a_write_needs_the_token_the_origin_and_json(self) -> None:
         ok = {"text": manifest_text()}
