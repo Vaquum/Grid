@@ -15,7 +15,8 @@ tests: the subcommands Grid runs, answering as Limen does.
   apart), each with its round_data.jsonl line. SIGTERM stops it as Limen
   stops: the round in hand finishes and checkpoint.json records the last.
   A run whose output path ends in ``FAKE_LIMEN_FAIL`` (``s2``) fails
-  before it writes anything, as a run whose data cannot be read does;
+  before it writes anything, as a run whose data cannot be read does
+  (``FAKE_LIMEN_FAIL=list-templates`` fails list-templates);
 - ``run --resume DIR``: on from the checkpoint.
 """
 
@@ -172,6 +173,9 @@ def main(argv):
         print("limen, version 5.20.0")
         return 0
     if argv[:1] == ["list-templates"]:
+        if os.environ.get("FAKE_LIMEN_FAIL") == "list-templates":
+            print("Error: no templates here", file=sys.stderr)
+            return 1
         print("Available templates (fake):\n")
         print("  lightgbm_binary              LightGBM tradeline long-binary "
               "classifier")

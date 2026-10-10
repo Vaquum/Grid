@@ -24,13 +24,18 @@ On a Limen project (``serve --project``), the Experiment view's routes:
 A POST starts processes and writes files, so it is refused unless it
 carries the page's own token (``X-Grid-Token``, in the page's config, which
 another site cannot read) and comes from the page's own origin, as JSON:
-a local server must not run what another site asks of it.
+a local server must not run what another site asks of it. And on a
+project, every request must name this server by its address or as
+localhost (its Host header): a name another site's DNS could point here
+would make that site the page's origin, token and all (DNS rebinding).
 """
 
 from __future__ import annotations
 
 import gzip
+import ipaddress
 import json
+import re
 import secrets
 import threading
 import time
@@ -49,6 +54,24 @@ ACTIONS = ("validate", "save", "create", "start", "stop", "resume", "open",
 
 
 PageFn = Callable[[], bytes]
+
+
+def direct_host(host: str) -> bool:
+    """Whether a Host header names the machine itself: an IP address or
+    localhost, with or without a port. A domain name could be pointed here
+    by another site's DNS, so it is not taken on a project."""
+    m = re.fullmatch(r"\[([0-9A-Fa-f:.]+)\](?::\d{1,5})?"
+                     r"|([^:\[\]]+)(?::\d{1,5})?", host.strip())
+    if not m:
+        return False
+    name = (m.group(1) or m.group(2) or "").lower()
+    if name == "localhost" or name.endswith(".localhost"):
+        return True
+    try:
+        ipaddress.ip_address(name)
+    except ValueError:
+        return False
+    return True
 
 
 class Server:
@@ -119,7 +142,20 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
             self.end_headers()
             self.wfile.write(body)
 
+        def misaddressed(self) -> bool:
+            """On a project, a request that names this server by a name it
+            cannot vouch for is refused (DNS rebinding)."""
+            if server.project is None or direct_host(
+                    self.headers.get("Host", "")):
+                return False
+            self.fail(403, "on a project, this server answers requests to "
+                           "its address or to localhost, not to %r"
+                      % self.headers.get("Host", ""))
+            return True
+
         def do_GET(self) -> None:
+            if self.misaddressed():
+                return
             url = urlparse(self.path)
             q = {k: v[-1] for k, v in parse_qs(url.query).items()}
             if url.path in ("/", "/index.html"):
@@ -158,6 +194,8 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
             return self.fail(404, "no route " + url.path)
 
         def do_POST(self) -> None:
+            if self.misaddressed():
+                return
             url = urlparse(self.path)
             action = url.path.removeprefix("/api/experiment/")
             project = server.project
@@ -259,8 +297,8 @@ def act(project: Project, action: str, body: dict[str, Any]) -> Any:
     if action == "validate":
         return {"errors": project.validate(text("text"))}
     if action == "save":
-        return {"mtime": project.save(text("name"), text("text"),
-                                      body.get("mtime"))}
+        return {"version": project.save(text("name"), text("text"),
+                                        body.get("version"))}
     if action == "create":
         return {"name": project.create(text("name"), body.get("template"),
                                        body.get("text"))}

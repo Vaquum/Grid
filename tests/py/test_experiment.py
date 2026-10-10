@@ -11,6 +11,8 @@ import difflib
 import json
 import os
 import shutil
+import signal
+import subprocess
 import tempfile
 import threading
 import time
@@ -18,6 +20,7 @@ import unittest
 import urllib.error
 import urllib.request
 from typing import Any
+from unittest import mock
 
 from grid.__main__ import Wiring
 from grid.experiment import (
@@ -27,7 +30,7 @@ from grid.experiment import (
     set_values,
     validation_errors,
 )
-from grid.server import serve
+from grid.server import direct_host, serve
 from grid.sweep import Json, Sweep
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -202,7 +205,7 @@ class ProjectRuns(unittest.TestCase):
         self.assertEqual([(e["name"], e["file"]) for e in exps],
                          [("short", "manifests/short.yml")])
         m = self.p.manifest("short")
-        self.p.save("short", m["text"] + "# more\n", m["mtime"])
+        self.p.save("short", m["text"] + "# more\n", m["version"])
         self.assertEqual(sorted(os.listdir(os.path.dirname(path))),
                          ["short.yml"])
         with open(path) as f:
@@ -225,11 +228,43 @@ class ProjectRuns(unittest.TestCase):
     def test_a_manifest_changed_on_disk_is_not_overwritten(self) -> None:
         self.p.create("first", template="lightgbm_binary")
         m = self.p.manifest("first")
-        mtime = self.p.save("first", m["text"] + "# one\n", m["mtime"])
+        version = self.p.save("first", m["text"] + "# one\n", m["version"])
+        self.assertEqual(self.p.manifest("first")["version"], version)
+        exp = self.p.experiments(self.p.runs())[0]
+        self.assertEqual(exp["version"], version)
+        # written elsewhere, even at once and at the same size: refused
         path = os.path.join(self.root, "manifests", "first.yaml")
-        os.utime(path, (mtime + 5, mtime + 5))
+        with open(path, "w") as f:
+            f.write(m["text"] + "# two\n")
         with self.assertRaisesRegex(ValueError, "changed on disk"):
-            self.p.save("first", m["text"], mtime)
+            self.p.save("first", m["text"] + "# three\n", version)
+        with self.assertRaisesRegex(ValueError, "names the version"):
+            self.p.save("first", m["text"], None)
+        with open(path) as f:
+            self.assertTrue(f.read().endswith("# two\n"))
+
+    def test_one_name_is_made_once(self) -> None:
+        text = manifest_text()
+        results: list[str] = []
+
+        def make() -> None:
+            try:
+                results.append(self.p.create("same", text=text))
+            except ValueError as err:
+                results.append(str(err))
+        threads = [threading.Thread(target=make) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(10)
+        self.assertEqual(sorted(results), ["manifests/same.yaml exists "
+                                           "already"] * 3 + ["same"])
+
+    def test_limens_failures_are_said(self) -> None:
+        os.environ["FAKE_LIMEN_FAIL"] = "list-templates"
+        with self.assertRaisesRegex(ValueError, "list-templates failed: "
+                                                "Error: no templates here"):
+            Project(self.root, FAKE)
 
     def test_a_run_in_shards_stops_and_resumes(self) -> None:
         self.p.create("exp", template="lightgbm_binary")
@@ -271,6 +306,92 @@ class ProjectRuns(unittest.TestCase):
         self.assertEqual(self.p.open(rid), "p1")
         with open(os.path.join(folder, "logs", "s1.log")) as f:
             self.assertIn("Resuming", f.read())
+
+    def test_starts_side_by_side_take_their_own_folders(self) -> None:
+        self.p.create("exp", template="lightgbm_binary")
+        got: list[str] = []
+        threads = [threading.Thread(target=lambda: got.append(
+            self.p.start("exp", 2, 1, False, False))) for _ in range(3)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(20)
+        self.assertEqual(len(set(got)), 3)
+        for rid in got:
+            wait(lambda rid=rid: self.run_of(rid)["state"] == "finished")
+
+    def test_a_shard_that_cannot_start_is_recorded(self) -> None:
+        self.p.create("exp", template="lightgbm_binary")
+        os.environ["FAKE_LIMEN_PACE"] = "0.2"
+        spawn = self.p._spawn
+        calls: list[int] = []
+
+        def second_fails(args: list[str], log: str,
+                         threads: int) -> subprocess.Popen[bytes]:
+            calls.append(1)
+            if len(calls) == 2:
+                raise OSError("too many open files")
+            return spawn(args, log, threads)
+        with mock.patch.object(self.p, "_spawn", new=second_fails), \
+                self.assertRaisesRegex(ValueError, "could not be started "
+                                       "for s2 and s3: too many open"):
+            self.p.start("exp", 30, 3, False, False)
+        rid = self.p.runs()[0]["id"]
+        run = self.run_of(rid)
+        self.assertEqual([s["state"] for s in run["shards"]],
+                         ["running", "failed", "failed"])
+        self.assertEqual(run["shards"][1]["tail"], "limen run could not be "
+                         "started: too many open files")
+        # the shard that started is the run's, and stops
+        self.p.stop(rid)
+        wait(lambda: self.run_of(rid)["shards"][0]["state"] == "stopped")
+
+    def test_a_process_that_is_no_longer_the_shard_is_left_alone(
+            self) -> None:
+        self.p.create("exp", template="lightgbm_binary")
+        rid = self.p.start("exp", 2, 1, False, False)
+        wait(lambda: self.run_of(rid)["state"] == "finished")
+        # a record of a previous server's, whose shard's process id now
+        # belongs to another process
+        other = subprocess.Popen(["sleep", "30"])
+        try:
+            path = os.path.join(self.root, rid, "grid-run.json")
+            with open(path) as f:
+                record = json.load(f)
+            record["shards"][0].update(state="running", pid=other.pid)
+            with open(path, "w") as f:
+                json.dump(record, f)
+            self.p.procs.clear()
+            with self.assertRaisesRegex(ValueError, "no shard .* is running"):
+                self.p.stop(rid)
+            self.assertIsNone(other.poll())
+        finally:
+            other.send_signal(signal.SIGKILL)
+            other.wait()
+
+    def test_rounds_are_records_not_lines(self) -> None:
+        path = os.path.join(self.tmp, "results.csv")
+        with open(path, "w") as f:
+            f.write('a,b\n1,"two\nlines"\n3,"a ""quoted""\nfield"\n')
+        self.assertEqual(self.p._rows(path), 2)
+        # read on from where it stopped, a record split across the writes
+        with open(path, "a") as f:
+            f.write('5,"half')
+        self.assertEqual(self.p._rows(path), 2)
+        with open(path, "a") as f:
+            f.write(' and\nhalf"\n6,x\n')
+        self.assertEqual(self.p._rows(path), 4)
+        # written again from the start: counted again
+        with open(path, "w") as f:
+            f.write("a,b\n1,2\n")
+        self.assertEqual(self.p._rows(path), 1)
+
+    def test_a_run_removed_while_listed_is_passed_over(self) -> None:
+        gone = os.path.join(self.root, "results", "dev", "gone")
+        folders = self.p._run_folders()
+        with mock.patch.object(self.p, "_run_folders",
+                               new=lambda: [(gone, "limen"), *folders]):
+            self.assertEqual(self.p.runs(), [])
 
     def test_a_run_is_opened_once_when_asked_at_once(self) -> None:
         self.p.create("exp", template="lightgbm_binary")
@@ -426,6 +547,36 @@ class Routes(unittest.TestCase):
         self.assertEqual((code, body["error"]), (400,
                                                  "Limen has no template "
                                                  "'nothing'"))
+
+    def get(self, path: str, host: str) -> int:
+        req = urllib.request.Request(self.base + path,
+                                     headers={"Host": host})
+        try:
+            with urllib.request.urlopen(req) as res:
+                return res.status
+        except urllib.error.HTTPError as err:
+            with err:
+                return err.code
+
+    def test_only_this_servers_own_address_is_answered(self) -> None:
+        port = self.base.rsplit(":", 1)[1]
+        for host in ("127.0.0.1:" + port, "localhost:" + port, "localhost",
+                     "[::1]:" + port, "10.0.0.5:" + port):
+            self.assertEqual(self.get("/", host), 200, host)
+            self.assertEqual(self.get("/api/experiment", host), 200, host)
+        # a name another site's DNS could point here (DNS rebinding)
+        for host in ("evil.example:" + port, "evil.example", "",
+                     "127.0.0.1.evil.example:" + port):
+            self.assertEqual(self.get("/", host), 403, host)
+            self.assertEqual(self.get("/api/experiment", host), 403, host)
+        code, body = self.post("/api/experiment/validate",
+                               {"text": "a: 1\n"},
+                               Host="evil.example:" + port,
+                               Origin="http://evil.example:" + port)
+        self.assertEqual(code, 403)
+        self.assertIn("address", body["error"])
+        self.assertTrue(direct_host("[fe80::1]"))
+        self.assertFalse(direct_host("[::1]x"))
 
     def test_the_project_reads_without_a_token(self) -> None:
         with urllib.request.urlopen(self.base + "/api/experiment") as res:

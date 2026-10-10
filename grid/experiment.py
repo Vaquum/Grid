@@ -27,10 +27,12 @@ a mapping written inline.
 from __future__ import annotations
 
 import difflib
+import hashlib
 import json
 import os
 import random
 import re
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -292,6 +294,23 @@ def _write_text(path: str, text: str) -> None:
     os.replace(tmp, path)
 
 
+def _write_new(path: str, text: str) -> None:
+    """Write a file that must not exist yet; refused when another write
+    made it first."""
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    except FileExistsError as err:
+        raise ValueError("%s exists already" % os.path.basename(path)) from err
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+def _version_of(text: str) -> str:
+    """A manifest's version: what a save must find on disk to write over
+    it."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
 def _read_json(path: str) -> Json | None:
     try:
         with open(path, encoding="utf-8") as f:
@@ -331,6 +350,14 @@ def _tail(path: str, lines: int = 6) -> str | None:
     return "\n".join(kept[-lines:]) or None
 
 
+def _listdir(path: str) -> list[str]:
+    """A folder's entries; none when it is gone (removed while listed)."""
+    try:
+        return os.listdir(path)
+    except OSError:
+        return []
+
+
 def _and(items: list[str]) -> str:
     return items[0] if len(items) == 1 else "%s and %s" % (
         ", ".join(items[:-1]), items[-1])
@@ -362,7 +389,10 @@ class Project:
         self.open_lock = threading.Lock()
         self.notes: dict[str, str] = {}
         self.procs: dict[tuple[str, str], subprocess.Popen[bytes]] = {}
-        self.counts: dict[str, tuple[int, float, int]] = {}
+        # results.csv -> (bytes read, mtime, inode, records, in a quote)
+        self.counts: dict[str, tuple[int, float, int, int, bool]] = {}
+        # manifest -> (mtime_ns, size, version)
+        self.versions: dict[str, tuple[int, int, str]] = {}
         self.names: dict[str, tuple[float, str | None, int | None]] = {}
         self._adopt()
 
@@ -389,6 +419,9 @@ class Project:
 
     def _templates(self) -> list[Json]:
         out = self._limen("list-templates", timeout=60)
+        if out.returncode != 0:
+            raise ValueError("%s list-templates failed: %s" % (
+                self.cli, (out.stdout + out.stderr).strip()[-300:]))
         found: list[Json] = []
         for line in out.stdout.splitlines():
             m = re.match(r"^ {2}(\S+)\s{2,}(.*)$", line)
@@ -429,25 +462,52 @@ class Project:
         return base + ".yaml"
 
     def manifest(self, name: str) -> Json:
+        """The experiment's manifest and its version, from one read, so the
+        two belong together."""
         path = self._manifest_path(name)
-        if not os.path.isfile(path):
-            raise ValueError("no experiment %s in manifests/" % name)
-        with open(path, encoding="utf-8") as f:
-            text = f.read()
-        return {"name": name, "text": text, "mtime": os.path.getmtime(path)}
+        try:
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+        except FileNotFoundError as err:
+            raise ValueError("no experiment %s in manifests/" % name) from err
+        return {"name": name, "text": text, "version": _version_of(text)}
 
-    def save(self, name: str, text: str, mtime: object) -> float:
-        """Write the experiment's manifest; refused when the file changed
-        since the page read it (``mtime``), so nothing written elsewhere
-        is lost."""
+    def _file_version(self, path: str) -> str | None:
+        """A manifest file's version, read again only when it changes."""
+        try:
+            st = os.stat(path)
+        except OSError:
+            return None
+        seen = self.versions.get(path)
+        if seen and seen[0] == st.st_mtime_ns and seen[1] == st.st_size:
+            return seen[2]
+        try:
+            with open(path, encoding="utf-8") as f:
+                version = _version_of(f.read())
+        except (OSError, UnicodeDecodeError):
+            return None
+        self.versions[path] = (st.st_mtime_ns, st.st_size, version)
+        return version
+
+    def save(self, name: str, text: str, version: object) -> str:
+        """Write the experiment's manifest; refused unless the file still
+        holds what the page read (``version``), so nothing written since,
+        here or elsewhere, is lost. Its new version."""
+        if not isinstance(version, str):
+            raise ValueError("a save names the version of the manifest it "
+                             "read")
         path = self._manifest_path(name)
         with self.lock:
-            if os.path.isfile(path) and isinstance(mtime, (int, float)) and \
-                    abs(os.path.getmtime(path) - float(mtime)) > 1e-6:
+            try:
+                with open(path, encoding="utf-8") as f:
+                    now: str | None = f.read()
+            except FileNotFoundError:
+                now = None
+            if now is not None and _version_of(now) != version:
                 raise ValueError("%s changed on disk since it was opened; "
                                  "open it again" % self._rel(path))
             _write_text(path, text)
-            return os.path.getmtime(path)
+        return _version_of(text)
 
     def create(self, name: str, template: object = None,
                text: object = None) -> str:
@@ -456,24 +516,39 @@ class Project:
         path = self._manifest_path(name)
         if os.path.exists(path):
             raise ValueError("%s exists already" % self._rel(path))
-        os.makedirs(os.path.dirname(path), exist_ok=True)
         if isinstance(template, str):
             if template not in {t["name"] for t in self.templates}:
                 raise ValueError("Limen has no template %r" % template)
-            out = self._limen("init", path, "--template", template)
-            if out.returncode != 0 or not os.path.isfile(path):
-                raise ValueError("limen init failed: %s"
-                                 % (out.stdout + out.stderr).strip()[-400:])
-            return name
-        if not isinstance(text, str) or not text.strip():
+            text = self._from_template(name, template)
+        elif not isinstance(text, str) or not text.strip():
             raise ValueError("a new experiment starts from a template or "
                              "from a manifest's text")
         # the output path of the run it came from is that run's
         body = remove_value(set_values(text, {"metadata.name": name}),
                             "uel.output_path")
         with self.lock:
-            _write_text(path, body)
+            # the name is the first create's: another one finds it taken
+            path = self._manifest_path(name)
+            if os.path.exists(path):
+                raise ValueError("%s exists already" % self._rel(path))
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            _write_new(path, body)
         return name
+
+    def _from_template(self, name: str, template: str) -> str:
+        """A template's manifest as ``limen init`` writes it, made apart
+        from manifests/ (create writes it there)."""
+        tmp = tempfile.mkdtemp(prefix="grid-init-")
+        try:
+            path = os.path.join(tmp, name + ".yaml")
+            out = self._limen("init", path, "--template", template)
+            if out.returncode != 0 or not os.path.isfile(path):
+                raise ValueError("limen init failed: %s"
+                                 % (out.stdout + out.stderr).strip()[-400:])
+            with open(path, encoding="utf-8") as f:
+                return f.read()
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def experiments(self, runs: list[Json]) -> list[Json]:
         """The working manifests, and the experiments only runs name, each
@@ -488,31 +563,48 @@ class Project:
                 if ext in (".yaml", ".yml") and os.path.isfile(path) and \
                         NAME.match(stem) and stem not in names:
                     names[stem] = {"name": stem, "file": "manifests/" + entry,
-                                   "mtime": os.path.getmtime(path),
+                                   "version": self._file_version(path),
                                    "runs": []}
         for r in runs:
             name = str(r["experiment"])
-            names.setdefault(name, {"name": name, "file": None, "mtime": None,
+            names.setdefault(name, {"name": name, "file": None,
+                                    "version": None,
                                     "runs": []})["runs"].append(r["id"])
         return sorted(names.values(), key=lambda e: str(e["name"]))
 
     # -- runs ---------------------------------------------------------------
     def _rows(self, results: str) -> int:
-        """The rounds a results.csv holds (its lines less the header),
-        counted again only when the file has changed."""
+        """The rounds a results.csv holds: its whole records less the
+        header (a line break inside a quoted field ends no record), read
+        on from where the last count stopped while the file grows."""
         try:
             st = os.stat(results)
         except OSError:
             return 0
+        pos, records, quoted = 0, 0, False
         seen = self.counts.get(results)
-        if seen and seen[0] == st.st_size and seen[1] == st.st_mtime:
-            return seen[2]
-        with open(results, "rb") as f:
-            n = sum(chunk.count(b"\n") for chunk in iter(
-                lambda: f.read(1 << 20), b""))
-        rows = max(0, n - 1)
-        self.counts[results] = (st.st_size, st.st_mtime, rows)
-        return rows
+        if seen is not None and seen[2] == st.st_ino:
+            if seen[0] == st.st_size and seen[1] == st.st_mtime:
+                return max(0, seen[3] - 1)
+            if st.st_size >= seen[0]:
+                pos, records, quoted = seen[0], seen[3], seen[4]
+        try:
+            with open(results, "rb") as f:
+                f.seek(pos)
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    pos += len(chunk)
+                    parts = chunk.split(b"\n")
+                    for part in parts[:-1]:
+                        if part.count(b'"') % 2:
+                            quoted = not quoted
+                        if not quoted:
+                            records += 1
+                    if parts[-1].count(b'"') % 2:
+                        quoted = not quoted
+        except OSError:
+            return 0
+        self.counts[results] = (pos, st.st_mtime, st.st_ino, records, quoted)
+        return max(0, records - 1)
 
     def _meta(self, directory: str) -> tuple[str | None, int | None]:
         """A Limen result directory's experiment name and planned rounds,
@@ -551,14 +643,14 @@ class Project:
             top = os.path.join(self.root, base)
             if not os.path.isdir(top):
                 continue
-            for a in sorted(os.listdir(top)):
+            for a in sorted(_listdir(top)):
                 p1 = os.path.join(top, a)
                 if base == "results" and a == "dev" or not os.path.isdir(p1):
                     continue
                 if os.path.isfile(os.path.join(p1, "metadata.json")):
                     out.append((p1, "limen"))
                     continue
-                for b in sorted(os.listdir(p1)):
+                for b in sorted(_listdir(p1)):
                     p2 = os.path.join(p1, b)
                     if os.path.isfile(os.path.join(p2, RECORD)):
                         out.append((p2, "grid"))
@@ -604,8 +696,8 @@ class Project:
                         "rows": self._rows(os.path.join(folder, label,
                                                         "results.csv")),
                         "state": sh.get("state"), "exit": sh.get("exit"),
-                        "tail": _tail(os.path.join(folder, "logs",
-                                                   label + ".log"))
+                        "tail": sh.get("error") or _tail(os.path.join(
+                            folder, "logs", label + ".log"))
                         if sh.get("state") == "failed" else None})
                 started = record.get("started_at")
                 name = str(record.get("experiment") or "")
@@ -617,8 +709,11 @@ class Project:
                            "state": "finished" if planned is not None and
                            rows >= planned else "incomplete", "exit": None,
                            "tail": None}]
-                started = os.path.getmtime(os.path.join(folder,
-                                                        "metadata.json"))
+                try:
+                    started = os.path.getmtime(os.path.join(folder,
+                                                            "metadata.json"))
+                except OSError:
+                    continue    # removed while listed
                 name = name_got or os.path.basename(folder)
             states = {str(s["state"]) for s in shards}
             state = next((x for x in ("running", "failed", "stopped",
@@ -712,11 +807,19 @@ class Project:
         mode = get_value(text, "metadata.mode")
         base = "results" if mode == "production" else "results/dev"
         stamp = time.strftime("%Y%m%d_%H%M%S")
-        folder = os.path.join(self.root, base, name, stamp)
-        k = 2
-        while os.path.exists(folder):
-            folder = os.path.join(self.root, base, name, "%s_%d" % (stamp, k))
-            k += 1
+        parent = os.path.join(self.root, base, name)
+        os.makedirs(parent, exist_ok=True)
+        k = 1
+        while True:
+            # the folder is this run's once made: a start beside it takes
+            # the next
+            folder = os.path.join(parent, stamp if k == 1
+                                  else "%s_%d" % (stamp, k))
+            try:
+                os.mkdir(folder)
+                break
+            except FileExistsError:
+                k += 1
         rel_out = os.path.relpath(folder, os.path.join(self.root, base))
         os.makedirs(os.path.join(folder, "manifests"))
         os.makedirs(os.path.join(folder, "logs"))
@@ -755,21 +858,39 @@ class Project:
                                    "outputs": bool(outputs)},
                         "shards": records}
         rid = self._rel(folder)
+        failed: str | None = None
         with self.lock:
             _write_json(os.path.join(folder, RECORD), record)
             for s in records:
                 label = str(s["label"])
-                proc = self._spawn(
-                    ["run", "--no-progress-bar",
-                     os.path.join(folder, "manifests", label + ".yaml")],
-                    os.path.join(folder, "logs", label + ".log"), threads)
-                s["pid"] = proc.pid
-                self.procs[(rid, label)] = proc
+                if failed is None:
+                    try:
+                        proc = self._spawn(
+                            ["run", "--no-progress-bar",
+                             os.path.join(folder, "manifests",
+                                          label + ".yaml")],
+                            os.path.join(folder, "logs", label + ".log"),
+                            threads)
+                    except OSError as err:
+                        failed = str(err)
+                    else:
+                        s["pid"] = proc.pid
+                        self.procs[(rid, label)] = proc
+                        continue
+                # the shards started go on, watched; the rest are recorded
+                # as failed, with why
+                s.update(state="failed",
+                         error="limen run could not be started: %s" % failed)
             _write_json(os.path.join(folder, RECORD), record)
         for s in records:
-            self._watch(rid, folder, str(s["label"]))
+            if s["state"] == "running":
+                self._watch(rid, folder, str(s["label"]))
         threading.Thread(target=self._open_when_written,
                          args=(rid, folder), daemon=True).start()
+        if failed is not None:
+            raise ValueError("limen run could not be started for %s: %s" % (
+                _and([str(s["label"]) for s in records
+                      if s["state"] == "failed"]), failed))
         return rid
 
     def _watch(self, rid: str, folder: str, label: str) -> None:
@@ -932,15 +1053,29 @@ class Project:
             if record is None:
                 raise ValueError("%s is not a run Grid started" % rid)
             asked = 0
+            key = self._rel(folder)
             for s in cast(list[Json], record.get("shards") or []):
                 pid = s.get("pid")
                 if s.get("state") != "running" or not isinstance(pid, int):
                     continue
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                    asked += 1
-                except ProcessLookupError:
-                    continue
+                proc = self.procs.get((key, str(s.get("label"))))
+                if proc is not None:
+                    # a process of this server's: signalled only while it
+                    # has not ended
+                    if proc.poll() is not None:
+                        continue
+                    proc.send_signal(signal.SIGTERM)
+                else:
+                    # one a previous server started: its id may have gone
+                    # to another process since, so it must still be the
+                    # shard's
+                    if not _alive(pid, folder):
+                        continue
+                    try:
+                        os.kill(pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        continue
+                asked += 1
                 s["stopping"] = True
             _write_json(path, record)
         if not asked:
@@ -958,6 +1093,7 @@ class Project:
                 raise ValueError("%s is not a run Grid started" % rid)
             threads = record.get("threads")
             started: list[str] = []
+            failed: str | None = None
             for s in cast(list[Json], record.get("shards") or []):
                 label = str(s.get("label"))
                 directory = os.path.join(folder, label)
@@ -965,20 +1101,35 @@ class Project:
                         not os.path.isfile(os.path.join(directory,
                                                         "checkpoint.json")):
                     continue
-                proc = self._spawn(
-                    ["run", "--no-progress-bar", "--resume", directory],
-                    os.path.join(folder, "logs", label + ".log"),
-                    threads if isinstance(threads, int) else 1)
-                s.update(pid=proc.pid, state="running", exit=None,
-                         stopping=False)
-                self.procs[(key, label)] = proc
-                started.append(label)
+                if failed is None:
+                    try:
+                        proc = self._spawn(
+                            ["run", "--no-progress-bar", "--resume",
+                             directory],
+                            os.path.join(folder, "logs", label + ".log"),
+                            threads if isinstance(threads, int) else 1)
+                    except OSError as err:
+                        failed = str(err)
+                    else:
+                        s.update(pid=proc.pid, state="running", exit=None,
+                                 stopping=False, error=None)
+                        self.procs[(key, label)] = proc
+                        started.append(label)
+                        continue
+                s["error"] = ("limen run --resume could not be started: %s"
+                              % failed)
             _write_json(path, record)
+        for label in started:
+            self._watch(key, folder, label)
+        if started and key not in self.opened:
+            threading.Thread(target=self._open_when_written,
+                             args=(key, folder), daemon=True).start()
+        if failed is not None:
+            raise ValueError("limen run --resume could not be started: %s"
+                             % failed)
         if not started:
             raise ValueError("no shard of %s has a checkpoint to resume from"
                              % rid)
-        for label in started:
-            self._watch(key, folder, label)
 
     def diff(self, name: str, text: str) -> Json:
         """The experiment's manifest against the one its last run started
