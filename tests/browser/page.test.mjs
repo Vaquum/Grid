@@ -1404,8 +1404,23 @@ test("cohort: a Limen run's pool chosen on the first half, judged on the second,
     // the project's newest run opens with the page; on a Limen run the rail
     // ends in Cohort (8)
     await page.waitForSelector(".rail button[aria-label=Cohort]", { timeout: 20000 });
+    // the project's predictors cannot be read at first: the view says so,
+    // and reads them again until they are read
+    const unread = /\/api\/experiment$/;
+    await page.route(unread, route => route.request().method() === "GET"
+      ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "the project could not be read" }) })
+      : route.continue());
+    const logged = errors.length;
     await page.keyboard.press("8");
     await page.waitForSelector(".co-table");
+    const failed = "section[aria-labelledby=co-make] .co-error";
+    await page.waitForSelector(failed, { timeout: 20000 });
+    assert.equal(await page.locator(failed).innerText(), "The project's predictors could not be read: the project could not be read");
+    await page.unroute(unread);
+    await page.waitForSelector(failed, { state: "detached", timeout: 20000 });
+    // (the browser logs each failed read)
+    assert.ok(errors.slice(logged).every(e => /status of 500/.test(e)), errors.slice(logged).join("\n"));
+    errors.splice(logged);
     // the pool: no pocket and no gate set (Grid's own gates are not the pool's)
     assert.match(await page.locator(".strip").innerText(), /Pool\s+4\s+of 4 in view/);
     // the members, the best on the first half, from one result directory
@@ -1420,6 +1435,19 @@ test("cohort: a Limen run's pool chosen on the first half, judged on the second,
     await page.waitForFunction(() => /Members\s+1\s/.test(document.querySelector(".strip").innerText), null, { timeout: 20000 });
     await page.locator(".co-table tbody input").nth(1).check();
     await page.waitForFunction(() => /Members\s+2\s/.test(document.querySelector(".strip").innerText), null, { timeout: 20000 });
+    // a needle not measured on each half: the members are chosen on the
+    // whole window, one value a row, and the second half chose them too
+    const needle = await page.locator("#target-pick").inputValue();
+    await page.selectOption("#target-pick", "auc");
+    await page.waitForFunction(() => /^Chosen on the whole window \(.+ is not measured on each half\), the cohort makes .+ a bar on the second half, which chose it too;/
+      .test((document.querySelector(".co-verdict") || {}).textContent || ""), null, { timeout: 20000 });
+    assert.equal(await page.locator(".co-table").getAttribute("aria-label"), "The pool, best first");
+    assert.equal(await page.locator(".co-table thead th").count(), 4);
+    assert.equal(await page.locator(".co-table tbody tr").first().locator("td").count(), 4);
+    assert.deepEqual(await page.locator(".co-judge th.co-half").allInnerTexts(), ["First half", "Second half (chose it too)"]);
+    await page.selectOption("#target-pick", needle);
+    await page.waitForFunction(() => /^Chosen on the first half,/.test((document.querySelector(".co-verdict") || {}).textContent || ""), null, { timeout: 20000 });
+    assert.deepEqual(await page.locator(".co-judge th.co-half").allInnerTexts(), ["First half (chose it)", "Second half (judges it)"]);
     // made a predictor in the project: Limen's Trainer and Cohort (the stand-in)
     await page.locator(".co-form input").fill("lgbm_pair");
     await page.locator(".co-form .btn.primary").click();

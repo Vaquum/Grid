@@ -5,7 +5,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { poolOf, poolGates, rankedOf, dirsOf, membersOf, meanOf, howChosen, chosenText } from "../../web/js/view-cohort.js";
+import { poolOf, poolGates, pocketOf, rankedOf, dirsOf, membersOf, meanOf, howChosen, chosenText } from "../../web/js/view-cohort.js";
 
 const NaN_ = Number.NaN;
 const set = { label: "Net PnL per bar ≥ 0", pass: Float64Array.from([1, 1, 0, 1, NaN_, 1]) };
@@ -25,6 +25,12 @@ test("the pool is the rows in view, in the pocket, passing every gate set", () =
   assert.deepEqual(poolOf(schema, all, [], 2), [0, 1]);
   // the pocket's conditions hold too
   assert.deepEqual(poolOf(schema, all, [{ dim: "shard", keys: ["s2"] }], 6), [1, 3, 5]);
+  // one kept in the address that names a parameter this run does not have
+  // is passed over, as the Pocket view and the context pass it over
+  const kept = [{ dim: "gone", keys: ["x"] }, { dim: "shard", keys: ["s2"] }];
+  assert.deepEqual(pocketOf(schema, kept), [{ dim: "shard", keys: ["s2"] }]);
+  assert.deepEqual(poolOf(schema, all, kept, 6), [1, 3, 5]);
+  assert.deepEqual(poolOf(schema, all, [{ dim: "gone", keys: ["x"] }], 6), [0, 1, 3, 5]);
 });
 
 test("ranked on the first half, the best first, rows without both halves left out", () => {
@@ -60,12 +66,18 @@ test("the members' mean leaves out what a member did not have", () => {
 });
 
 test("a predictor keeps how its members were chosen, said as the page says it", () => {
-  const m = { target: { label: "Net PnL per bar", halves: [new Float64Array(6), new Float64Array(6)] },
-    state: { pocket: [{ dim: "shard", keys: ["s2"] }] }, schema };
-  const how = howChosen(m, [1, 3]);
+  const m = { target: { label: "Net PnL per bar", halves: [new Float64Array(6), new Float64Array(6)] }, schema };
+  const pocket = [{ dim: "gone", keys: ["x"] }, { dim: "shard", keys: ["s2"] }];
+  const how = howChosen(m, pocket, [5, 1, 3], [5, 1, 3]);
   // not judged yet: no figures kept
   assert.deepEqual(how, { needle: "Net PnL per bar", on: "the first half", best: 5, byHand: { out: 0, in: 0 },
     pocket: ["shard = s2"], gates: ["Net PnL per bar ≥ 0"] });
+  // by hand: the best 5 less the members, and the members past the best 5,
+  // as the ranking stands (not every edit made since)
+  const mine = [9, 8, 7, 6, 5, 4, 3];
+  assert.deepEqual(howChosen(m, [], mine, [9, 7, 6, 5, 3]).byHand, { out: 1, in: 1 });
+  assert.deepEqual(howChosen(m, [], mine, [9, 8, 7, 6, 5]).byHand, { out: 0, in: 0 });
+  assert.deepEqual(howChosen(m, [], mine, [8]).byHand, { out: 4, in: 0 });
   assert.deepEqual(chosenText(how), ["The best 5 by Net PnL per bar on the first half; in the pocket shard = s2; passing Net PnL per bar ≥ 0."]);
   const judged = { ...how, pocket: [], gates: [], byHand: { out: 1, in: 2 },
     judged: { on: "the second half", bars: 696, fee: 5, slip: 2.5, cohort: { pnl: 0.12, trades: 34 },

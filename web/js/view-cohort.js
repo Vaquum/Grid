@@ -42,6 +42,13 @@ export function poolGates(schema) {
   return schema.gates.filter(g => !standing.has(g));
 }
 
+// The pocket's conditions on this run's parameters: one kept in the
+// address may name a parameter the run does not have (as the Pocket view
+// and the context, it is passed over).
+export function pocketOf(schema, pocket) {
+  return (pocket || []).filter(c => schema.dimById.has(c.dim));
+}
+
 // The rows in view that are in the pocket and pass every gate of
 // poolGates.
 export function poolOf(schema, rows, pocket, edge) {
@@ -49,7 +56,7 @@ export function poolOf(schema, rows, pocket, edge) {
   for (let j = 0; j < rows.length; j++) inView[rows[j]] = 1;
   const gates = poolGates(schema);
   const out = [];
-  for (const i of rowsIn(schema, pocket, edge)) {
+  for (const i of rowsIn(schema, pocketOf(schema, pocket), edge)) {
     if (!inView[i]) continue;
     let ok = true;
     for (const g of gates) if (g.pass[i] !== 1) { ok = false; break; }
@@ -93,7 +100,8 @@ export function renderCohort(view, m, A) {
   }
   if (pick.run !== m.ds.id) reset(m.ds.id);
   const t = m.target;
-  const pool = poolOf(m.schema, m.rows, m.state.pocket || [], m.edge);
+  const pocket = pocketOf(m.schema, m.state.pocket);
+  const pool = poolOf(m.schema, m.rows, pocket, m.edge);
   const ranked = rankedOf(t, pool);
   const dirOf = dirsOf(m.schema);
   const counts = new Map();
@@ -102,10 +110,10 @@ export function renderCohort(view, m, A) {
   const { mine, members } = membersOf(ranked, dirOf, pick.dir, pick.n, pick.out, pick.in);
   judge(m, A, members);
   view.append(cohortStrip(m, A, pool, members, t));
-  view.append(poolIsland(m, A, pool));
+  view.append(poolIsland(m, A, pocket, pool));
   view.append(cohortMembersIsland(m, A, t, mine, members, dirOf, counts));
   view.append(judgedIsland(m, A, members, t));
-  if (A.project) view.append(makeIsland(m, A, members));
+  if (A.project) view.append(makeIsland(m, A, pocket, mine, members));
 }
 
 // ---------------------------------------------------------------------------
@@ -169,7 +177,7 @@ function cohortStrip(m, A, pool, members, t) {
       h("b", { text: "The cohort on the second half of the test window" }),
       h("div", { class: "k", text: "Its members' probabilities averaged, over 0.5, executed long-flat at the costs set below." })), null, stale),
     stripCell("Best member alone", best ? bpsText(pnlOf(second(best))) : "–", "net per bar", () => h("div", null,
-      h("b", { text: "The member best on the first half, alone, on the second" })), null, stale),
+      h("b", { text: t.halves ? "The member best on the first half, alone, on the second" : "The member best on the whole window, alone, on the second half" })), null, stale),
     stripCell("Members' mean", mean ? bpsText(mean.pnl) : "–", "net per bar", () => h("div", null,
       h("b", { text: "The members one by one, on average, on the second half" })), null, stale),
   ];
@@ -194,8 +202,7 @@ export function meanOf(parts) {
 // ---------------------------------------------------------------------------
 // The pool
 
-function poolIsland(m, A, pool) {
-  const pocket = m.state.pocket || [];
+function poolIsland(m, A, pocket, pool) {
   const gates = poolGates(m.schema);
   const standing = m.schema.gatesStanding || [];
   const isl = h("section", { class: "island", "aria-labelledby": "co-pool" });
@@ -241,13 +248,14 @@ function cohortMembersIsland(m, A, t, mine, members, dirOf, counts) {
       h("span", { text: ": a Limen Cohort takes one result directory, and each of this run's has a manifest of its own (its seed)." })));
   }
   if (!t.halves) {
-    isl.append(h("p", { class: "isl-note", text: `${t.label} has no halves (the run did not record its execution), so the members are chosen on the whole window and the second half below has chosen them too.` }));
+    isl.append(h("p", { class: "isl-note", text: `${t.label} is not measured on each half (only the figures of the run's recorded execution are), so the members are chosen on the whole window, and the second half below chose them too; a needle of the execution, such as net PnL per bar, judges them on data that did not choose them.` }));
   }
   if (!mine.length) {
-    isl.append(h("p", { class: "isl-note", text: "No row of the pool has a value of the needle on both halves." }));
+    isl.append(h("p", { class: "isl-note", text: t.halves ? "No row of the pool has a value of the needle on both halves." : "No row of the pool has a value of the needle." }));
     return isl;
   }
-  const [a, b] = t.halves || [t.values, t.values];
+  // the needle on each half, or over the whole window
+  const values = t.halves || [t.values];
   const shown = mine.slice(0, pick.n + pick.more);
   const tb = h("tbody");
   shown.forEach((i, r) => {
@@ -261,12 +269,13 @@ function cohortMembersIsland(m, A, t, mine, members, dirOf, counts) {
     tb.append(h("tr", { class: "clickable" + (on ? " sel" : ""), dataset: { row: String(i) },
       onclick: (ev) => { if (ev.target !== box) A.select({ kind: "row", i }); } },
     h("td", null, box), h("td", { class: "r num", text: fmtInt(r + 1) }), h("td", { class: "r num", text: fmtInt(i) }),
-    h("td", { class: "r num", text: fmtRowValue(t, a[i]) }), h("td", { class: "r num", text: fmtRowValue(t, b[i]) })));
+    ...values.map(v => h("td", { class: "r num", text: fmtRowValue(t, v[i]) }))));
   });
-  isl.append(h("div", { class: "table-wrap" }, h("table", { class: "vals co-table", "aria-label": "The pool, best on the first half first" },
+  const heads = t.halves ? ["First half", "Second half"] : [t.label];
+  isl.append(h("div", { class: "table-wrap" }, h("table", { class: "vals co-table",
+    "aria-label": t.halves ? "The pool, best on the first half first" : "The pool, best first" },
     h("thead", null, h("tr", null, h("th", null, h("span", { class: "sr", text: "Member" })), h("th", { class: "r", text: "Rank" }),
-      h("th", { class: "r", text: "Row" }), h("th", { class: "r", text: t.halves ? "First half" : t.label }),
-      h("th", { class: "r", text: t.halves ? "Second half" : "" }))), tb)));
+      h("th", { class: "r", text: "Row" }), ...heads.map(x => h("th", { class: "r", text: x })))), tb)));
   if (mine.length > shown.length) {
     const left = mine.length - shown.length;
     isl.append(h("p", { class: "isl-note co-more" }, `${fmtInt(left)} more row${left === 1 ? "" : "s"} of the pool rank lower. `,
@@ -305,7 +314,9 @@ function judgedIsland(m, A, members, t) {
     h("span", { class: "isl-note", text: `per fill; the members' own, unless set here. ${fmtInt(j.bars)} bars they share, the cohort long on ${fmtPct(j.fired, 0)} of their signals.` })));
   const best = j.members[0], mean = { whole: meanOf(j.members.map(x => x.whole)), halves: [meanOf(j.members.map(x => x.halves && x.halves[0])), meanOf(j.members.map(second))] };
   const c2 = second(j.cohort), b2 = second(best);
-  isl.append(h("p", { class: "co-verdict" }, `Chosen on the first half, the cohort makes ${bpsText(pnlOf(c2))} a bar on the second; its best member alone ${bpsText(pnlOf(b2))}; its members on average ${bpsText(pnlOf(mean.halves[1]))}.`));
+  const verdict = t.halves ? `Chosen on the first half, the cohort makes ${bpsText(pnlOf(c2))} a bar on the second`
+    : `Chosen on the whole window (${t.label} is not measured on each half), the cohort makes ${bpsText(pnlOf(c2))} a bar on the second half, which chose it too`;
+  isl.append(h("p", { class: "co-verdict" }, `${verdict}; its best member alone ${bpsText(pnlOf(b2))}; its members on average ${bpsText(pnlOf(mean.halves[1]))}.`));
   if (j.notes.length) isl.append(h("ul", { class: "co-notes" }, j.notes.map(x => h("li", { text: x }))));
   const rows = [["Cohort", j.cohort, true], ["Best member alone", best, false], ["Members' mean", mean, false]];
   const cols = (p) => p ? [bpsText(p.pnl), fmtInt(p.trades), bpsText(p.tradeMean), Number.isFinite(p.tradeT) ? fmtNum(p.tradeT, 2) : "–"] : ["–", "–", "–", "–"];
@@ -318,7 +329,8 @@ function judgedIsland(m, A, members, t) {
   const heads = ["Net per bar", "Trades", "Mean trade", "Per-trade t"];
   isl.append(h("div", { class: "table-wrap" }, h("table", { class: "vals co-judge", "aria-label": "The cohort, its best member and its members' mean, on each half" },
     h("thead", null,
-      h("tr", null, h("th", null), h("th", { colspan: "4", class: "co-half", text: "First half (chose it)" }), h("th", { colspan: "4", class: "co-half co-h2", text: "Second half (judges it)" })),
+      h("tr", null, h("th", null), h("th", { colspan: "4", class: "co-half", text: t.halves ? "First half (chose it)" : "First half" }),
+        h("th", { colspan: "4", class: "co-half co-h2", text: t.halves ? "Second half (judges it)" : "Second half (chose it too)" })),
       h("tr", null, h("th", null), ...heads.map(x => h("th", { class: "r", text: x })), ...heads.map(x => h("th", { class: "r co-h2", text: x })))),
     tb)));
   return isl;
@@ -334,30 +346,35 @@ const made = { list: null, at: 0, loading: false, name: null, busy: false, error
 async function cohorts(A) {
   if (made.loading) return;
   made.loading = true;
+  let changed = false;
   try {
     const res = await fetch(A.project.url, { cache: "no-store" });
     const out = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(out.error || `the server answered ${res.status}`);
     const list = out.cohorts || [];
-    const changed = JSON.stringify(list) !== JSON.stringify(made.list);
+    changed = made.error !== null || JSON.stringify(list) !== JSON.stringify(made.list);
     made.list = list;
     made.error = null;
-    if (changed) A.rerender();
   } catch (err) {
-    made.error = String(err.message || err);
+    const said = `The project's predictors could not be read: ${String(err.message || err)}`;
+    changed = said !== made.error;
+    made.error = said;
   } finally {
     made.loading = false;
     made.at = Date.now();
   }
-  // read again while one is being made
+  if (changed) A.rerender();
+  // read again while one is being made, or until the listing is read
   clearTimeout(made.timer);
-  if ((made.list || []).some(c => c.state === "training") && A.view() === "cohort") made.timer = setTimeout(() => cohorts(A), 2000);
+  if (A.view() === "cohort" && (made.error || (made.list || []).some(c => c.state === "training"))) {
+    made.timer = setTimeout(() => cohorts(A), made.error ? 5000 : 2000);
+  }
 }
 
-function makeIsland(m, A, members) {
+function makeIsland(m, A, pocket, mine, members) {
   const isl = h("section", { class: "island", "aria-labelledby": "co-make" });
   isl.append(h("header", { class: "isl-head" }, h("h2", { class: "isl-title", id: "co-make", text: "Predictor" })));
-  if (made.list === null || Date.now() - made.at > 5000) cohorts(A);
+  if (made.at === 0 || Date.now() - made.at > 5000) cohorts(A);
   const exp = m.ds.meta.experiment;
   const base = String(((exp.manifest || {}).metadata || {}).name || "experiment").replace(/[^A-Za-z0-9_-]+/g, "_");
   if (made.name === null) made.name = `${base}_cohort`;
@@ -365,7 +382,7 @@ function makeIsland(m, A, members) {
     "aria-label": "The predictor's name", dataset: { focus: "co-name" } });
   name.addEventListener("input", () => { made.name = name.value; });
   const go = h("button", { class: "btn primary", type: "button", disabled: made.busy || !members.length ? true : null, dataset: { focus: "co-go" },
-    onclick: () => makePredictor(m, A, members, howChosen(m, members)) }, made.busy ? "Starting…" : "Make predictor");
+    onclick: () => makePredictor(m, A, members, howChosen(m, pocket, mine, members)) }, made.busy ? "Starting…" : "Make predictor");
   tip(go, "Limen's Trainer retrains each member as its round ran, and Limen's Cohort binds them; written into the project's cohorts/.");
   isl.append(h("div", { class: "co-form" }, h("label", { class: "ex-field" }, h("span", { class: "k", text: "Name" }), name), go));
   isl.append(h("p", { class: "isl-note", text: `${fmtInt(members.length)} member${members.length === 1 ? "" : "s"}${pick.dir ? ` from ${pick.dir}` : ""}. Each is trained again on the data its round used, a few seconds each, and checked against what its round recorded.` }));
@@ -394,17 +411,20 @@ function makeIsland(m, A, members) {
 }
 
 // How the members were chosen, and how they were judged, as the page says
-// it: the predictor keeps it (cohort.json's "chosen").
-export function howChosen(m, members) {
+// it: the predictor keeps it (cohort.json's "chosen"). The rows taken out
+// or put in by hand are those that made the members differ from the best
+// N of the directory's ranked pool (`mine`) as it stands.
+export function howChosen(m, pocket, mine, members) {
   const t = m.target;
   const j = pick.judging ? null : pick.judged;
-  const pocket = (m.state.pocket || []).map(c => {
+  const said = pocketOf(m.schema, pocket).map(c => {
     const d = m.schema.dimById.get(c.dim);
-    return d ? `${d.label} = ${c.keys.map(k => (d.levels.find(l => l.key === k) || { label: k }).label).join(" or ")}` : null;
-  }).filter(Boolean);
+    return `${d.label} = ${c.keys.map(k => (d.levels.find(l => l.key === k) || { label: k }).label).join(" or ")}`;
+  });
+  const top = new Set(mine.slice(0, pick.n)), chosen = new Set(members);
   const out = { needle: t.label, on: t.halves ? "the first half" : "the whole window", best: pick.n,
-    byHand: { out: pick.out.size, in: pick.in.size },
-    pocket, gates: poolGates(m.schema).map(g => g.label) };
+    byHand: { out: [...top].filter(i => !chosen.has(i)).length, in: members.filter(i => !top.has(i)).length },
+    pocket: said, gates: poolGates(m.schema).map(g => g.label) };
   if (j) {
     const half = (p) => p ? { pnl: p.pnl, trades: p.trades } : null;
     out.judged = { on: "the second half", bars: j.bars, fee: j.fee, slip: j.slip, cohort: half(second(j.cohort)),
