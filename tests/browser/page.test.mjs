@@ -477,7 +477,11 @@ test("charts are drawn at their box's width, so their text is the small size at 
     for (const c of charts) assert.equal(c.fs, "11px");
   }
   // the cards of a row start their charts at one height, however their tags
-  // wrap: each row's chart tops, by the row's top
+  // wrap: each row's chart tops, by the row's top, once the cards are laid
+  // out in rows at this width (a measure taken while the view is drawn
+  // again after the resize reads every box at 0)
+  await page.waitForFunction(() => new Set([...document.querySelectorAll(".rn-grid .rn-card")].map(c => Math.round(c.getBoundingClientRect().top))).size > 1,
+    null, { timeout: 10000 });
   const rows = await page.$$eval(".rn-grid .rn-card", cards => {
     const by = {};
     for (const c of cards) (by[Math.round(c.getBoundingClientRect().top)] ||= []).push(Math.round(c.querySelector(".chart").getBoundingClientRect().top));
