@@ -31,6 +31,10 @@ from grid.sweep import Json, Run, Sweep
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "..", "fixtures",
                        "limen_run")
+# Limen's own example of the validation-return objective
+# (docs/examples/logreg_return.yaml), 40 rounds with Limen 5.19.0
+OBJECTIVE = os.path.join(os.path.dirname(__file__), "..", "fixtures",
+                         "limen_objective")
 
 
 class CsvValue(unittest.TestCase):
@@ -195,6 +199,26 @@ class ModelOutputs(unittest.TestCase):
         self.assertEqual(run.rounds, [[2, [], None, {"fired": 0.5,
                                                     "reach": 0.5,
                                                     "margin": 0.05}]])
+
+
+class Objective(unittest.TestCase):
+    def pack(self, directory: str) -> Json:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "pack.json")
+            self.assertEqual(main(["pack", "--limen", directory, "--out",
+                                   out]), 0)
+            with open(out, encoding="utf-8") as f:
+                return json.load(f)["runs"][0]
+
+    def test_a_declared_objective_reaches_the_page(self) -> None:
+        run = self.pack(OBJECTIVE)
+        self.assertEqual(run["rows"], 40)
+        self.assertEqual(run["experiment"]["objective"],
+                         {"metric": "backtest_total_return",
+                          "direction": "maximize"})
+
+    def test_a_run_without_one_has_none(self) -> None:
+        self.assertIsNone(self.pack(FIXTURE)["experiment"]["objective"])
 
 
 class Experiment(unittest.TestCase):

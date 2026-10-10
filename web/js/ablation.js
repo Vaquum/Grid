@@ -4,7 +4,8 @@
 // A round's feature_groups switches groups on (pipe-joined names, or
 // "all"); its ablation then drops feature_drop_count of the round's
 // columns, chosen with random.Random(feature_drop_seed) from them sorted,
-// and the round log (round_data.jsonl) names the columns it dropped.
+// and results.csv (_dropped_features, Limen 5.17.4 on) or the round log
+// (round_data.jsonl) names the columns it dropped.
 //
 // Two readings follow. Groups: drawn combinations that differ by one
 // group say what adding that group did. Columns: with few seeds, columns
@@ -82,18 +83,26 @@ export function groupContrasts(design, dim, target, rows) {
 // column named after the value a naming parameter took in every round
 // that dropped it (roc_24 where ret_period was 24) is named by that
 // parameter instead (roc_{ret_period}), so it is one member whatever the
-// value. `perRow[i]` lists the members row i dropped, or is null when the
-// round log has no record of row i's round.
+// value. `perRow[i]` lists the members row i dropped, or is null when
+// neither results.csv nor the round log records what row i's round
+// dropped.
 export function ablationMembers(ds, schema, design, rows) {
   // a row's round: its index (in its directory, for a run read from several)
   const roundOf = rowRounds(ds);
   if (!roundOf) throw new Error("a Limen run needs its _round_index column to read its round log");
   const n = ds.n;
+  // the columns row i's round dropped: as results.csv records them (Limen
+  // 5.17.4 on, failed rounds too), else as its line in the round log
+  const csv = ds.col("_dropped_features");
+  const droppedOf = (i) => {
+    const v = csv && csv.kind === "set" ? csv.value(i) : null;
+    return Array.isArray(v) ? v.slice().sort() : ds.rounds.get(roundOf(i)) || null;
+  };
   const valueOf = (p, i) => { const d = schema.dimById.get(p); return d && d.codes[i] >= 0 ? String(d.levels[d.codes[i]].value) : null; };
   // the naming parameters each raw column name matches in every round that dropped it
   const seen = new Map();
   for (let r = 0; r < rows.length; r++) {
-    const i = rows[r], rec = ds.rounds.get(roundOf(i));
+    const i = rows[r], rec = droppedOf(i);
     if (!rec) continue;
     for (const name of rec) {
       const tokens = name.split("_");
@@ -112,7 +121,7 @@ export function ablationMembers(ds, schema, design, rows) {
   const memberIndex = new Map(), members = [];
   const perRow = new Array(n).fill(null);
   for (let r = 0; r < rows.length; r++) {
-    const i = rows[r], rec = ds.rounds.get(roundOf(i));
+    const i = rows[r], rec = droppedOf(i);
     if (!rec) continue;
     const list = [];
     for (const name of rec) {
