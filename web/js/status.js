@@ -17,10 +17,21 @@ export function rowsSince(started, meta) {
   return Math.max(started, resets.length ? resets[resets.length - 1].at : -Infinity);
 }
 
+// When the latest row was written, as the page knows it: when it arrived
+// at the server, or, for rows read when the server started (which have no
+// arrival of their own), when the run's files were last written; NaN when
+// neither is known.
+export function lastRowAt(ds) {
+  if (!ds.n) return NaN;
+  const t = ds.arrivals[ds.n - 1];
+  if (Number.isFinite(t)) return t;
+  return Number.isFinite(ds.meta.writtenAt) ? ds.meta.writtenAt : NaN;
+}
+
 // s: { meta, n, edge (null: the latest row), mode ("live" or a recording),
 // connected, playing, seg (the run's log segment, or null), writing (a
-// traceback is being written to the log), lastRow (wall time the latest
-// row was read, NaN for rows read at the start), since (rowsSince), now }
+// traceback is being written to the log), lastRow (lastRowAt), since
+// (rowsSince), now }
 // -> { kind, label, detail, tip }
 export function runStatus(s) {
   const { meta } = s;

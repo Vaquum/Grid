@@ -338,7 +338,9 @@ row after it in every view.
 
 A page is watched all day, among others, so it says what the run is doing:
 the status pill reads the run's own state (Live; Quiet after ten minutes
-without a row; Crashed when its latest log segment ends in a crash;
+without a row, counted for a run read when the server starts from when
+its files were last written, so a run that stopped long ago is not Live;
+Crashed when its latest log segment ends in a crash;
 Finished at the log's closing summary; Archived, Earlier run, Recorded,
 Replay, Reconnecting), the tab's title names the sweep and the view, or
 the trouble in the view's place, and its icon carries a dot for a run

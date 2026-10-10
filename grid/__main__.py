@@ -33,6 +33,7 @@ import gzip
 import json
 import os
 import posixpath
+import subprocess
 import sys
 import threading
 import time
@@ -42,11 +43,13 @@ from typing import Any, cast
 from . import __version__
 from .follow import (
     FileFollower,
+    HistoryFn,
     LineFn,
     ResetFn,
     SSHFollower,
     list_remote,
     read_remote,
+    remote_mtimes,
     remote_result_dirs,
 )
 from .limen import (
@@ -224,15 +227,31 @@ class Wiring:
                 return shown + where[len(local):]
         return where
 
-    def _follower(self, path: str, on_line: LineFn,
-                  on_reset: ResetFn) -> FileFollower | SSHFollower:
+    def written_at(self, paths: list[str]) -> float | None:
+        """When the latest of these files (those that exist) was last
+        written, or None when that cannot be read: for the files a run
+        writes beside the ones followed (whose followers say when they were
+        last written, from the look that bounds their history)."""
+        try:
+            if self.args.ssh:
+                times = remote_mtimes(self.args.ssh, paths)
+            else:
+                times = [os.stat(p).st_mtime for p in paths
+                         if os.path.exists(p)]
+        except (OSError, RuntimeError, subprocess.SubprocessError):
+            return None
+        return max(times) if times else None
+
+    def _follower(self, path: str, on_line: LineFn, on_reset: ResetFn,
+                  on_history: HistoryFn | None = None
+                  ) -> FileFollower | SSHFollower:
         if self.args.ssh:
             return SSHFollower(self.args.ssh, path, on_line, on_reset,
-                               self.sweep.error)
+                               self.sweep.error, on_history)
         if not os.path.exists(path):
             raise SystemExit("no such file: %s" % path)
         return FileFollower(path, on_line, on_reset, self.sweep.error,
-                            follow=self.follow)
+                            follow=self.follow, on_history=on_history)
 
     def add_run(self, run_id: str, label: str, path: str,
                 segment: int | None, live: bool,
@@ -244,7 +263,8 @@ class Wiring:
         sweep = self.sweep
         self.followers.append(self._follower(
             path, lambda text, pre: sweep.run_line(run, text, pre),
-            lambda reason: sweep.run_reset(run, reason)))
+            lambda reason: sweep.run_reset(run, reason),
+            lambda mtime: sweep.run_written(run, mtime)))
         return run
 
     def add_round_log(self, run: Run, directory: str,
@@ -266,7 +286,18 @@ class Wiring:
         sweep = self.sweep
         self.followers.append(self._follower(
             path, lambda text, pre: sweep.round_line(run, text, pre, shard),
-            lambda reason: sweep.round_reset(run, reason, shard)))
+            lambda reason: sweep.round_reset(run, reason, shard),
+            lambda mtime: sweep.run_written(run, mtime)))
+
+    def add_written(self, run: Run, directory: str) -> None:
+        """The time a Limen run's checkpoint and feedback audit were last
+        written, after some rounds; the results file and the round log,
+        followed, add theirs as their followers first look at them."""
+        join = posixpath.join if self.args.ssh else os.path.join
+        extra = self.written_at([join(directory, n) for n in (
+            "checkpoint.json", "audit.jsonl")])
+        if extra is not None:
+            self.sweep.run_written(run, extra)
 
     def add_shards(self, label: str, log_id: str | None) -> Run:
         """One run read from several result directories of one manifest:
@@ -287,10 +318,12 @@ class Wiring:
         f = self._follower(
             self.results_path(directory),
             lambda text, pre: sweep.run_line(run, text, pre, k),
-            lambda reason: sweep.run_reset(run, reason, k))
+            lambda reason: sweep.run_reset(run, reason, k),
+            lambda mtime: sweep.run_written(run, mtime))
         self.followers.append(f)
         self.shard_followers.append(f)
         self.add_round_log(run, directory, k)
+        self.add_written(run, directory)
 
     def merge(self, wait: bool = True) -> None:
         """Join a sharded run's history once every file's is read (or its
@@ -333,6 +366,7 @@ class Wiring:
             run = self.add_run("r0", label, self.results_path(), None, True,
                                main_log, "csv", self.experiment)
             self.add_round_log(run, self.dirs[0])
+            self.add_written(run, self.dirs[0])
         else:
             self.add_run("r0", a.label or "current", a.results, None, True,
                          main_log)

@@ -9,7 +9,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -830,13 +830,18 @@ test("a view's blurb opens on a click, or after five seconds on its (i)", async 
 async function liveSweep() {
   const live = mkdtempSync(join(tmpdir(), "grid-live-"));
   const proc = spawn("python3", ["tools/live_demo.py", "--out", live, "--port", "0", "--rate", "20"], { cwd: ROOT });
-  const url = await new Promise((resolve, reject) => {
+  const url = await serverUrl(proc);
+  return { url, stop: () => proc.kill() };
+}
+
+// The page's address, as a server just started prints it.
+function serverUrl(proc) {
+  return new Promise((resolve, reject) => {
     let out = "";
     const t = setTimeout(() => reject(new Error(`no server line: ${out}`)), 20000);
     proc.stdout.on("data", d => { out += d; const m = /at (http:\/\/127\.0\.0\.1:\d+\/)/.exec(out); if (m) { clearTimeout(t); resolve(m[1]); } });
     proc.stderr.on("data", d => { out += d; });
   });
-  return { url, stop: () => proc.kill() };
 }
 
 const shownRows = page => page.evaluate(() => Number(document.querySelector(".progress-text").textContent.split(" rows")[0].replace(/,/g, "")));
@@ -853,12 +858,7 @@ test("live: a Limen run's rounds arrive after its rows, and Features reads them"
   for (const name of ["metadata.json", "lightgbm_binary_full.yaml"]) copyFileSync(join(fx, name), join(dir, name));
   const proc = spawn("python3", ["-m", "grid", "serve", "--limen", dir, "--port", "0"], { cwd: ROOT });
   try {
-    const url = await new Promise((resolve, reject) => {
-      let out = "";
-      const t = setTimeout(() => reject(new Error(`no server line: ${out}`)), 20000);
-      proc.stdout.on("data", d => { out += d; const m = /at (http:\/\/127\.0\.0\.1:\d+\/)/.exec(out); if (m) { clearTimeout(t); resolve(m[1]); } });
-      proc.stderr.on("data", d => { out += d; });
-    });
+    const url = await serverUrl(proc);
     const { page, errors } = await limenPage();
     await page.goto(url);
     await page.waitForSelector(".pcard");
@@ -899,12 +899,7 @@ test("live: several result directories of one manifest read as one run, live whi
   const a = make("a", 0, 20, 1), b = make("b", 20, 39, 2);
   const proc = spawn("python3", ["-m", "grid", "serve", "--limen", runs, "--port", "0"], { cwd: ROOT });
   try {
-    const url = await new Promise((resolve, reject) => {
-      let out = "";
-      const t = setTimeout(() => reject(new Error(`no server line: ${out}`)), 20000);
-      proc.stdout.on("data", d => { out += d; const m = /at (http:\/\/127\.0\.0\.1:\d+\/)/.exec(out); if (m) { clearTimeout(t); resolve(m[1]); } });
-      proc.stderr.on("data", d => { out += d; });
-    });
+    const url = await serverUrl(proc);
     const { page, errors } = await limenPage();
     await page.goto(url);
     await page.waitForSelector(".pcard");
@@ -922,6 +917,39 @@ test("live: several result directories of one manifest read as one run, live whi
     await page.waitForSelector("#inspector .code-head");
     const replay = await page.locator("#inspector pre.code").first().innerText();
     assert.ok([a, b].some(d => replay.includes(`Trainer(${JSON.stringify(d)})`)), replay);
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    proc.kill();
+  }
+});
+
+test("live: a run that stopped before the server started reads quiet at once, and live when a row arrives", async () => {
+  // a results file last written an hour ago: its rows are read at the
+  // start, with no arrival of their own
+  const stopped = mkdtempSync(join(tmpdir(), "grid-stopped-"));
+  const path = join(stopped, "results.jsonl");
+  const rows = readFileSync(join(dir, "results.jsonl"), "utf8").split("\n");
+  writeFileSync(path, rows.slice(0, 400).join("\n") + "\n");
+  const hourAgo = Date.now() / 1000 - 3600;
+  utimesSync(path, hourAgo, hourAgo);
+  const proc = spawn("python3", ["-m", "grid", "serve", "--results", path, "--port", "0"], { cwd: ROOT });
+  try {
+    const url = await serverUrl(proc);
+    const { page, errors } = await limenPage();
+    await page.goto(url);
+    await page.waitForSelector(".pcard");
+    // quiet once the stream is open (until then the pill says Reconnecting)
+    const pill = page.locator(".sweep-line .status");
+    await page.waitForFunction(() => document.querySelector(".sweep-line .status").dataset.kind !== "down", null, { timeout: 20000 });
+    assert.equal(await pill.getAttribute("data-kind"), "quiet");
+    assert.match(await pill.innerText(), /last row 6\d min ago/);
+    // the Run view says when the last row was written
+    await page.keyboard.press("7");
+    await page.waitForSelector(".stat .k");
+    assert.ok((await page.locator(".stat .k").allInnerTexts()).includes("Last row written"));
+    appendFileSync(path, rows[400] + "\n");
+    await page.waitForFunction(() => document.querySelector(".sweep-line .status").dataset.kind === "live", null, { timeout: 20000 });
     assert.deepEqual(errors, []);
     await page.close();
   } finally {

@@ -3,7 +3,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runStatus, rowsSince } from "../../web/js/status.js";
+import { runStatus, rowsSince, lastRowAt } from "../../web/js/status.js";
 import { fmtClock, fmtStamp, runName } from "../../web/js/ui.js";
 
 process.env.TZ = "UTC";  // the reader's clock, for these tests
@@ -20,6 +20,19 @@ test("a run being written is live, and quiet after ten minutes without a row", (
   // no row since the server began reading: live, then quiet ten minutes on
   assert.deepEqual(said(st({ lastRow: NaN, since: now - 60 })), ["live", "Live", "no new row yet"]);
   assert.deepEqual(said(st({ lastRow: NaN })), ["quiet", "Quiet", "no row in 60 min"]);
+});
+
+test("a run read when the server starts counts from when its files were last written", () => {
+  // rows read at the start have no arrival; the files' time stands for the last of them
+  const ds = (arrivals, writtenAt) => ({ n: arrivals.length, arrivals: Float64Array.from(arrivals), meta: { writtenAt } });
+  assert.equal(lastRowAt(ds([NaN, NaN], now - 3600)), now - 3600);
+  assert.equal(lastRowAt(ds([NaN, now - 5], now - 3600)), now - 5);
+  assert.ok(Number.isNaN(lastRowAt(ds([NaN, NaN], null))));
+  assert.ok(Number.isNaN(lastRowAt(ds([], now))));
+  // stopped an hour before the server began reading: quiet at once, not live
+  assert.deepEqual(said(st({ lastRow: lastRowAt(ds([NaN, NaN], now - 3600)), since: now - 5 })), ["quiet", "Quiet", "last row 60 min ago"]);
+  // and live once a row arrives
+  assert.deepEqual(said(st({ lastRow: lastRowAt(ds([NaN, now - 5], now - 3600)), since: now - 60 })), ["live", "Live", "last row 5 s ago"]);
 });
 
 test("a run that has just started over is not quiet for the time before it", () => {
