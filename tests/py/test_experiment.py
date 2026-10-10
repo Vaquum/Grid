@@ -138,14 +138,20 @@ class ProjectRuns(unittest.TestCase):
         os.environ["FAKE_LIMEN_PACE"] = "0.03"
         self.p = Project(self.root, FAKE)
         self.opened: list[str] = []
-        self.p.opener = lambda folder, key: (self.opened.append(key),
-                                             "p%d" % len(self.opened))[1]
+        self.read: list[list[str]] = []
+        self.p.opener = self.opener
+
+    def opener(self, key: str, dirs: list[str]) -> str:
+        self.opened.append(key)
+        self.read.append([os.path.basename(d) for d in dirs])
+        return "p%d" % len(self.opened)
 
     def tearDown(self) -> None:
         for proc in self.p.procs.values():
             if proc.poll() is None:
                 proc.kill()
                 proc.wait()
+        os.environ.pop("FAKE_LIMEN_FAIL", None)
         if self.pace is None:
             os.environ.pop("FAKE_LIMEN_PACE", None)
         else:
@@ -187,6 +193,34 @@ class ProjectRuns(unittest.TestCase):
             self.p.create("third", template="nothing")
         names = [e["name"] for e in self.p.experiments(self.p.runs())]
         self.assertEqual(names, ["first", "second"])
+
+    def test_a_manifest_written_as_yml_is_that_file(self) -> None:
+        path = os.path.join(self.root, "manifests", "short.yml")
+        with open(path, "w") as f:
+            f.write(manifest_text())
+        exps = self.p.experiments(self.p.runs())
+        self.assertEqual([(e["name"], e["file"]) for e in exps],
+                         [("short", "manifests/short.yml")])
+        m = self.p.manifest("short")
+        self.p.save("short", m["text"] + "# more\n", m["mtime"])
+        self.assertEqual(sorted(os.listdir(os.path.dirname(path))),
+                         ["short.yml"])
+        with open(path) as f:
+            self.assertTrue(f.read().endswith("# more\n"))
+        with self.assertRaisesRegex(ValueError, "short.yml exists already"):
+            self.p.create("short", template="lightgbm_binary")
+        self.assertEqual(self.p.diff("short", m["text"])["against"], None)
+        rid = self.p.start("short", 3, 1, False, False)
+        wait(lambda: self.run_of(rid)["state"] == "finished")
+        self.assertIn("+++ manifests/short.yml",
+                      self.p.diff("short", "x\n")["diff"])
+        # beside a .yaml of the same name, the .yaml is the experiment
+        with open(os.path.join(self.root, "manifests", "short.yaml"),
+                  "w") as f:
+            f.write(manifest_text())
+        exps = self.p.experiments(self.p.runs())
+        self.assertEqual([(e["name"], e["file"]) for e in exps],
+                         [("short", "manifests/short.yaml")])
 
     def test_a_manifest_changed_on_disk_is_not_overwritten(self) -> None:
         self.p.create("first", template="lightgbm_binary")
@@ -237,6 +271,63 @@ class ProjectRuns(unittest.TestCase):
         self.assertEqual(self.p.open(rid), "p1")
         with open(os.path.join(folder, "logs", "s1.log")) as f:
             self.assertIn("Resuming", f.read())
+
+    def test_a_run_is_opened_once_when_asked_at_once(self) -> None:
+        self.p.create("exp", template="lightgbm_binary")
+        rid = self.p.start("exp", 4, 1, False, False)
+        wait(lambda: self.run_of(rid)["state"] == "finished")
+        wait(lambda: self.opened == [rid])
+        self.p.opened.clear()
+        self.opened.clear()
+        entered = threading.Event()
+        release = threading.Event()
+
+        def slow(key: str, dirs: list[str]) -> str:
+            entered.set()
+            release.wait(5)
+            return self.opener(key, dirs)
+        self.p.opener = slow
+        got: list[str] = []
+        first = threading.Thread(target=lambda: got.append(self.p.open(rid)))
+        first.start()
+        entered.wait(5)
+        second = threading.Thread(target=lambda: got.append(self.p.open(rid)))
+        second.start()
+        time.sleep(0.2)
+        release.set()
+        first.join(5)
+        second.join(5)
+        self.assertEqual((got, self.opened), (["p1", "p1"], [rid]))
+
+    def test_a_shard_that_wrote_no_round_is_left_out_and_said(self) -> None:
+        self.p.create("exp", template="lightgbm_binary")
+        # s2 fails before its first round; s1 runs on
+        os.environ["FAKE_LIMEN_FAIL"] = "s2"
+        rid = self.p.start("exp", 10, 2, False, False)
+        wait(lambda: self.opened == [rid])
+        self.assertEqual(self.read, [["s1"]])
+        wait(lambda: self.run_of(rid)["state"] == "failed")
+        run = self.run_of(rid)
+        self.assertEqual(run["note"], "s2 ended without writing a round, so "
+                                      "the run is read without it")
+        s1, s2 = run["shards"]
+        self.assertEqual((s1["state"], s1["rows"], s1["tail"]),
+                         ("finished", 5, None))
+        self.assertEqual((s2["state"], s2["exit"]), ("failed", 1))
+        self.assertTrue(s2["tail"].endswith("RuntimeError: no data"))
+
+    def test_a_run_that_wrote_no_round_says_so(self) -> None:
+        self.p.create("exp", template="lightgbm_binary")
+        os.environ["FAKE_LIMEN_FAIL"] = "s1"
+        rid = self.p.start("exp", 4, 1, False, False)
+        wait(lambda: self.run_of(rid)["note"] is not None)
+        run = self.run_of(rid)
+        self.assertEqual((run["state"], run["open"]), ("failed", None))
+        self.assertEqual(run["note"], "%s ended without writing a round; its "
+                                      "logs/ say why" % rid)
+        self.assertEqual(self.opened, [])
+        with self.assertRaisesRegex(ValueError, "without writing a round"):
+            self.p.open(rid)
 
     def test_what_is_not_run(self) -> None:
         text = manifest_text()
@@ -363,7 +454,9 @@ class OpenedWhileServing(unittest.TestCase):
             sweep = w.build()
             self.assertEqual((sweep.name, sweep.runs),
                              (os.path.basename(tmp), []))
-            run_id = w.open_limen(os.path.join(tmp, rid), rid)
+            folder = os.path.join(tmp, rid)
+            run_id = w.open_limen(rid, [os.path.join(folder, "s1"),
+                                        os.path.join(folder, "s2")])
             w.read_once()
             run = sweep.runs[0]
             self.assertEqual((run_id, run.id, run.shards), ("p1", "p1",
@@ -374,7 +467,10 @@ class OpenedWhileServing(unittest.TestCase):
             self.assertEqual([lb for lb, _ in run.experiment["shards"]],
                              ["s1", "s2"])
             with self.assertRaisesRegex(ValueError, "no metadata.json"):
-                w.open_limen(os.path.join(tmp, "manifests"), "manifests")
+                w.open_limen("manifests", [os.path.join(tmp, "manifests")])
+            # a refused run takes no id
+            self.assertEqual(w.open_limen(rid, [os.path.join(folder, "s1")]),
+                             "p2")
         finally:
             os.environ.pop("FAKE_LIMEN_PACE", None)
             shutil.rmtree(tmp)

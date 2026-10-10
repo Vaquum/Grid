@@ -13,7 +13,9 @@ tests: the subcommands Grid runs, answering as Limen does.
   the fixture's metadata.json (its name, seed and rounds the manifest's),
   and the fixture's rounds written one by one (``FAKE_LIMEN_PACE`` seconds
   apart), each with its round_data.jsonl line. SIGTERM stops it as Limen
-  stops: the round in hand finishes and checkpoint.json records the last;
+  stops: the round in hand finishes and checkpoint.json records the last.
+  A run whose output path ends in ``FAKE_LIMEN_FAIL`` (``s2``) fails
+  before it writes anything, as a run whose data cannot be read does;
 - ``run --resume DIR``: on from the checkpoint.
 """
 
@@ -108,6 +110,12 @@ def run(path):
     seed = int(value(text, "seed") or 0)
     out = value(text, "output_path") or "%s_%s" % (
         name, time.strftime("%Y%m%d_%H%M%S"))
+    fail = os.environ.get("FAKE_LIMEN_FAIL")
+    if fail and out.endswith("/" + fail):
+        print("Traceback (most recent call last):\n"
+              "  File \"limen/cli.py\", line 1, in run\n"
+              "RuntimeError: no data", flush=True)
+        return 1
     base = "results" if value(text, "mode") == "production" else \
         os.path.join("results", "dev")
     directory = os.path.join(base, out.replace("{name}", name))

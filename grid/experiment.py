@@ -318,7 +318,27 @@ def _alive(pid: int, needle: str) -> bool:
     return needle in out.stdout
 
 
-OpenFn = Callable[[str, str], str]
+def _tail(path: str, lines: int = 6) -> str | None:
+    """The last lines of a log, for a shard that failed."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - 4096))
+            text = f.read().decode("utf-8", "replace")
+    except OSError:
+        return None
+    kept = [ln.rstrip() for ln in text.splitlines() if ln.strip()]
+    return "\n".join(kept[-lines:]) or None
+
+
+def _and(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else "%s and %s" % (
+        ", ".join(items[:-1]), items[-1])
+
+
+# opens a run in the sweep: (its folder in the project, the result
+# directories to read) -> the sweep's id for it
+OpenFn = Callable[[str, list[str]], str]
 
 
 class Project:
@@ -334,10 +354,13 @@ class Project:
         self.version = self._version()
         self.templates = self._templates()
         self.cores = os.cpu_count() or 1
-        # runs opened in the sweep: run id -> the sweep's run id; and the
-        # function that opens one (set by the server's wiring)
+        # runs opened in the sweep: run id -> the sweep's run id; the
+        # function that opens one (set by the server's wiring); and why a
+        # run did not open, or opened without a shard
         self.opened: dict[str, str] = {}
         self.opener: OpenFn | None = None
+        self.open_lock = threading.Lock()
+        self.notes: dict[str, str] = {}
         self.procs: dict[tuple[str, str], subprocess.Popen[bytes]] = {}
         self.counts: dict[str, tuple[int, float, int]] = {}
         self.names: dict[str, tuple[float, str | None, int | None]] = {}
@@ -394,10 +417,16 @@ class Project:
 
     # -- experiments: the working manifests ---------------------------------
     def _manifest_path(self, name: str) -> str:
+        """The experiment's working manifest: manifests/NAME.yaml, or the
+        NAME.yml it is written as."""
         if not NAME.match(name):
             raise ValueError("an experiment's name is letters, digits, _ and "
                              "-, at most 64; got %r" % name)
-        return os.path.join(self.root, "manifests", name + ".yaml")
+        base = os.path.join(self.root, "manifests", name)
+        if not os.path.isfile(base + ".yaml") and \
+                os.path.isfile(base + ".yml"):
+            return base + ".yml"
+        return base + ".yaml"
 
     def manifest(self, name: str) -> Json:
         path = self._manifest_path(name)
@@ -415,8 +444,8 @@ class Project:
         with self.lock:
             if os.path.isfile(path) and isinstance(mtime, (int, float)) and \
                     abs(os.path.getmtime(path) - float(mtime)) > 1e-6:
-                raise ValueError("manifests/%s.yaml changed on disk since it "
-                                 "was opened; open it again" % name)
+                raise ValueError("%s changed on disk since it was opened; "
+                                 "open it again" % self._rel(path))
             _write_text(path, text)
             return os.path.getmtime(path)
 
@@ -426,7 +455,7 @@ class Project:
         or from a manifest's text, named after itself."""
         path = self._manifest_path(name)
         if os.path.exists(path):
-            raise ValueError("manifests/%s.yaml exists already" % name)
+            raise ValueError("%s exists already" % self._rel(path))
         os.makedirs(os.path.dirname(path), exist_ok=True)
         if isinstance(template, str):
             if template not in {t["name"] for t in self.templates}:
@@ -455,8 +484,9 @@ class Project:
             for entry in sorted(os.listdir(folder)):
                 stem, ext = os.path.splitext(entry)
                 path = os.path.join(folder, entry)
+                # NAME.yaml before NAME.yml, as _manifest_path reads it
                 if ext in (".yaml", ".yml") and os.path.isfile(path) and \
-                        NAME.match(stem):
+                        NAME.match(stem) and stem not in names:
                     names[stem] = {"name": stem, "file": "manifests/" + entry,
                                    "mtime": os.path.getmtime(path),
                                    "runs": []}
@@ -573,7 +603,10 @@ class Project:
                         "planned": sh.get("rounds"),
                         "rows": self._rows(os.path.join(folder, label,
                                                         "results.csv")),
-                        "state": sh.get("state"), "exit": sh.get("exit")})
+                        "state": sh.get("state"), "exit": sh.get("exit"),
+                        "tail": _tail(os.path.join(folder, "logs",
+                                                   label + ".log"))
+                        if sh.get("state") == "failed" else None})
                 started = record.get("started_at")
                 name = str(record.get("experiment") or "")
             else:
@@ -582,7 +615,8 @@ class Project:
                 shards = [{"label": os.path.basename(folder), "seed": None,
                            "planned": planned, "rows": rows,
                            "state": "finished" if planned is not None and
-                           rows >= planned else "incomplete", "exit": None}]
+                           rows >= planned else "incomplete", "exit": None,
+                           "tail": None}]
                 started = os.path.getmtime(os.path.join(folder,
                                                         "metadata.json"))
                 name = name_got or os.path.basename(folder)
@@ -595,7 +629,8 @@ class Project:
                 "started": started, "state": state, "shards": shards,
                 "rows": sum(int(s["rows"] or 0) for s in shards),
                 "planned": sum(int(s["planned"] or 0) for s in shards),
-                "open": self.opened.get(rid), "stopping": stopping})
+                "open": self.opened.get(rid), "note": self.notes.get(rid),
+                "stopping": stopping})
         out.sort(key=lambda r: float(r["started"] or 0), reverse=True)
         return out
 
@@ -808,25 +843,83 @@ class Project:
             if ready:
                 break
             time.sleep(1.0)
-        if any(os.path.isfile(os.path.join(folder, str(s.get("label")),
-                                           "results.csv")) for s in shards):
-            try:
-                self.open(rid)
-            except ValueError:
-                pass
+        try:
+            self.open(rid)
+        except ValueError as err:
+            # said where the run is listed, not lost
+            with self.open_lock:
+                self.notes[rid] = str(err)
+
+    def _readable(self, folder: str) -> tuple[list[str], list[str]]:
+        """A run's result directories that can be read now, and its shards
+        that ended without writing a round (read without them). Refused
+        while a shard still running has written no round: a run Grid
+        started then opens by itself once each has."""
+        rid = self._rel(folder)
+        if not os.path.isfile(os.path.join(folder, RECORD)):
+            if not os.path.isfile(os.path.join(folder, "results.csv")):
+                raise ValueError("%s has written no round yet" % rid)
+            return [folder], []
+        dirs: list[str] = []
+        left: list[str] = []
+        for s in self._record_shards(folder):
+            label = str(s.get("label"))
+            d = os.path.join(folder, label)
+            if all(os.path.isfile(os.path.join(d, f))
+                   for f in ("results.csv", "metadata.json")):
+                dirs.append(d)
+            elif s.get("state") == "running":
+                raise ValueError("%s is writing its first rounds; it opens "
+                                 "by itself once each shard has written one"
+                                 % rid)
+            else:
+                left.append(label)
+        if not dirs:
+            raise ValueError("%s ended without writing a round; its logs/ "
+                             "say why" % rid)
+        return dirs, left
 
     def open(self, rid: object) -> str:
-        """The run in the sweep, opened when it is not yet; the sweep's id
-        for it."""
+        """The run in the sweep, opened once (a run being opened is not
+        opened again meanwhile), without the shards that ended without
+        writing a round; the sweep's id for it."""
         folder = self._folder(rid)
         key = self._rel(folder)
-        if key in self.opened:
-            return self.opened[key]
-        if self.opener is None:
-            raise ValueError("this server cannot open runs")
-        sweep_id = self.opener(folder, key)
-        self.opened[key] = sweep_id
+        with self.open_lock:
+            if key in self.opened:
+                return self.opened[key]
+            if self.opener is None:
+                raise ValueError("this server cannot open runs")
+            dirs, left = self._readable(folder)
+            sweep_id = self.opener(key, dirs)
+            self.opened[key] = sweep_id
+            if left:
+                self.notes[key] = ("%s ended without writing a round, so the "
+                                   "run is read without %s" % (
+                                       _and(left),
+                                       "it" if len(left) == 1 else "them"))
+            else:
+                self.notes.pop(key, None)
         return sweep_id
+
+    def follow(self) -> None:
+        """Once the server can open runs: each run Grid started that is
+        still running opens once its shards have written a round, as it
+        would have had this server started it; and the newest run, when
+        it is not running, opens now."""
+        runs = self.runs()
+        for r in runs:
+            if r["kind"] == "grid" and r["state"] == "running":
+                threading.Thread(target=self._open_when_written,
+                                 args=(r["id"], self._folder(r["id"])),
+                                 daemon=True).start()
+        if runs and runs[0]["state"] != "running":
+            rid = str(runs[0]["id"])
+            try:
+                self.open(rid)
+            except ValueError as err:
+                with self.open_lock:
+                    self.notes[rid] = str(err)
 
     def stop(self, rid: object) -> None:
         """Ask each running shard to stop as Limen stops: the round in hand
@@ -908,7 +1001,7 @@ class Project:
                 old = f.read()
             lines = list(difflib.unified_diff(
                 old.splitlines(keepends=True), text.splitlines(keepends=True),
-                fromfile="%s (as run)" % r["id"], tofile="manifests/%s.yaml"
-                % name, n=2))
+                fromfile="%s (as run)" % r["id"],
+                tofile=self._rel(self._manifest_path(name)), n=2))
             return {"against": r["id"], "diff": "".join(lines)}
         return {"against": None, "diff": ""}

@@ -29,8 +29,8 @@ log of its own, such as a second sweep from the same sampler).
 makes and runs its experiments (the Experiment view, grid/experiment.py)
 with its ``limen`` command (``--limen-cli``, by default the project's own
 ``.venv/bin/limen``, else the one on the PATH). The newest run opens at
-once; any other, and each run started from the page, opens as it is asked
-for.
+once, and each run started from the page once each of its shards has
+written a round; any other opens as it is asked for.
 
     python3 -m grid serve --project ~/limen-lab
 """
@@ -167,15 +167,7 @@ class Wiring:
         """The result directories to read: each one given, or for a folder
         of them (a directory with no metadata.json of its own), the result
         directories in it, by name. One given twice is read once."""
-        found, parent = self.find_dirs(given)
-        self.parent = parent
-        return found
-
-    def find_dirs(self, given: list[str]) -> tuple[list[str], str | None]:
-        """limen_dirs' directories, and the folder that held them when one
-        folder was given."""
         a = self.args
-        parent: str | None = None
         found: list[str] = []
         for d in given:
             d = d.rstrip("/") or "/"
@@ -201,13 +193,13 @@ class Wiring:
                                  "directory, nor a folder of them"
                                  % self.shown(d))
             if len(given) == 1:
-                parent = d
+                self.parent = d
             found.extend(inside)
         out: list[str] = []
         for d in found:
             if d not in out:
                 out.append(d)
-        return out, parent
+        return out
 
     def results_path(self, directory: str | None = None) -> str:
         """The results file: of this Limen result directory, or of the first,
@@ -355,21 +347,20 @@ class Wiring:
         self.add_round_log(run, directory, k)
         self.add_written(run, directory)
 
-    def open_limen(self, path: str, key: str) -> str:
+    def open_limen(self, key: str, dirs: list[str]) -> str:
         """A Limen run added while the server runs (the Experiment view opens
-        it): a result directory, or a folder of them read as one run, as
-        ``--limen`` reads it; the sweep's id for it. ``key`` is the run's
-        folder in the project, which names it."""
+        it): its result directories, one or a run's shards read as one run
+        (as ``--limen`` reads a folder of them); the sweep's id for it.
+        ``key`` is the run's folder in the project, which names it."""
         with self.open_lock:
-            self.opened += 1
-            run_id = "p%d" % self.opened
             parts = key.split("/")
             label = "/".join(parts[2:] if parts[:2] == ["results", "dev"]
                              else parts[1:] if parts[0] == "results"
                              else parts) or key
             before = len(self.followers)
+            if not dirs:
+                raise ValueError("%s has no result directory" % key)
             try:
-                dirs, _ = self.find_dirs([path])
                 experiments = [self.read_experiment(d) for d in dirs]
             except SystemExit as err:
                 raise ValueError(str(err)) from err
@@ -392,6 +383,8 @@ class Wiring:
                                "name Grid gives each row's directory" % SHARD)
                 if problem:
                     raise ValueError(problem)
+                self.opened += 1
+                run_id = "p%d" % self.opened
                 experiment["dir"] = None
                 experiment["shards"] = [[lb, os.path.abspath(d)]
                                         for lb, d in zip(labels, dirs,
@@ -404,6 +397,8 @@ class Wiring:
                 for k, d in enumerate(dirs):
                     self._add_shard(run, k, d, into)
             else:
+                self.opened += 1
+                run_id = "p%d" % self.opened
                 experiment["dir"] = os.path.abspath(dirs[0])
                 run = self.add_run(run_id, label, self.results_path(dirs[0]),
                                    None, True, None, "csv", experiment)
@@ -567,12 +562,7 @@ def cmd_serve(a: argparse.Namespace) -> int:
         token = secrets.token_urlsafe(24)
         config.update(experiment="api/experiment", token=token)
         project.opener = w.open_limen
-        newest = project.runs()
-        if newest:
-            try:
-                project.open(newest[0]["id"])
-            except ValueError as err:
-                sweep.error(str(err))
+        project.follow()
     page = LivePage(config)
     page()  # fail now, not on the first request, when the page is missing
     w.start()
