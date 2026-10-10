@@ -1199,6 +1199,16 @@ test("experiment: on a Limen project, one is made, checked as it is typed, run i
     assert.equal(await page.locator(".ex-run-form .btn.primary").isDisabled(), true);
     for (let i = 0; i < "# BAD_VALUE\n".length; i++) await page.keyboard.press("Backspace");
     await page.waitForSelector(".ex-status .sev.ok");
+    // saved, it stays the same editor (its undo with it) past the next
+    // reading of the project
+    const editor = await page.locator(".ed-text").elementHandle();
+    await page.keyboard.type("# a note\n");
+    await page.waitForFunction(() => /unsaved/.test(document.querySelector(".ex-status").textContent));
+    await page.keyboard.press("Control+s");
+    await page.waitForFunction(() => !/unsaved/.test(document.querySelector(".ex-status").textContent));
+    await page.waitForTimeout(2500);
+    assert.equal(await editor.evaluate(t => t.isConnected && t.value.endsWith("# a note\n")), true);
+    assert.equal(await page.locator(".ex-mf .btn:has-text('Open it again')").isVisible(), false);
     // run in two shards side by side
     await page.locator("input[aria-label='Rounds']").fill("10");
     await page.locator("input[aria-label='Shards side by side']").fill("2");

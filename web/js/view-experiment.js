@@ -410,18 +410,22 @@ function make(mk) {
 // ---------------------------------------------------------------------------
 // The manifest
 
+// The experiment's manifest as the view holds it. The project's list says
+// the file's version as of its last reading, which a save from here can be
+// ahead of; only a version the list has not said before is a change on
+// disk, read again when nothing here is unsaved.
 function draftOf(e) {
   let d = lab.drafts.get(e.name);
   if (!d) {
-    d = { name: e.name, file: e.file, phase: "loading", gen: 0, text: "", saved: "", version: null, disk: e.version,
+    d = { name: e.name, file: e.file, phase: "loading", gen: 0, text: "", saved: "", version: null, disk: e.version, seen: e.version,
       errors: null, checked: null, timer: 0, island: null, diff: null, why: null };
     lab.drafts.set(e.name, d);
     read(d);
-  } else if (d.phase === "ready" && e.version !== d.version && d.text === d.saved && !lab.busy && !d.reading) {
-    // changed on disk, and nothing here unsaved: read it again
-    read(d);
+  } else if (e.version !== d.seen) {
+    d.seen = e.version;
+    d.disk = e.version;
+    if (d.phase === "ready" && e.version !== d.version && d.text === d.saved && !lab.busy && !d.reading) read(d);
   }
-  d.disk = e.version;
   d.file = e.file;
   return d;
 }
