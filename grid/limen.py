@@ -361,15 +361,26 @@ def _span(pos: list[float], gross: list[float], net: list[float],
             for key, x in out.items()}
 
 
+def windows(pos: list[float], gross: list[float], net: list[float],
+            ret: list[float | None] | None) -> Json:
+    """A test window's execution read whole and by each half of it
+    (``whole``, ``halves``), each by _span. The halves are Limen's ordinal
+    ones, bars [0, n // 2) and [n // 2, n); a window of one bar has
+    none."""
+    n = len(pos)
+    k = n // 2
+    return {"whole": _span(pos, gross, net, ret, 0, n),
+            "halves": [_span(pos, gross, net, ret, 0, k),
+                       _span(pos, gross, net, ret, k, n)] if k else None}
+
+
 def execution_summary(rec: Json, index: int) -> Json | None:
     """What a round's test window did, from the per-bar ``execution`` (pos,
     gross and net, each times the round's notional rate) that Limen records
     with ``uel.record_execution`` (5.16), and the ``market`` returns it
-    records beside it from 5.20: the whole window and each half of it
-    (``whole``, ``halves``), each read by _span. The halves are Limen's
-    ordinal ones, bars [0, n // 2) and [n // 2, n); a window of one bar has
-    none. None when the round recorded no execution (``execution`` absent,
-    or null where no snapshot ran: event execution, missing prices)."""
+    records beside it from 5.20, read by windows. None when the round
+    recorded no execution (``execution`` absent, or null where no snapshot
+    ran: event execution, missing prices)."""
     raw: Any = rec.get("execution")
     if raw is None:
         return None
@@ -386,10 +397,7 @@ def execution_summary(rec: Json, index: int) -> Json | None:
                          "length (%d, %d, %d)" % (index, n, len(gross),
                                                   len(net)))
     ret = _returns(rec.get("market"), n, index)
-    k = n // 2
-    return {"whole": _span(pos, gross, net, ret, 0, n),
-            "halves": [_span(pos, gross, net, ret, 0, k),
-                       _span(pos, gross, net, ret, k, n)] if k else None}
+    return windows(pos, gross, net, ret)
 
 
 def round_record(text: str) -> tuple[int, list[str], Json | None,
