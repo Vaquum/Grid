@@ -1333,3 +1333,36 @@ test("experiment: a manifest that could not be read is read again when its file 
     proc.kill();
   }
 });
+
+test("experiment: a reading of the project asked for before a new experiment was made does not take the choice back", async () => {
+  const project = mkdtempSync(join(tmpdir(), "grid-project-"));
+  writeFileSync(join(project, "limen.toml"), "[store]\n");
+  mkdirSync(join(project, "manifests"));
+  copyFileSync(join(ROOT, "tests/fixtures/limen_run/lightgbm_binary_full.yaml"), join(project, "manifests", "a.yaml"));
+  const proc = spawn("python3", ["-m", "grid", "serve", "--project", project, "--limen-cli", join(ROOT, "tests/fixtures/fake_limen.py"), "--port", "0"], { cwd: ROOT });
+  try {
+    const url = await serverUrl(proc);
+    const { page, errors } = await limenPage();
+    await page.goto(url);
+    await page.waitForSelector(".ex-status .sev.ok");
+    // the project's readings come slowly, so one is under way while the
+    // new experiment is made
+    const reading = (u) => new URL(u).pathname === "/api/experiment";
+    await page.route(reading, async (route) => {
+      if (route.request().method() === "GET") await new Promise(r => setTimeout(r, 2500));
+      await route.continue();
+    });
+    await page.waitForRequest(req => reading(req.url()) && req.method() === "GET", { timeout: 20000 });
+    await page.locator(".ex-tools .btn", { hasText: "New experiment" }).click();
+    await page.locator(".ex-make input").fill("b");
+    await page.locator(".ex-make .btn.primary").click();
+    await page.waitForSelector(".ex-table tr.sel td:has-text('b')", { timeout: 20000 });
+    await page.waitForTimeout(6000);
+    assert.equal(await page.locator(".ex-table tr.sel td.v").innerText(), "b");
+    assert.equal(await page.locator(".ex-mf .mf-file").innerText(), "manifests/b.yaml");
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    proc.kill();
+  }
+});

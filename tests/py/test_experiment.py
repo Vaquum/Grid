@@ -243,6 +243,21 @@ class ProjectRuns(unittest.TestCase):
         with open(path) as f:
             self.assertTrue(f.read().endswith("# two\n"))
 
+    def test_a_run_runs_the_manifest_shown(self) -> None:
+        self.p.create("exp", template="lightgbm_binary")
+        shown = self.p.manifest("exp")["version"]
+        # changed on disk after the page read it: not what the page shows
+        with open(os.path.join(self.root, "manifests", "exp.yaml"),
+                  "a") as f:
+            f.write("# changed elsewhere\n")
+        with self.assertRaisesRegex(ValueError, "changed on disk since it "
+                                                "was opened"):
+            self.p.start("exp", 2, 1, False, False, shown)
+        self.assertEqual(self.p.runs(), [])
+        rid = self.p.start("exp", 2, 1, False, False,
+                           self.p.manifest("exp")["version"])
+        wait(lambda: self.run_of(rid)["state"] == "finished")
+
     def test_one_name_is_made_once(self) -> None:
         text = manifest_text()
         results: list[str] = []

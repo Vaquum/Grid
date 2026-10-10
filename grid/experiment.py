@@ -774,14 +774,16 @@ class Project:
             out.close()
 
     def start(self, name: str, rounds: object, shards: object,
-              execution: object, outputs: object) -> str:
+              execution: object, outputs: object,
+              version: object = None) -> str:
         """Run an experiment: its manifest copied once per shard with the
         shard's seed, its share of the rounds, its output path and the
         recording asked for, and ``limen run`` on each copy side by side.
         The shards share the rounds evenly (rounded up), so that their
         manifests differ only in the seed and the output path, as a run
-        read from several directories must. The run's id is its folder in
-        the project."""
+        read from several directories must. Given the ``version`` of the
+        manifest the page shows, it runs only that: a file changed since
+        is refused. The run's id is its folder in the project."""
         path = self._manifest_path(name)
         if not os.path.isfile(path):
             raise ValueError("no experiment %s in manifests/" % name)
@@ -798,6 +800,9 @@ class Project:
                              % (shards, rounds))
         with open(path, encoding="utf-8") as f:
             text = f.read()
+        if version is not None and _version_of(text) != version:
+            raise ValueError("%s changed on disk since it was opened; open it "
+                             "again before running it" % self._rel(path))
         problems = self.validate(text)
         if problems:
             raise ValueError("limen validate finds %d problem%s in the "

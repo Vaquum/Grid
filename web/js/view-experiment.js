@@ -29,6 +29,9 @@ const lab = {
   // the project as last read, and when that reading was asked for; when a
   // manifest was last read or written here (performance.now())
   project: null, key: "", error: null, readAt: -1, wrote: -1,
+  // when the last action on the server ended: a reading asked for before
+  // it may not show what it did (performance.now())
+  actedAt: -1,
   chosen: null, drafts: new Map(), forms: new Map(), making: null, busy: null,
   run: null,   // the Limen run in view: its manifest, for a new experiment
 };
@@ -120,7 +123,10 @@ async function load() {
     // here says whether its file has changed since, even when it reads as
     // the one before
     const confirms = lab.wrote > lab.readAt && asked > lab.wrote;
-    if (key !== lab.key || lab.error || confirms) {
+    // a reading asked for before an action ended may not show it (a new
+    // experiment, a run): it is passed over, and the project read again
+    if (asked < lab.actedAt) lab.again = true;
+    else if (key !== lab.key || lab.error || confirms) {
       changed = true;
       lab.project = state;
       lab.key = key;
@@ -170,6 +176,7 @@ async function act(label, fn, done) {
     lab.A.toast(h("span", null, h("b", { text: `${label} failed. ` }), say(err)), "crit");
   } finally {
     lab.busy = null;
+    lab.actedAt = performance.now();
     draw();
     await load();
   }
@@ -719,7 +726,8 @@ function startRun(f) {
       Object.assign(d, { saved: text, version: out.version, disk: out.version });
       wrote(d);
     }
-    return post("start", { name: f.name, rounds: f.rounds, shards: f.shards, execution: f.execution, outputs: f.outputs });
+    // the version shown: a file changed since on disk is not what runs
+    return post("start", { name: f.name, rounds: f.rounds, shards: f.shards, execution: f.execution, outputs: f.outputs, version: d.version });
   }, (out) => lab.A.toast(h("span", null, h("b", { text: "Started. " }), `${out.run} opens in the other views once each shard has written a round.`), "good"));
 }
 

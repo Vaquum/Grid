@@ -306,7 +306,8 @@ def act(project: Project, action: str, body: dict[str, Any]) -> Any:
         return {"run": project.start(text("name"), body.get("rounds"),
                                      body.get("shards"),
                                      body.get("execution"),
-                                     body.get("outputs"))}
+                                     body.get("outputs"),
+                                     body.get("version"))}
     if action == "stop":
         project.stop(body.get("run"))
         return {"ok": True}
