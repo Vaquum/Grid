@@ -1023,6 +1023,36 @@ table.vals tr.ex-note-row:hover td { background: transparent; }
 .ex-note pre.code { margin: var(--sp-1) 0 var(--sp-2); max-height: 160px; overflow: auto; color: var(--ink); white-space: pre-wrap; }
 .mf-acts { display: inline-flex; gap: var(--sp-1); }
 
+/* ---- cohort ------------------------------------------------------------- */
+.co-acts { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin-top: var(--sp-2); }
+.co-best { display: inline-flex; align-items: center; gap: var(--sp-2); margin-left: auto; font-size: var(--fs-m); color: var(--ink-2); }
+.co-num {
+  width: 9ch; min-height: var(--h-s); padding: 0 var(--sp-2); border: 1px solid var(--border); border-radius: var(--r-m);
+  background: var(--surface); color: var(--ink); font-size: var(--fs-m); font-variant-numeric: tabular-nums;
+}
+.co-dir { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); margin-bottom: var(--sp-2); }
+.co-dir select { font-size: var(--fs-m); min-height: var(--h-s); }
+table.vals.co-table { width: auto; min-width: min(100%, 560px); }
+table.vals.co-table td:first-child { width: 28px; }
+table.vals.co-table th.r, table.vals.co-table td.r { padding-left: var(--sp-5); }
+.co-more { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.co-costs { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-4); margin-bottom: var(--sp-3); }
+.co-cost { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-m); color: var(--ink-2); }
+.co-costs .isl-note { margin: 0; }
+.co-verdict { margin: 0 0 var(--sp-3); font-size: var(--fs-b); color: var(--ink); max-width: 80ch; }
+table.vals.co-judge th.co-half { text-align: center; color: var(--ink-2); }
+table.vals.co-judge .co-h2 { background: color-mix(in oklab, var(--data) 6%, transparent); }
+table.vals.co-judge tr.co-strong td { font-weight: 600; }
+.co-notes { margin: 0 0 var(--sp-3); padding-left: var(--sp-4); color: var(--ink-2); font-size: var(--fs-m); max-width: 100ch; }
+.co-notes li + li { margin-top: var(--sp-1); }
+/* the figures of members no longer chosen, while the new ones are judged */
+.co-stale, .co-judged[aria-busy="true"] :is(.co-verdict, .co-notes, table) { opacity: 0.45; transition: opacity 0.15s; }
+.co-error { color: var(--critical-ink); }
+.co-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--sp-2) var(--sp-3); }
+.co-form .ex-input { width: 44ch; }
+.co-made { margin-top: var(--sp-3); }
+.co-id { color: var(--ink-2); }
+
 /* ---- narrow screens ----------------------------------------------------- */
 /* the pocket's and the pairs' two columns need room; with the inspector open they stack */
 @media (max-width: 1100px) {

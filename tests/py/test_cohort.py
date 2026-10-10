@@ -228,7 +228,7 @@ class Aggregation(unittest.TestCase):
         for part in [out["cohort"], *out["members"]]:
             self.assertEqual([h["bars"] for h in part["halves"]], [505, 506])
         self.assertEqual(len(out["notes"]), 1)
-        self.assertIn("calibrated and uncalibrated", out["notes"][0])
+        self.assertIn("Calibrated and uncalibrated", out["notes"][0])
         with self.assertRaisesRegex(ValueError, "basis points"):
             judge(ROUNDS, HOUR, -1.0, 5.0)
 
@@ -337,6 +337,9 @@ class Make(LimenProject):
         self.assertEqual(spec["manifest_id"], manifest_id)
         self.assertEqual(c["cohortId"], spec["cohort_id"])
         self.assertTrue(spec["cohort_id"].startswith("sha256:"))
+        self.assertEqual((c["startedAt"], c["madeAt"]),
+                         (spec["started_at"], spec["made_at"]))
+        self.assertLessEqual(c["startedAt"], c["madeAt"])
         self.assertEqual((spec["aggregation_mode"], spec["limen_version"],
                           spec["chosen"]), ("probability_weighted", "5.20.0",
                                             {"rows": [0, 1]}))
@@ -367,6 +370,7 @@ class Make(LimenProject):
         c = self.made("drift")
         self.assertEqual(c["state"], "failed")
         self.assertIn("ReconstructionError", c["tail"])
+        self.assertIsNone(c["madeAt"])
 
     def test_what_is_not_made(self) -> None:
         src = os.path.join(RUN, "s1")
@@ -423,9 +427,24 @@ class MakeRoute(LimenProject):
         shard = [run.store.row_object(i).get("shard")
                  for i in range(run.store.rows)]
         s1 = [i for i, d in enumerate(shard) if d == "s1"]
-        code, out = self.post({"run": run.id, "rows": s1, "name": "s1pair"})
+        how = {"needle": "Net PnL per bar", "on": "the first half",
+               "best": 2, "pocket": [], "gates": []}
+        code, out = self.post({"run": run.id, "rows": s1, "name": "s1pair",
+                               "how": how})
         self.assertEqual((code, out), (200, {"cohort": "s1pair"}), out)
-        self.assertEqual(self.made("s1pair")["state"], "made")
+        made = self.made("s1pair")
+        self.assertEqual((made["state"], made["chosen"]), ("made", how))
+        # how the members were chosen is kept as the page says it, within
+        # bounds; the page's row numbers and run id are not
+        with open(os.path.join(self.root, "cohorts", "s1pair",
+                               "cohort.json")) as f:
+            self.assertEqual(json.load(f)["chosen"], how)
+        code, out = self.post({"run": run.id, "rows": s1, "name": "long",
+                               "how": {"note": "x" * (70 << 10)}})
+        self.assertEqual(code, 400)
+        self.assertIn("too long to keep", out["error"])
+        self.assertFalse(os.path.exists(os.path.join(self.root, "cohorts",
+                                                     "long")))
         code, out = self.post({"run": run.id, "rows": [0, 1, 2, 3],
                                "name": "both"})
         self.assertEqual(code, 400)

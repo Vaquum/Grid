@@ -239,13 +239,16 @@ def judge(records: list[Json], step: int, fee_bps: float,
     if exits:
         notes.append("%d of the %d members exit by take-profit or "
                      "stop-loss, which is not rebuilt here (the run does "
-                     "not record the prices it needs): every series is "
-                     "long while its signal is" % (exits, len(records)))
+                     "not record the prices it needs): here each is long "
+                     "on every bar after a 1, so their figures differ from "
+                     "those their rounds recorded. The cohort, its best "
+                     "member and its members' mean are rebuilt alike."
+                     % (exits, len(records)))
     calibrated = {bool(_param(rec, "use_calibration")) for rec in records}
     if weighted and len(calibrated) > 1:
-        notes.append("calibrated and uncalibrated members' probabilities "
+        notes.append("Calibrated and uncalibrated members' probabilities "
                      "are averaged together, as Limen's Cohort averages "
-                     "them")
+                     "them.")
     return {"bars": len(bars), "first": bars[0], "last": bars[-1],
             "step": step, "fee": fee_bps, "slip": slip_bps,
             "aggregation": ("probability_weighted" if weighted

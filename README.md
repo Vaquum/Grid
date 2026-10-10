@@ -90,8 +90,26 @@ has written a round.
 python3 -m grid serve --project ~/limen-lab --open
 ```
 
-Grid reaches Limen only through its command line (`--limen-cli`, by
-default the project's own `.venv/bin/limen`, else the one on the PATH).
+On a Limen run that recorded its model outputs and execution, the Cohort
+view (8) takes the pocket found with the other views to a cohort. The
+pool is the rows in view that are in the pocket and pass every gate set
+in Gates; its members are the pool's best by the needle on the first half
+of the test window, from one result directory (a Limen Cohort takes one).
+The cohort is judged on the second half, which chose nothing: rebuilt
+from what the run recorded (the members' probabilities averaged and over
+0.5, as Limen's Cohort averages them, executed as Limen executes a
+signal), against its best member alone and its members' mean. On a
+project, Make predictor has Limen's `Trainer` train each member again on
+the data its round used and Limen's `Cohort` bind them, into
+`cohorts/<name>/`: Limen's cohort id, each member's sensor beside a
+sidecar of the versions it was made with (the layout Furnace reads), and
+how its members were chosen.
+
+Grid reaches Limen through its command line (`--limen-cli`, by default
+the project's own `.venv/bin/limen`, else the one on the PATH) and, to
+make a predictor, a script run in Limen's own Python
+(`grid/limen_cohort.py`; `--limen-python`, by default the one the limen
+command's script names); Grid's server imports nothing of Limen.
 A write needs the page's own token, from the page's own origin; on a
 project the server answers only requests that name it by its address or
 as `localhost`.
@@ -125,6 +143,7 @@ python3 tools/live_demo.py --out /tmp/grid-live --port 8765
 | 5 | Trials | The best rows by the runner's own objective, each replayable |
 | 6 | Gates | Which gates the space can pass, what bounds the ones it cannot |
 | 7 | Run | Pace, segments, crashes, warnings, invariants, the sampler, luck |
+| 8 | Cohort | On a Limen run: a cohort chosen on the first half of the test window, judged on the second, made a predictor |
 
 The needle (T) is the outcome every view measures: Tradeable (gates ≥ 6
 and total ≥ $3,000, the definition Pocket A was mined with), any metric,

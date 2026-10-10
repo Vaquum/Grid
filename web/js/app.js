@@ -24,6 +24,7 @@ import { renderGates } from "./view-gates.js";
 import { renderRun, runHealth, runLog, segmentOf } from "./view-run.js";
 import { renderReference } from "./reference.js";
 import { renderExperiment, experimentKey, startFrom } from "./view-experiment.js";
+import { renderCohort } from "./view-cohort.js";
 
 const VIEWS = [
   { id: "board", label: "Board", icon: "board", key: "1", title: "What moves the needle" },
@@ -36,9 +37,16 @@ const VIEWS = [
 ];
 // first on the rail when the server serves a Limen project
 const EXPERIMENT = { id: "experiment", label: "Experiment", icon: "flask", key: "0", title: "Make and run an experiment" };
+// last on the rail when the run in view is a Limen run
+const COHORT = { id: "cohort", label: "Cohort", icon: "cohort", key: "8", title: "Choose a cohort, judge it on the second half, make its predictor" };
 
-function views() {
-  return app.config && app.config.experiment ? [EXPERIMENT, ...VIEWS] : VIEWS;
+// The views on the rail, for the run given or the run in view.
+function views(run) {
+  const list = app.config && app.config.experiment ? [EXPERIMENT, ...VIEWS] : VIEWS.slice();
+  const r = run || (app.state && app.sweep && app.sweep.runs.length ? currentRun() : null);
+  const exp = r && r.meta.experiment;
+  if (exp && exp.kind === "limen") list.push(COHORT);
+  return list;
 }
 
 const DEFAULT_STATE = {
@@ -275,12 +283,12 @@ function installSweep(pack, keepState) {
     const fromUrl = decodeState(location.hash);
     // on a Limen project the page opens on the Experiment view
     const st = fromUrl || { ...DEFAULT_STATE, view: app.config.experiment ? "experiment" : DEFAULT_STATE.view };
-    if (!views().some(v => v.id === st.view)) st.view = DEFAULT_STATE.view;
     // a project's sweep may have no run yet
     if (!st.run || !runs.some(r => r.id === st.run)) {
       const first = runs.find(r => r.id === "r0") || runs.find(r => r.meta.live) || runs[runs.length - 1];
       st.run = first ? first.id : null;
     }
+    if (!views(runs.find(r => r.id === st.run)).some(v => v.id === st.view)) st.view = DEFAULT_STATE.view;
     app.state = st;
   }
 }
@@ -405,7 +413,7 @@ function update() {
     return;
   }
   const render = { board: renderBoard, pocket: renderPocket, pairs: renderPairs, features: renderFeatures,
-    trials: renderTrials, gates: renderGates, run: renderRun }[app.state.view] || renderBoard;
+    trials: renderTrials, gates: renderGates, run: renderRun, cohort: renderCohort }[app.state.view] || renderBoard;
   redraw(view, sameView, () => {
     try {
       if (!m.rows.length && app.state.view !== "run") renderNoRows(view, m);
@@ -647,7 +655,7 @@ function updateRail(m) {
   const health = m ? runHealth(m) : { issues: 0 };
   const list = views();
   list.forEach((v, i) => {
-    if (i > 0 && (v.id === "run" || list[i - 1].id === "experiment")) rail.append(h("div", { class: "sep" }));
+    if (i > 0 && (v.id === "run" || v.id === "cohort" || list[i - 1].id === "experiment")) rail.append(h("div", { class: "sep" }));
     const b = h("button", { "aria-label": v.label, "aria-current": app.state.view === v.id ? "page" : null,
       onclick: () => setState({ view: v.id }) }, icon(v.icon), h("span", { text: v.label }));
     if (v.id === "run" && health.issues) b.append(h("span", { class: "badge", text: String(health.issues) }));
