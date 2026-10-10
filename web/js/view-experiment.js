@@ -15,7 +15,7 @@
 // the new experiment) are made once and painted in place, so the caret,
 // the undo and an open menu stay.
 
-import { h, tip, keyTip, fmtInt, fmtPct, fmtAgo, fmtClock, fmtStamp, clear, icon, syncInfo } from "./ui.js";
+import { h, tip, keyTip, fmtInt, fmtPct, fmtClock, fmtStamp, clear, icon, syncInfo } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { searchSpace, fmtCount } from "./manifest.js";
 
@@ -196,12 +196,20 @@ export function renderExperiment(view, m, A, fresh) {
 // for the manifest of the run in view as it ran.
 export function startFrom(text, label, name) {
   lab.making = { gen: (lab.making ? lab.making.gen : 0) + 1, source: text === null ? "run" : "given",
-    given: text === null ? null : { text, label }, name: freeName(name || "experiment"), focus: true };
+    given: text === null ? null : { text, label }, base: name || "experiment", name: freeName(name || "experiment"), focus: true };
 }
 
 function fresh(state) {
   const t = (state || lab.project || {}).templates || [];
-  return { gen: 0, source: t.length ? `t:${t[0].name}` : null, given: null, name: freeName(t.length ? t[0].name : "experiment") };
+  return { gen: 0, source: t.length ? `t:${t[0].name}` : null, given: null, base: "experiment", name: freeName(t.length ? t[0].name : "experiment") };
+}
+
+// The name a new experiment is offered, after what it starts from, until
+// one is typed.
+function suggested(mk) {
+  if (mk.source && mk.source.startsWith("t:")) return mk.source.slice(2);
+  if (mk.source === "run" && lab.run) return lab.run.name;
+  return mk.base;
 }
 
 function freeName(base) {
@@ -324,10 +332,11 @@ function runsOf(p, e) {
   return e.runs.map(id => p.runs.find(r => r.id === id)).filter(Boolean);
 }
 
+// When a run started: its clock time today, else its date and time (a
+// time that does not go stale as the view stands).
 function when(sec) {
-  const ago = Date.now() / 1000 - sec;
-  if (ago < 86400) return fmtAgo(Math.max(0, ago));
   const d = new Date(sec * 1000);
+  if (d.toDateString() === new Date().toDateString()) return fmtClock(sec);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${fmtClock(sec)}`;
 }
 
@@ -336,7 +345,7 @@ function rounds(r) {
 }
 
 function tableKey(p) {
-  return JSON.stringify([lab.chosen, Math.floor(Date.now() / 60000), p.experiments.map(e => {
+  return JSON.stringify([lab.chosen, new Date().toDateString(), p.experiments.map(e => {
     const r = runsOf(p, e)[0];
     return [e.name, e.file, e.runs.length, r ? [r.started, r.rows, r.planned, r.state, r.stopping] : null];
   })]);
@@ -371,12 +380,16 @@ function makeForm(p, mk) {
   if (!sources.some(s => s.id === mk.source)) mk.source = sources.length ? sources[0].id : null;
   const name = h("input", { class: "ex-input mono", type: "text", value: mk.name, spellcheck: "false", autocomplete: "off", maxlength: "64",
     "aria-label": "The new experiment's name", dataset: { focus: "ex-new-name" } });
-  name.addEventListener("input", () => { mk.name = name.value; paintMake(mk); });
+  name.addEventListener("input", () => { mk.name = name.value; mk.named = true; paintMake(mk); });
   name.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); make(mk); } });
   const from = h("select", { "aria-label": "What it starts from", dataset: { focus: "ex-new-from" } },
     sources.map(s => h("option", { value: s.id, text: s.label })));
   from.value = mk.source || "";
-  from.addEventListener("change", () => { mk.source = from.value; paintMake(mk); });
+  from.addEventListener("change", () => {
+    mk.source = from.value;
+    if (!mk.named) { mk.name = freeName(suggested(mk)); name.value = mk.name; }
+    paintMake(mk);
+  });
   mk.go = h("button", { class: "btn primary", type: "button", onclick: () => make(mk) }, "Make it");
   mk.input = name;
   mk.why = h("span", { class: "ex-why" });
@@ -631,7 +644,7 @@ function runForm(f) {
     return h("label", { class: "ex-field" }, h("span", { class: "k", text: label }), input);
   };
   const box = (key, label, why) => {
-    const input = h("input", { type: "checkbox", checked: f[key] ? true : null, dataset: { focus: `ex-${key}` } });
+    const input = h("input", { type: "checkbox", checked: f[key] ? true : null, "aria-label": label, dataset: { focus: `ex-${key}` } });
     input.addEventListener("change", () => { f[key] = input.checked; });
     return tip(h("label", { class: "ex-check" }, input, h("span", { text: label })), why);
   };
@@ -691,7 +704,7 @@ function startRun(f) {
 }
 
 function runsKey(e, p) {
-  return JSON.stringify([e.name, lab.busy, Math.floor(Date.now() / 60000), runsOf(p, e)]);
+  return JSON.stringify([e.name, lab.busy, new Date().toDateString(), runsOf(p, e)]);
 }
 
 function runsTable(p, e) {

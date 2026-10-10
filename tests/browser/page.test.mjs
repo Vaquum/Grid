@@ -1181,6 +1181,11 @@ test("experiment: on a Limen project, one is made, checked as it is typed, run i
     assert.equal(await page.locator(".rail button[aria-current=page]").getAttribute("aria-label"), "Experiment");
     assert.match(await page.locator(".strip").innerText(), /Limen\s+5\.20\.0/);
     assert.equal(await page.locator(".ex-make select").inputValue(), "t:lightgbm_binary");
+    // the name offered follows what it starts from, until one is typed
+    await page.locator(".ex-make select").selectOption("t:logreg_binary");
+    assert.equal(await page.locator(".ex-make input").inputValue(), "logreg_binary");
+    await page.locator(".ex-make select").selectOption("t:lightgbm_binary");
+    assert.equal(await page.locator(".ex-make input").inputValue(), "lightgbm_binary");
     // the other views have no run to show yet
     await page.keyboard.press("1");
     await page.waitForSelector("text=No run is open yet.");
