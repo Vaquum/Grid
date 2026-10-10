@@ -40,6 +40,7 @@ from typing import Any
 from . import __version__
 from .follow import (
     FileFollower,
+    HistoryFn,
     LineFn,
     ResetFn,
     SSHFollower,
@@ -151,9 +152,9 @@ class Wiring:
 
     def written_at(self, paths: list[str]) -> float | None:
         """When the latest of these files (those that exist) was last
-        written, or None when that cannot be read. Rows read when the
-        server starts have no arrival time; this is the nearest the files
-        say of when the last of them was written."""
+        written, or None when that cannot be read: for the files a run
+        writes beside the ones followed (whose followers say when they were
+        last written, from the look that bounds their history)."""
         try:
             if self.args.ssh:
                 times = remote_mtimes(self.args.ssh, paths)
@@ -164,15 +165,16 @@ class Wiring:
             return None
         return max(times) if times else None
 
-    def _follower(self, path: str, on_line: LineFn,
-                  on_reset: ResetFn) -> FileFollower | SSHFollower:
+    def _follower(self, path: str, on_line: LineFn, on_reset: ResetFn,
+                  on_history: HistoryFn | None = None
+                  ) -> FileFollower | SSHFollower:
         if self.args.ssh:
             return SSHFollower(self.args.ssh, path, on_line, on_reset,
-                               self.sweep.error)
+                               self.sweep.error, on_history)
         if not os.path.exists(path):
             raise SystemExit("no such file: %s" % path)
         return FileFollower(path, on_line, on_reset, self.sweep.error,
-                            follow=self.follow)
+                            follow=self.follow, on_history=on_history)
 
     def add_run(self, run_id: str, label: str, path: str,
                 segment: int | None, live: bool,
@@ -180,12 +182,12 @@ class Wiring:
                 experiment: Json | None = None) -> Run:
         run = Run(run_id, label, self.shown(path), segment, live, log_id,
                   fmt, experiment)
-        run.written_at = self.written_at([path])
         self.sweep.add_run(run)
         sweep = self.sweep
         self.followers.append(self._follower(
             path, lambda text, pre: sweep.run_line(run, text, pre),
-            lambda reason: sweep.run_reset(run, reason)))
+            lambda reason: sweep.run_reset(run, reason),
+            lambda mtime: sweep.run_written(run, mtime)))
         return run
 
     def add_round_log(self, run: Run, directory: str) -> None:
@@ -204,7 +206,8 @@ class Wiring:
         sweep = self.sweep
         self.followers.append(self._follower(
             path, lambda text, pre: sweep.round_line(run, text, pre),
-            lambda reason: sweep.round_reset(run, reason)))
+            lambda reason: sweep.round_reset(run, reason),
+            lambda mtime: sweep.run_written(run, mtime)))
 
     def add_log(self, path: str) -> str:
         """Follow a log once, however many runs share it; its id."""
@@ -234,12 +237,14 @@ class Wiring:
             run = self.add_run("r0", label, self.results_path(), None, True,
                                main_log, "csv", self.experiment)
             self.add_round_log(run, a.limen)
-            # a round is written after its row, the checkpoint and the
-            # feedback audit after some rounds: the latest of them all
+            # the checkpoint and the feedback audit are written after some
+            # rounds; the results file and the round log, followed, add
+            # theirs as their followers first look at them
             join = posixpath.join if a.ssh else os.path.join
-            run.written_at = self.written_at(
-                [self.results_path()] + [join(a.limen, n) for n in (
-                    ROUND_LOG, "checkpoint.json", "audit.jsonl")])
+            extra = self.written_at([join(a.limen, n) for n in (
+                "checkpoint.json", "audit.jsonl")])
+            if extra is not None:
+                self.sweep.run_written(run, extra)
         else:
             self.add_run("r0", a.label or "current", a.results, None, True,
                          main_log)

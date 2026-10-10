@@ -178,6 +178,14 @@ class Sweep:
             run.add_line(text, None if preload else time.time())
             self._bump()
 
+    def run_written(self, run: Run, mtime: float) -> None:
+        """One of the run's files was last written at ``mtime``, as the
+        look that bounded its history saw it."""
+        with self.lock:
+            run.written_at = mtime if run.written_at is None \
+                else max(run.written_at, mtime)
+            self._bump()
+
     def run_reset(self, run: Run, reason: str) -> None:
         with self.lock:
             if run.store.rows or run.bad_count:

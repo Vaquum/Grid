@@ -67,6 +67,23 @@ class FollowerTest(unittest.TestCase):
         f.read_available()
         self.assertEqual(self.c.lines[-1], ('{"a":3}', False))
 
+    def test_the_look_that_bounds_the_history_gives_its_time(self):
+        # the file's time comes from the same look that decides which
+        # lines are history, so a line written after it is live, never an
+        # old line with a stale time
+        self.write('{"a":1}\n', "w")
+        hour_ago = time.time() - 3600
+        os.utime(self.path, (hour_ago, hour_ago))
+        seen = []
+        f = FileFollower(self.path, self.c.line, self.c.reset, self.c.error,
+                         on_history=seen.append)
+        f.read_available()
+        self.write('{"a":2}\n')
+        f.read_available()
+        self.assertEqual(len(seen), 1)
+        self.assertAlmostEqual(seen[0], hour_ago, places=3)
+        self.assertEqual(self.c.lines, [('{"a":1}', True), ('{"a":2}', False)])
+
     def test_truncation_starts_over(self):
         self.write('{"a":1}\n{"a":2}\n', "w")
         f = self.follower()

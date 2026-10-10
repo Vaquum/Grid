@@ -892,7 +892,9 @@ test("live: a run that stopped before the server started reads quiet at once, an
     const { page, errors } = await limenPage();
     await page.goto(url);
     await page.waitForSelector(".pcard");
+    // quiet once the stream is open (until then the pill says Reconnecting)
     const pill = page.locator(".sweep-line .status");
+    await page.waitForFunction(() => document.querySelector(".sweep-line .status").dataset.kind !== "down", null, { timeout: 20000 });
     assert.equal(await pill.getAttribute("data-kind"), "quiet");
     assert.match(await pill.innerText(), /last row 6\d min ago/);
     // the Run view says when the last row was written
