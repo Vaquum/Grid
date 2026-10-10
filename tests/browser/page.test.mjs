@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { limenOutputsRun } from "../fixtures/limen_outputs.mjs";
+import { limenExecutionRun } from "../fixtures/limen_execution.mjs";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const PW = process.env.GRID_PLAYWRIGHT;
@@ -978,6 +979,52 @@ test("live: a Limen run with its model outputs sets apart the rounds that never 
     assert.equal(await island.locator(".isl-count").innerText(), "14 of 40 rounds");
     const ks = await island.locator(".stat .k").allInnerTexts();
     assert.deepEqual(ks, ["Held back by the threshold", "Found nothing", "Short of the threshold", "Within reach"]);
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    proc.kill();
+  }
+});
+
+test("live: a Limen run with its execution has trades, timing, Grid's gates and the test window's halves", async () => {
+  const run = limenExecutionRun(join(mkdtempSync(join(tmpdir(), "grid-execution-")), "run"));
+  const proc = spawn("python3", ["-m", "grid", "serve", "--limen", run, "--port", "0"], { cwd: ROOT });
+  try {
+    const url = await serverUrl(proc);
+    const { page, errors } = await limenPage();
+    await page.goto(url);
+    await page.waitForSelector(".pcard");
+    // the needles a round's bars give, and Grid's gates on them
+    const options = async label => page.$$eval(`#target-pick optgroup[label="${label}"] option`, os => os.map(o => o.textContent));
+    const outcomes = await options("Outcome");
+    for (const name of ["Entries", "Mean trade", "Per-trade t", "Timing per bar"]) assert.ok(outcomes.includes(name), `${name} in ${outcomes.join(", ")}`);
+    assert.deepEqual(await options("Gates passing"), ["Entries ≥ 30", "Per-trade t ≥ 2"]);
+    // the board counts an effect only in both halves; each value's half
+    // means sit beside its mark
+    assert.match(await page.locator(".strip").innerText(), /Not in both halves/);
+    assert.match(await page.locator(".board-sec .sec-title").first().innerText(), /in both halves/i);
+    assert.ok(await page.locator(".pcard .col .hm").count() > 0);
+    // Trials sets each row's first-half rank against its halves
+    await page.keyboard.press("5");
+    await page.waitForSelector(".tr-island table.trials");
+    assert.match(await page.locator(".strip").innerText(), /Lead kept/);
+    assert.equal(await page.locator('[data-cols="halves"]').getAttribute("aria-pressed"), "true");
+    const head = await page.locator("table.trials thead tr:last-child").innerText();
+    for (const k of ["Rank, first half", "First half", "Second half"]) assert.match(head, new RegExp(k));
+    // 200 rows: too few for tenths of 30
+    assert.match(await page.locator('section[aria-labelledby="tr-halves"]').innerText(), /Under 300 rows/);
+    // Gates: Grid's two, beside a new one
+    await page.keyboard.press("6");
+    await page.waitForSelector("article.gt-card");
+    assert.deepEqual(await page.locator("article.gt-card .gt-title").allInnerTexts(), ["Entries ≥ 30", "Per-trade t ≥ 2"]);
+    assert.equal(await page.locator("article.gt-card .tag", { hasText: "Grid's" }).count(), 2);
+    // Run: the reliability, and the market and the needles on each half
+    await page.keyboard.press("7");
+    const halves = page.locator("#rn-halves");
+    await halves.waitFor();
+    assert.match(await page.locator(".strip").innerText(), /Reliability/);
+    assert.deepEqual(await halves.locator(".stat .k").allInnerTexts(), ["The market, first half", "The market, second half"]);
+    assert.ok((await halves.locator("tbody tr").count()) >= 8);
     assert.deepEqual(errors, []);
     await page.close();
   } finally {
