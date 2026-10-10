@@ -259,7 +259,8 @@ class Execution(unittest.TestCase):
 
     def test_a_trade_open_across_the_middle_is_a_trade_in_each_half(
             self) -> None:
-        got = self.summary([0, 1, 1, 1], [0, .01, .01, .01], [0, .01, .01, .01])
+        held = [0, .01, .01, .01]
+        got = self.summary([0, 1, 1, 1], held, held)
         assert got is not None
         self.assertEqual([got["whole"]["trades"]] + [h["trades"] for h in
                                                       got["halves"]],
