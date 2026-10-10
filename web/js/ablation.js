@@ -16,6 +16,7 @@
 
 import { summarize, ALPHA } from "./engine.js";
 import { bhQ, zP } from "./stats.js";
+import { roundKey } from "./pack.js";
 
 const Z95 = 1.959963984540054;
 // Fewer rows than this dropped a column: its term would rest on a handful
@@ -87,7 +88,10 @@ export function ablationMembers(ds, schema, design, rows) {
   const ri = ds.col("_round_index");
   if (!ri || ri.kind !== "num") throw new Error("a Limen run needs its _round_index column to read its round log");
   const n = ds.n;
-  const roundOf = (i) => (ri.state[i] === 0 ? ri.vals[i] : NaN);
+  // a run read from several result directories: a round is its index in
+  // its directory (shard)
+  const shard = ds.meta.experiment && ds.meta.experiment.shards ? ds.col("shard") : null;
+  const roundOf = (i) => (ri.state[i] === 0 ? roundKey(ri.vals[i], shard ? shard.value(i) : null) : NaN);
   const valueOf = (p, i) => { const d = schema.dimById.get(p); return d && d.codes[i] >= 0 ? String(d.levels[d.codes[i]].value) : null; };
   // the naming parameters each raw column name matches in every round that dropped it
   const seen = new Map();

@@ -174,6 +174,13 @@ export class Column {
   }
 }
 
+// A round's key among a run's rounds: its index, or for a run read from
+// several result directories (each counting its rounds from 0), its
+// directory's label with it.
+export function roundKey(index, shard) {
+  return shard === undefined || shard === null ? index : `${shard}#${index}`;
+}
+
 // One run's rows.
 export class Dataset {
   constructor(meta) {
@@ -183,8 +190,9 @@ export class Dataset {
     this.cols = new Map();
     this.order = [];
     this.arrivals = new Float64Array(0);
-    // a Limen run's rounds as its round log records them: round index ->
-    // the feature columns its ablation dropped
+    // a Limen run's rounds as its round log records them: round index (in
+    // its directory, for a run read from several: roundKey) -> the feature
+    // columns its ablation dropped
     this.rounds = new Map();
     this.version = 0;
   }
@@ -195,7 +203,7 @@ export class Dataset {
   // starts the map over (the log was truncated or replaced).
   addRounds(entries, reset = false) {
     if (reset) this.rounds = new Map();
-    for (const [index, dropped] of entries) this.rounds.set(index, dropped);
+    for (const [index, dropped, shard] of entries) this.rounds.set(roundKey(index, shard), dropped);
     this.version++;
   }
 

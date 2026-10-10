@@ -117,6 +117,9 @@ class FileFollower:
             self.on_error("following %s: %s: %s" % (
                 self.path, type(exc).__name__, exc))
             raise
+        finally:
+            # stopped for good: nothing more of its history will come
+            self.caught_up.set()
 
     def start(self) -> None:
         threading.Thread(target=self.run, daemon=True,
@@ -184,6 +187,9 @@ class SSHFollower:
             self.on_error("following %s:%s: %s: %s" % (
                 self.host, self.path, type(exc).__name__, exc))
             raise
+        finally:
+            # stopped for good: nothing more of its history will come
+            self.caught_up.set()
 
     def start(self) -> None:
         threading.Thread(target=self.run, daemon=True,
@@ -207,6 +213,17 @@ def _ssh(host: str, *argv: str, timeout: float = 30.0) -> bytes:
 
 def remote_size(host: str, path: str) -> int:
     return int(_ssh(host, "stat", "-c", "%s", _quote(path)).strip())
+
+
+def remote_result_dirs(host: str, folder: str) -> list[str]:
+    """The Limen result directories in a remote folder (those holding a
+    metadata.json), by name; none when it holds none."""
+    try:
+        out = _ssh(host, "ls", "-1d", _quote(folder) + "/*/metadata.json")
+    except RuntimeError:
+        return []
+    return sorted(line.rsplit("/", 1)[0] for line in
+                  out.decode("utf-8", errors="replace").splitlines() if line)
 
 
 def list_remote(host: str, directory: str) -> list[str]:

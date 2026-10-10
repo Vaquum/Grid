@@ -14,7 +14,10 @@
 ``--results`` is the run the sweep is writing now; its rows belong to the
 latest segment of ``--log``. ``--limen`` takes a Limen result directory
 instead: its results.csv is the run, and its metadata.json holds the
-manifest that says which columns are parameters.
+manifest that says which columns are parameters. Given more than once, or
+given a folder of result directories, it reads several runs of one
+manifest that differ only in their search seed (``limen run`` side by
+side) as one run, each row tagged with its directory in ``shard``.
 
 ``--run`` adds another results file, either as ``LABEL=PATH#SEGMENT`` (an
 earlier run of the same log, kept under another name, and the log segment
@@ -44,8 +47,16 @@ from .follow import (
     SSHFollower,
     list_remote,
     read_remote,
+    remote_result_dirs,
 )
-from .limen import ROUND_LOG, experiment_name, manifest_copy, read_experiment
+from .limen import (
+    ROUND_LOG,
+    experiment_name,
+    manifest_copy,
+    read_experiment,
+    shard_labels,
+    shards_problem,
+)
 from .server import serve
 from .sweep import Json, Run, Sweep
 
@@ -90,24 +101,79 @@ class Wiring:
         self.args = args
         self.follow = follow
         self.experiment: Json | None = None
+        self.dirs: list[str] = []            # the Limen result directories
+        self.shards: list[str] | None = None  # their labels, when several
+        self.parent: str | None = None       # the folder that held them
         name = args.name
         if args.limen:
-            self.experiment = self.read_experiment(args.limen)
-            # where the run's directory is, for the command that replays a
-            # round of it (Limen's Trainer reads the directory itself); a
-            # local one in full, so that the command works from anywhere
-            self.experiment["dir"] = (args.limen if args.ssh
-                                      else os.path.abspath(args.limen))
+            self.dirs = self.limen_dirs(args.limen)
+            experiments = [self.read_experiment(d) for d in self.dirs]
+            if len(self.dirs) > 1:
+                self.shards = shard_labels(self.dirs)
+                problem = shards_problem(self.shards, experiments)
+                if problem:
+                    raise SystemExit(problem)
+            self.experiment = experiments[0]
+            # where the run's directories are, for the command that replays
+            # a round (Limen's Trainer reads the directory itself); a local
+            # one in full, so that the command works from anywhere
+            full = [d if args.ssh else os.path.abspath(d) for d in self.dirs]
+            if self.shards is None:
+                self.experiment["dir"] = full[0]
+            else:
+                self.experiment["dir"] = None
+                self.experiment["shards"] = dict(zip(self.shards, full,
+                                                     strict=True))
             self.experiment["host"] = args.ssh or None
             name = name or experiment_name(self.experiment)
         self.sweep = Sweep(name or default_name(self.results_path()))
         self.followers: list[FileFollower | SSHFollower] = []
+        self.shard_followers: list[FileFollower | SSHFollower] = []
 
-    def results_path(self) -> str:
+    def limen_dirs(self, given: list[str]) -> list[str]:
+        """The result directories to read: each one given, or for a folder
+        of them (a directory with no metadata.json of its own), the result
+        directories in it, by name. One given twice is read once."""
+        a = self.args
+        found: list[str] = []
+        for d in given:
+            d = d.rstrip("/") or "/"
+            if a.ssh:
+                try:
+                    names = list_remote(a.ssh, d)
+                except RuntimeError as err:
+                    raise SystemExit(str(err)) from err
+                if "metadata.json" in names:
+                    found.append(d)
+                    continue
+                inside = remote_result_dirs(a.ssh, d)
+            else:
+                if os.path.exists(os.path.join(d, "metadata.json")):
+                    found.append(d)
+                    continue
+                inside = sorted(
+                    os.path.join(d, n) for n in os.listdir(d)
+                    if os.path.isfile(os.path.join(d, n, "metadata.json"))
+                ) if os.path.isdir(d) else []
+            if not inside:
+                raise SystemExit("%s has no metadata.json and holds no Limen "
+                                 "result directory" % self.shown(d))
+            if len(given) == 1:
+                self.parent = d
+            found.extend(inside)
+        out: list[str] = []
+        for d in found:
+            if d not in out:
+                out.append(d)
+        return out
+
+    def results_path(self, directory: str | None = None) -> str:
+        """The results file: of this Limen result directory, or of the first,
+        or the one given."""
         a = self.args
         if a.limen:
             join = posixpath.join if a.ssh else os.path.join
-            return join(a.limen, "results.csv")
+            return join(directory or self.dirs[0], "results.csv")
         return a.results
 
     def read_experiment(self, directory: str) -> Json:
@@ -170,23 +236,59 @@ class Wiring:
             lambda reason: sweep.run_reset(run, reason)))
         return run
 
-    def add_round_log(self, run: Run, directory: str) -> None:
+    def add_round_log(self, run: Run, directory: str,
+                      shard: int | None = None) -> None:
         """Follow a Limen run's round_data.jsonl, when its directory has
-        one; the experiment says which (``roundLog``, or None)."""
+        one; the experiment says which (``roundLog``, or None: for a run
+        read from several directories, the first that has one)."""
         a = self.args
         assert run.experiment is not None
         names = (list_remote(a.ssh, directory) if a.ssh
                  else os.listdir(directory))
         if ROUND_LOG not in names:
-            run.experiment["roundLog"] = None
+            run.experiment.setdefault("roundLog", None)
             return
         join = posixpath.join if a.ssh else os.path.join
         path = join(directory, ROUND_LOG)
-        run.experiment["roundLog"] = self.shown(path)
+        if run.experiment.get("roundLog") is None:
+            run.experiment["roundLog"] = self.shown(path)
         sweep = self.sweep
         self.followers.append(self._follower(
-            path, lambda text, pre: sweep.round_line(run, text, pre),
-            lambda reason: sweep.round_reset(run, reason)))
+            path, lambda text, pre: sweep.round_line(run, text, pre, shard),
+            lambda reason: sweep.round_reset(run, reason, shard)))
+
+    def add_shards(self, label: str, log_id: str | None) -> Run:
+        """One run read from several result directories of one manifest:
+        each file's rows tagged with its directory, its history joined
+        once every file's is read (``merge``)."""
+        assert self.shards is not None
+        sources = ", ".join(self.shown(self.results_path(d))
+                            for d in self.dirs)
+        run = Run("r0", label, sources, None, True, log_id, "csv",
+                  self.experiment, self.shards)
+        self.sweep.add_run(run)
+        for k, d in enumerate(self.dirs):
+            self._add_shard(run, k, d)
+        return run
+
+    def _add_shard(self, run: Run, k: int, directory: str) -> None:
+        sweep = self.sweep
+        f = self._follower(
+            self.results_path(directory),
+            lambda text, pre: sweep.run_line(run, text, pre, k),
+            lambda reason: sweep.run_reset(run, reason, k))
+        self.followers.append(f)
+        self.shard_followers.append(f)
+        self.add_round_log(run, directory, k)
+
+    def merge(self, wait: bool = True) -> None:
+        """Join a sharded run's history once every file's is read (or its
+        follower has stopped)."""
+        if wait:
+            for f in self.shard_followers:
+                f.caught_up.wait()
+        for run in self.sweep.runs:
+            self.sweep.merge(run)
 
     def add_log(self, path: str) -> str:
         """Follow a log once, however many runs share it; its id."""
@@ -211,11 +313,15 @@ class Wiring:
             live = r.get("live") == "1" or ("log" in r and "segment" not in r)
             self.add_run("r%d" % (i + 1), r["label"], r["results"], seg, live,
                          log_id)
-        if a.limen:
-            label = a.label or os.path.basename(a.limen.rstrip("/"))
+        if a.limen and self.shards is not None:
+            label = a.label or (os.path.basename(self.parent) if self.parent
+                                else "%d result directories" % len(self.dirs))
+            self.add_shards(label, main_log)
+        elif a.limen:
+            label = a.label or os.path.basename(self.dirs[0])
             run = self.add_run("r0", label, self.results_path(), None, True,
                                main_log, "csv", self.experiment)
-            self.add_round_log(run, a.limen)
+            self.add_round_log(run, self.dirs[0])
         else:
             self.add_run("r0", a.label or "current", a.results, None, True,
                          main_log)
@@ -227,11 +333,14 @@ class Wiring:
             assert isinstance(f, FileFollower)
             while f.read_available():
                 pass
+        self.merge(wait=False)
         self.sweep.log_flush()
 
     def start(self) -> None:
         for f in self.followers:
             f.start()
+        if self.shard_followers:
+            threading.Thread(target=self.merge, daemon=True).start()
         threading.Thread(target=self._flush_quiet_log, daemon=True).start()
 
     def _flush_quiet_log(self) -> None:
@@ -331,9 +440,11 @@ def main(argv: list[str] | None = None) -> int:
         source = p.add_mutually_exclusive_group(required=True)
         source.add_argument("--results",
                             help="results JSONL the sweep is writing now")
-        source.add_argument("--limen", metavar="DIR",
+        source.add_argument("--limen", metavar="DIR", action="append",
                             help="a Limen result directory (results.csv "
-                                 "and metadata.json)")
+                                 "and metadata.json); again, or a folder "
+                                 "of them, for several runs of one "
+                                 "manifest read as one")
         p.add_argument("--label", help="name of the current run")
         p.add_argument("--log", help="the sweep's stdout log")
         p.add_argument("--run", action="append",

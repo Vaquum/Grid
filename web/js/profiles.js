@@ -171,18 +171,23 @@ export const LIMEN_DERIVED = [
 
 // A Limen experiment's profile, read from its own manifest: the manifest's
 // sfd.params are the sampled parameters; the rest are Limen's metrics and
-// the round's bookkeeping.
+// the round's bookkeeping. A run read from several result directories of
+// the manifest (shards) has each row's directory as a parameter too, so
+// the checks on how parameters were drawn say whether the shards drew
+// alike, and each round replays from its own directory.
 export function limenProfile(experiment) {
   const m = experiment.manifest || {};
   const sfd = m.sfd || {};
   const uel = m.uel || {};
   const meta = m.metadata || {};
+  const shards = experiment.shards && typeof experiment.shards === "object" ? experiment.shards : null;
+  const dirOf = row => (shards ? shards[row.shard] : experiment.dir);
   return {
     id: "limen",
     name: meta.name || "Limen experiment",
     describes: meta.description || "a Limen experiment",
     families: [],
-    params: Object.fromEntries(Object.keys(sfd.params || {}).map(k => [k, null])),
+    params: Object.fromEntries([...Object.keys(sfd.params || {}), ...(shards ? ["shard"] : [])].map(k => [k, null])),
     nested: {}, effective: {}, alias: {}, setSize: {},
     ids: ["_round_index"],
     diagnostic: ["execution_time", "optimal_threshold", "_generation_index", "_injected"],
@@ -192,15 +197,15 @@ export function limenProfile(experiment) {
     defaultTarget: "backtest_pnl_per_bar_bps",
     objective: [["backtest_pnl_per_bar_bps", -1]],
     objectiveLabel: "net PnL per bar",
-    planned: Number.isInteger(uel.n_permutations) ? uel.n_permutations : null,
+    planned: Number.isInteger(uel.n_permutations) ? uel.n_permutations * (shards ? Object.keys(shards).length : 1) : null,
     // A round is replayed from its result directory by Limen's Trainer,
     // which rebuilds it from the manifest and checks its metrics against
     // results.csv (docs/Trainer.md); a pack made before the page knew the
     // directory has no command.
-    replay: typeof experiment.dir === "string" ? {
+    replay: typeof experiment.dir === "string" || shards ? {
       title: `Replay it exactly (with Limen${experiment.host ? `, on ${experiment.host}` : ""}; it checks the round's metrics)`,
-      python: (row) => (typeof row.id === "string"
-        ? `from limen.inference import Trainer\n\ntrainer = Trainer(${JSON.stringify(experiment.dir)})\nsensor, = trainer.train([${JSON.stringify(row.id)}])`
+      python: (row) => (typeof row.id === "string" && typeof dirOf(row) === "string"
+        ? `from limen.inference import Trainer\n\ntrainer = Trainer(${JSON.stringify(dirOf(row))})\nsensor, = trainer.train([${JSON.stringify(row.id)}])`
         : null),
     } : null,
   };

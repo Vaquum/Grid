@@ -14,12 +14,18 @@ page learns which feature columns the round's ablation dropped.
 CSV carries no types. Limen writes ``None`` as an empty field and Python
 booleans as ``True``/``False``; numbers and JSON lists (``_warnings``) are
 read back as such, and every other field stays text.
+
+Several result directories of one manifest, run side by side with
+different search seeds (``uel.search_strategy.seed``), read as one run:
+their manifests must be the same but for the seed, and their draws must
+differ (a grid search, or one seed twice, draws the same rounds again).
 """
 
 from __future__ import annotations
 
 import csv
 import json
+import os
 import re
 from collections.abc import Iterable
 from typing import Any, cast
@@ -59,6 +65,83 @@ def read_experiment(text: str, path: str, manifest_file: str,
             "limenVersion": meta.get("limen_version"),
             "createdAt": meta.get("created_at"),
             "manifestId": meta.get("manifest_id")}
+
+
+def shard_labels(dirs: list[str]) -> list[str]:
+    """Each directory's label among several: its name, or its whole path
+    where two share a name."""
+    names = [os.path.basename(d.rstrip("/")) for d in dirs]
+    return names if len(set(names)) == len(names) else list(dirs)
+
+
+def _search(manifest: Json) -> Json:
+    uel: Any = manifest.get("uel")
+    strategy: Any = cast(Json, uel).get("search_strategy") \
+        if isinstance(uel, dict) else None
+    return cast(Json, strategy) if isinstance(strategy, dict) else {}
+
+
+def without_seed(manifest: Json) -> Json:
+    """A manifest less its search seed, the one thing in which several runs
+    of it side by side differ."""
+    out = cast(Json, json.loads(json.dumps(manifest)))
+    _search(out).pop("seed", None)
+    return out
+
+
+def differences(a: Any, b: Any, path: str = "") -> list[str]:
+    """Where two JSON values differ: each place as a dotted path, with the
+    first value and the second."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        da, db = cast(Json, a), cast(Json, b)
+        out: list[str] = []
+        for k in sorted(set(da) | set(db)):
+            here = "%s.%s" % (path, k) if path else k
+            if k not in da or k not in db:
+                out.append("%s %s" % (here, "only in the second" if k in db
+                                      else "only in the first"))
+            else:
+                out.extend(differences(da[k], db[k], here))
+        return out
+    if a == b and type(a) is type(b):
+        return []
+    return ["%s %s, then %s" % (path or "the manifest", _short(a),
+                                _short(b))]
+
+
+def _short(v: Any) -> str:
+    text = json.dumps(v)
+    return text if len(text) <= 40 else text[:37] + "..."
+
+
+def shards_problem(labels: list[str], experiments: list[Json]) -> str | None:
+    """Why several result directories cannot be read as one run, or None:
+    their manifests differ in more than the search seed, or their draws
+    are the same."""
+    first = cast(Json, experiments[0]["manifest"])
+    base = without_seed(first)
+    for label, exp in zip(labels[1:], experiments[1:], strict=True):
+        diff = differences(base, without_seed(cast(Json, exp["manifest"])))
+        if diff:
+            more = " and %d more" % (len(diff) - 3) if len(diff) > 3 else ""
+            return ("%s and %s ran different manifests, not one manifest "
+                    "with different search seeds: %s%s"
+                    % (labels[0], label, "; ".join(diff[:3]), more))
+    if _search(first).get("type") == "grid":
+        return ("%s: a grid search draws the same rounds in every directory; "
+                "only a random search drawn with different seeds can be "
+                "read as one run" % ", ".join(labels))
+    seen: dict[str, str] = {}
+    for label, exp in zip(labels, experiments, strict=True):
+        seed: Any = _search(cast(Json, exp["manifest"])).get("seed")
+        if seed is None:
+            continue
+        key = json.dumps(seed)
+        if key in seen:
+            return ("%s and %s share the search seed %s, so they drew the "
+                    "same rounds" % (seen[key], label, key))
+        seen[key] = label
+    return None
 
 
 def experiment_name(experiment: Json) -> str | None:
