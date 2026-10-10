@@ -54,6 +54,12 @@ round metrics (named and given a direction once, in
 python3 -m grid serve --limen ~/dev/Limen/results/dev/lightgbm_binary_full_20261009_091248 --open
 ```
 
+Several `limen run` side by side on one manifest, each with its own
+search seed (`uel.search_strategy.seed`), write as many result
+directories: give each with `--limen`, or the folder that holds them, and
+they read as one run, each row with its directory in `shard`. Directories
+whose manifests differ in more than the seed are refused.
+
 A static snapshot, for reading offline or sharing:
 
 ```sh
