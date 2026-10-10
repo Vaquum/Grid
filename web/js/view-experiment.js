@@ -426,9 +426,18 @@ function draftOf(e) {
   return d;
 }
 
-function read(d) {
+// The manifest from its file. Read again by itself (changed on disk while
+// nothing here was unsaved), it leaves the text alone if it was typed in
+// meanwhile: the edits stay, and Open it again offers the file's.
+function read(d, asked) {
   d.reading = true;
+  const before = d.text;
   get(`${lab.A.project.url}/manifest?name=${encodeURIComponent(d.name)}`).then((body) => {
+    if (d.phase === "ready" && !asked && d.text !== before) {
+      Object.assign(d, { reading: false, disk: body.version });
+      paint(d);
+      return;
+    }
     Object.assign(d, { phase: "ready", gen: d.gen + 1, text: body.text, saved: body.text, version: body.version, disk: body.version,
       island: null, errors: null, checked: null, diff: null, reading: false, gkey: null, pkey: null });
     check(d, 0);
@@ -470,7 +479,7 @@ function manifestPart(d) {
 function manifestIsland(d) {
   const id = `ex-mf-${d.name}`;
   d.status = h("span", { class: "ex-status", role: "status" });
-  d.again = h("button", { class: "btn small", type: "button", hidden: true, onclick: () => read(d) }, "Open it again");
+  d.again = h("button", { class: "btn small", type: "button", hidden: true, onclick: () => read(d, true) }, "Open it again");
   tip(d.again, "The file changed on disk since it was opened here: read it again, leaving the edits made here.");
   d.diffBtn = h("button", { class: "btn small", type: "button", onclick: () => compare(d) }, "Diff with the last run");
   tip(d.diffBtn, "This manifest, as it is here, against the one its last run started from.");

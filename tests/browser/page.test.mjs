@@ -1238,3 +1238,39 @@ test("experiment: on a Limen project, one is made, checked as it is typed, run i
     proc.kill();
   }
 });
+
+test("experiment: what is typed while a manifest changed on disk is read again stays, and Open it again offers the file's", async () => {
+  const project = mkdtempSync(join(tmpdir(), "grid-project-"));
+  writeFileSync(join(project, "limen.toml"), "[store]\n");
+  mkdirSync(join(project, "manifests"));
+  const file = join(project, "manifests", "exp.yaml");
+  copyFileSync(join(ROOT, "tests/fixtures/limen_run/lightgbm_binary_full.yaml"), file);
+  const proc = spawn("python3", ["-m", "grid", "serve", "--project", project, "--limen-cli", join(ROOT, "tests/fixtures/fake_limen.py"), "--port", "0"], { cwd: ROOT });
+  try {
+    const url = await serverUrl(proc);
+    const { page, errors } = await limenPage();
+    await page.goto(url);
+    await page.waitForSelector(".ex-status .sev.ok");
+    // the file changes elsewhere; its new text is slow to come
+    await page.route(/\/api\/experiment\/manifest/, async (route) => { await new Promise(r => setTimeout(r, 1500)); await route.continue(); });
+    const asked = page.waitForRequest(/\/api\/experiment\/manifest/, { timeout: 20000 });
+    appendFileSync(file, "# changed elsewhere\n");
+    await asked;
+    const answered = page.waitForResponse(/\/api\/experiment\/manifest/);
+    await page.locator(".ed-text").evaluate(t => { t.focus(); t.setSelectionRange(t.value.length, t.value.length); });
+    await page.keyboard.type("# mine");
+    await answered;
+    await page.waitForSelector(".ex-mf .btn:has-text('Open it again'):visible");
+    const text = await page.locator(".ed-text").inputValue();
+    assert.ok(text.endsWith("# mine") && !text.includes("changed elsewhere"), text.slice(-80));
+    assert.match(await page.locator(".ex-status").innerText(), /unsaved/);
+    // asked for, the file's text replaces the edits
+    await page.locator(".ex-mf .btn", { hasText: "Open it again" }).click();
+    await page.waitForFunction(() => document.querySelector(".ed-text").value.endsWith("# changed elsewhere\n"), null, { timeout: 20000 });
+    assert.equal(await page.locator(".ex-mf .btn:has-text('Open it again')").isVisible(), false);
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    proc.kill();
+  }
+});
