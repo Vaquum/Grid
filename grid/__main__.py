@@ -156,8 +156,9 @@ class Wiring:
                     if os.path.isfile(os.path.join(d, n, "metadata.json"))
                 ) if os.path.isdir(d) else []
             if not inside:
-                raise SystemExit("%s has no metadata.json and holds no Limen "
-                                 "result directory" % self.shown(d))
+                raise SystemExit("%s has no metadata.json: not a Limen result "
+                                 "directory, nor a folder of them"
+                                 % self.shown(d))
             if len(given) == 1:
                 self.parent = d
             found.extend(inside)

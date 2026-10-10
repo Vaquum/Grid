@@ -90,7 +90,8 @@ export function ablationMembers(ds, schema, design, rows) {
   const n = ds.n;
   // a run read from several result directories: a round is its index in
   // its directory (shard)
-  const shard = ds.meta.experiment && ds.meta.experiment.shards ? ds.col("shard") : null;
+  const exp = ds.meta && ds.meta.experiment;
+  const shard = exp && exp.shards ? ds.col("shard") : null;
   const roundOf = (i) => (ri.state[i] === 0 ? roundKey(ri.vals[i], shard ? shard.value(i) : null) : NaN);
   const valueOf = (p, i) => { const d = schema.dimById.get(p); return d && d.codes[i] >= 0 ? String(d.levels[d.codes[i]].value) : null; };
   // the naming parameters each raw column name matches in every round that dropped it

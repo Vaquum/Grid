@@ -9,7 +9,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { appendFileSync, copyFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -870,6 +870,58 @@ test("live: a Limen run's rounds arrive after its rows, and Features reads them"
       appendFileSync(join(dir, "round_data.jsonl"), rounds[k] + "\n");
     }
     await page.waitForFunction(() => /in 33 of 40 rows/.test(document.querySelector(".strip").textContent), null, { timeout: 20000 });
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    proc.kill();
+  }
+});
+
+test("live: several result directories of one manifest read as one run, live while any is written", async () => {
+  // the fixture's rounds in two directories, as two limen run side by
+  // side with different search seeds write them; the second still running
+  const runs = mkdtempSync(join(tmpdir(), "grid-shards-"));
+  const fx = join(ROOT, "tests/fixtures/limen_run");
+  const csv = readFileSync(join(fx, "results.csv"), "utf8").trimEnd().split("\n");
+  const rounds = readFileSync(join(fx, "round_data.jsonl"), "utf8").trimEnd().split("\n");
+  const meta = JSON.parse(readFileSync(join(fx, "metadata.json"), "utf8"));
+  const make = (name, from, to, seed) => {
+    const d = join(runs, name);
+    mkdirSync(d);
+    writeFileSync(join(d, "results.csv"), [csv[0], ...csv.slice(from + 1, to + 1)].join("\n") + "\n");
+    writeFileSync(join(d, "round_data.jsonl"), rounds.slice(from, to).join("\n") + "\n");
+    const m = structuredClone(meta);
+    m.yaml_reference.uel.search_strategy.seed = seed;
+    writeFileSync(join(d, "metadata.json"), JSON.stringify(m));
+    copyFileSync(join(fx, "lightgbm_binary_full.yaml"), join(d, "lightgbm_binary_full.yaml"));
+    return d;
+  };
+  const a = make("a", 0, 20, 1), b = make("b", 20, 39, 2);
+  const proc = spawn("python3", ["-m", "grid", "serve", "--limen", runs, "--port", "0"], { cwd: ROOT });
+  try {
+    const url = await new Promise((resolve, reject) => {
+      let out = "";
+      const t = setTimeout(() => reject(new Error(`no server line: ${out}`)), 20000);
+      proc.stdout.on("data", d => { out += d; const m = /at (http:\/\/127\.0\.0\.1:\d+\/)/.exec(out); if (m) { clearTimeout(t); resolve(m[1]); } });
+      proc.stderr.on("data", d => { out += d; });
+    });
+    const { page, errors } = await limenPage();
+    await page.goto(url);
+    await page.waitForSelector(".pcard");
+    await page.waitForFunction(() => document.querySelector(".progress-text").textContent.startsWith("39 rows"), null, { timeout: 20000 });
+    // each row's directory is a parameter, so the board and the checks on
+    // how parameters were drawn cover it
+    assert.ok((await page.locator(".pcard .pc-name").allInnerTexts()).includes("shard"));
+    // live while any of them is written
+    appendFileSync(join(b, "results.csv"), csv[40] + "\n");
+    appendFileSync(join(b, "round_data.jsonl"), rounds[39] + "\n");
+    await page.waitForFunction(() => document.querySelector(".progress-text").textContent.startsWith("40 rows"), null, { timeout: 20000 });
+    // a round replays from its own directory
+    await page.keyboard.press("5");
+    await page.locator("table.trials tbody tr").first().click();
+    await page.waitForSelector("#inspector .code-head");
+    const replay = await page.locator("#inspector pre.code").first().innerText();
+    assert.ok([a, b].some(d => replay.includes(`Trainer(${JSON.stringify(d)})`)), replay);
     assert.deepEqual(errors, []);
     await page.close();
   } finally {

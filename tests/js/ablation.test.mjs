@@ -7,6 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { limenDesign, groupsOf, groupContrasts, ablationMembers, ablationModel, MIN_DROPS } from "../../web/js/ablation.js";
+import { Dataset, roundKey } from "../../web/js/pack.js";
 
 function rng(seed) {
   let a = seed >>> 0;
@@ -87,6 +88,21 @@ test("a column named after a parameter's value is one member, named by the param
   // every row has a record; one without is unknown, not "dropped nothing"
   s.ds.rounds.delete(0);
   assert.equal(ablationMembers(s.ds, s.schema, s.design, s.rows).perRow[0], null);
+});
+
+test("a run read from several result directories joins each row to its own directory's round", () => {
+  const s = sweep(600, 9);
+  const plain = ablationMembers(s.ds, s.schema, s.design, s.rows);
+  // the same rows from two directories, each counting its rounds from 0
+  const shardOf = i => (i < 300 ? "s1" : "s2"), indexOf = i => (i < 300 ? i : i - 300);
+  const pack = new Dataset({ id: "r0" });
+  pack.addRounds([...s.ds.rounds].map(([i, dropped]) => [indexOf(i), dropped, shardOf(i)]));
+  assert.deepEqual(pack.rounds.get(roundKey(0, "s2")), s.ds.rounds.get(300));
+  const ri = { kind: "num", state: new Uint8Array(600), vals: Float64Array.from({ length: 600 }, (_, i) => indexOf(i)) };
+  const sh = { value: i => shardOf(i) };
+  const ds = { n: 600, rounds: pack.rounds, meta: { experiment: { shards: { s1: "/a", s2: "/b" } } },
+    col: name => (name === "_round_index" ? ri : name === "shard" ? sh : null) };
+  assert.deepEqual(ablationMembers(ds, s.schema, s.design, s.rows).perRow, plain.perRow);
 });
 
 test("the model finds planted effects of dropping a column, and keeping is the opposite sign", () => {

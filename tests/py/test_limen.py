@@ -7,13 +7,17 @@ line also holds)."""
 
 from __future__ import annotations
 
+import argparse
+import csv
 import gzip
+import io
 import json
 import os
 import tempfile
 import unittest
+from typing import Any
 
-from grid.__main__ import main
+from grid.__main__ import Wiring, main
 from grid.limen import (
     CsvRecords,
     csv_value,
@@ -236,6 +240,146 @@ class PackLimen(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "holds no YAML file"):
                 main(["pack", "--limen", tmp, "--out",
                       os.path.join(tmp, "p.json")])
+
+
+def shard(directory: str, rows: range, seed: Any,
+          n_permutations: int = 500) -> None:
+    """A result directory made from some of the fixture's rounds, as one of
+    several ``limen run`` side by side writes it: its rounds counted from
+    0, under its own search seed."""
+    os.makedirs(directory)
+    with open(os.path.join(FIXTURE, "results.csv"), encoding="utf-8") as f:
+        records = list(csv.reader(f))
+    at = records[0].index("_round_index")
+    out = io.StringIO()
+    w = csv.writer(out, lineterminator="\n")
+    w.writerow(records[0])
+    for k, i in enumerate(rows):
+        record = list(records[i + 1])
+        record[at] = str(k)
+        w.writerow(record)
+    with open(os.path.join(directory, "results.csv"), "w",
+              encoding="utf-8") as f:
+        f.write(out.getvalue())
+    with open(os.path.join(FIXTURE, "round_data.jsonl"),
+              encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    with open(os.path.join(directory, "round_data.jsonl"), "w",
+              encoding="utf-8") as f:
+        for k, i in enumerate(rows):
+            rec = json.loads(lines[i])
+            rec["_round_index"] = k
+            f.write(json.dumps(rec) + "\n")
+    with open(os.path.join(FIXTURE, "metadata.json"), encoding="utf-8") as f:
+        meta = json.load(f)
+    uel = meta["yaml_reference"]["uel"]
+    uel["search_strategy"]["seed"] = seed
+    uel["n_permutations"] = n_permutations
+    with open(os.path.join(directory, "metadata.json"), "w",
+              encoding="utf-8") as f:
+        json.dump(meta, f)
+    copy = "lightgbm_binary_full.yaml"
+    with open(os.path.join(FIXTURE, copy), "rb") as src, \
+            open(os.path.join(directory, copy), "wb") as dst:
+        dst.write(src.read())
+
+
+def read(*limen: str) -> Run:
+    args = argparse.Namespace(limen=list(limen), ssh=None, name=None,
+                              label=None, log=None, run=None, as_=None,
+                              results=None)
+    w = Wiring(args, follow=False)
+    sweep = w.build()
+    w.read_once()
+    return sweep.runs[0]
+
+
+class Shards(unittest.TestCase):
+    """Several result directories of one manifest, run side by side with
+    different search seeds, read as one run."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.a = os.path.join(self.tmp.name, "runs", "a")
+        self.b = os.path.join(self.tmp.name, "runs", "b")
+        shard(self.a, range(0, 20), 1)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_their_rows_are_one_run_joined_by_round_index(self) -> None:
+        shard(self.b, range(20, 40), 2)
+        run = read(self.a, self.b)
+        self.assertEqual(run.label, "2 result directories")
+        rows = [run.store.row_object(i) for i in range(run.store.rows)]
+        self.assertEqual(len(rows), 40)
+        # the history of each joined by round index, as they ran side by side
+        self.assertEqual([r["shard"] for r in rows[:4]], ["a", "b", "a", "b"])
+        self.assertEqual([r["_round_index"] for r in rows[:4]], [0, 0, 1, 1])
+        assert run.experiment is not None
+        self.assertIsNone(run.experiment["dir"])
+        self.assertEqual(run.experiment["shards"],
+                         {"a": os.path.abspath(self.a),
+                          "b": os.path.abspath(self.b)})
+        # each round is its directory's
+        self.assertEqual(len(run.rounds), 40)
+        self.assertEqual(sorted({r[2] for r in run.rounds}), ["a", "b"])
+        self.assertEqual(run.rounds[0][:1] + run.rounds[0][2:], [0, "a"])
+
+    def test_pack_takes_them_given_again(self) -> None:
+        shard(self.b, range(20, 40), 2)
+        out = os.path.join(self.tmp.name, "pack.json")
+        self.assertEqual(main(["pack", "--limen", self.a, "--limen", self.b,
+                               "--out", out]), 0)
+        with open(out, encoding="utf-8") as f:
+            run = json.load(f)["runs"][0]
+        self.assertEqual(run["rows"], 40)
+        self.assertEqual(sorted(run["experiment"]["shards"]), ["a", "b"])
+        self.assertEqual(len(run["rounds"]), 40)
+
+    def test_a_folder_of_them_reads_the_same(self) -> None:
+        shard(self.b, range(20, 40), 2)
+        run = read(os.path.join(self.tmp.name, "runs"))
+        self.assertEqual(run.label, "runs")
+        self.assertEqual(run.store.rows, 40)
+        assert run.experiment is not None
+        self.assertEqual(sorted(run.experiment["shards"]), ["a", "b"])
+
+    def test_a_later_row_joins_as_it_arrives(self) -> None:
+        shard(self.b, range(20, 40), 2)
+        s = Sweep("t")
+        run = Run("r0", "two", "x", None, True, None, "csv", {},
+                  ["a", "b"])
+        s.add_run(run)
+        with open(os.path.join(self.a, "results.csv"), encoding="utf-8") as f:
+            a = f.read().splitlines()
+        with open(os.path.join(self.b, "results.csv"), encoding="utf-8") as f:
+            b = f.read().splitlines()
+        for line in a[:3]:
+            s.run_line(run, line, True, 0)
+        s.run_line(run, b[0], True, 1)
+        s.run_line(run, a[3], False, 0)   # live before b's history is read
+        s.run_line(run, b[1], True, 1)
+        self.assertEqual(run.store.rows, 0)   # held until every file is read
+        s.merge(run)
+        got = [(run.store.row_object(i)["shard"],
+                run.store.row_object(i)["_round_index"])
+               for i in range(run.store.rows)]
+        self.assertEqual(got, [("a", 0), ("b", 0), ("a", 1), ("a", 2)])
+        s.run_line(run, b[2], False, 1)
+        self.assertEqual(run.store.rows, 5)
+        self.assertEqual(run.store.row_object(4)["shard"], "b")
+
+    def test_another_manifest_is_refused_with_where_it_differs(self) -> None:
+        shard(self.b, range(20, 40), 2, n_permutations=900)
+        with self.assertRaisesRegex(SystemExit,
+                                    "uel.n_permutations 500, then 900"):
+            read(self.a, self.b)
+
+    def test_one_seed_twice_is_refused(self) -> None:
+        shard(self.b, range(20, 40), 1)
+        with self.assertRaisesRegex(SystemExit, "share the search seed 1"):
+            read(self.a, self.b)
 
 
 if __name__ == "__main__":
