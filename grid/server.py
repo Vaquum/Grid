@@ -22,7 +22,9 @@ On a Limen project (``serve --project``), the Experiment view's routes:
                                      Limen's version and templates;
 - ``GET /api/experiment/manifest``  an experiment's manifest (``?name=``);
 - ``POST /api/experiment/ACTION``   validate, save, create, start, stop,
-                                     resume, open or diff, with a JSON body.
+                                     resume, open, diff, or cohort (make a
+                                     predictor of a run's rows), with a
+                                     JSON body.
 
 A POST starts processes and writes files, so it is refused unless it
 carries the page's own token (``X-Grid-Token``, in the page's config, which
@@ -54,7 +56,7 @@ CURSOR_TTL = 600.0
 PING_EVERY = 15.0
 MAX_BODY = 4 << 20     # a manifest is a few kilobytes
 ACTIONS = ("validate", "save", "create", "start", "stop", "resume", "open",
-           "diff")
+           "diff", "cohort")
 
 
 PageFn = Callable[[], bytes]
@@ -105,21 +107,18 @@ class Server:
             got = self.cursors.pop(token, None)
         return got[1] if got else None
 
-    def cohort(self, q: dict[str, str]) -> Json:
-        """The cohort of a Limen run's rows (``rows``, their indexes in the
-        run), judged on what the run recorded, at the fee and slippage
-        given (``fee``, ``slip``, in bps) or the members' own."""
-        try:
-            rows = [int(x) for x in q.get("rows", "").split(",") if x]
-        except ValueError as err:
-            raise ValueError("rows are row numbers, comma separated") from err
+    def members(self, run_id: object, rows: list[int]
+                ) -> tuple[Json, list[Json], list[str]]:
+        """A Limen run's rows as cohort members: the run's experiment, each
+        row's round line (by its round id, from its result directory) and
+        that directory."""
         if not rows or len(set(rows)) != len(rows):
             raise ValueError("a cohort names its rows, each once")
         s = self.sweep
         with s.lock:
-            run = next((r for r in s.runs if r.id == q.get("run")), None)
+            run = next((r for r in s.runs if r.id == run_id), None)
             if run is None:
-                raise ValueError("no run %r" % q.get("run"))
+                raise ValueError("no run %r" % (run_id,))
             exp = run.experiment
             if not exp or exp.get("kind") != "limen":
                 raise ValueError("a cohort is made of a Limen run's rounds")
@@ -142,12 +141,22 @@ class Server:
             rid: Any = obj.get("id")
             if not isinstance(rid, str):
                 raise ValueError("row %d has no round id" % i)
-            label = obj.get(SHARD)
-            directory = dirs.get(str(label)) if dirs else single
+            directory = dirs.get(str(obj.get(SHARD))) if dirs else single
             if not isinstance(directory, str):
                 raise ValueError("row %d's result directory is unknown" % i)
             records.append(self.round_lines.get(directory, rid))
-            where.append(str(label) if dirs else "")
+            where.append(directory)
+        return exp, records, where
+
+    def cohort(self, q: dict[str, str]) -> Json:
+        """The cohort of a Limen run's rows (``rows``, their indexes in the
+        run), judged on what the run recorded, at the fee and slippage
+        given (``fee``, ``slip``, in bps) or the members' own."""
+        try:
+            rows = [int(x) for x in q.get("rows", "").split(",") if x]
+        except ValueError as err:
+            raise ValueError("rows are row numbers, comma separated") from err
+        exp, records, where = self.members(q.get("run"), rows)
         fee, slip = costs_of(records)
         if q.get("fee") or q.get("slip"):
             try:
@@ -157,8 +166,35 @@ class Server:
                 raise ValueError("fee and slip are basis points") from err
         out = judge(records, bar_step(exp), fee, slip)
         out["rows"] = rows
-        out["dirs"] = sorted(set(where)) if dirs else []
+        shards: Any = exp.get("shards")
+        labels = ({str(p[1]): str(p[0])
+                   for p in cast(list[list[Any]], shards)}
+                  if isinstance(shards, list) else {})
+        out["dirs"] = sorted({labels.get(d, "") for d in where}) \
+            if labels else []
         return out
+
+    def make_cohort(self, project: Project, body: dict[str, Any]) -> Json:
+        """Make a predictor of a run's rows in the project: their rounds,
+        from one result directory, trained again and bound by Limen."""
+        raw: Any = body.get("rows")
+        if not isinstance(raw, list) or not all(
+                isinstance(i, int) and not isinstance(i, bool)
+                for i in cast(list[Any], raw)):
+            raise ValueError("rows are row numbers")
+        rows = cast(list[int], raw)
+        name: Any = body.get("name")
+        if not isinstance(name, str):
+            raise ValueError("a predictor has a name")
+        _, records, where = self.members(body.get("run"), rows)
+        if len(set(where)) != 1:
+            raise ValueError("a predictor's members come from one result "
+                             "directory (a Limen Cohort takes one); these "
+                             "come from %d" % len(set(where)))
+        chosen: Json = {"run": body.get("run"), "rows": rows,
+                        "fee": body.get("fee"), "slip": body.get("slip")}
+        return {"cohort": project.make_cohort(name, where[0], records,
+                                              chosen)}
 
 
 def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
@@ -284,8 +320,10 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
                 return self.fail(400, "the body is a JSON object")
             body = cast(dict[str, Any], loaded)
             try:
+                if action == "cohort":
+                    return self.send_json(server.make_cohort(project, body))
                 return self.send_json(act(project, action, body))
-            except ValueError as exc:
+            except (ValueError, OSError) as exc:
                 return self.fail(400, str(exc))
 
         def refused(self) -> str | None:

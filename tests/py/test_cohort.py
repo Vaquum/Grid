@@ -3,7 +3,10 @@ rounds judged on what the run recorded. Limen's long-flat execution is
 rebuilt from a round's recorded signal and checked against the execution
 Limen recorded for it; the members' bars are aligned by time; their
 probabilities are averaged as Limen's Cohort averages them; and the route
-serves it for a run's rows.
+serves it for a run's rows. On a Limen project, a predictor is made of a
+run's rows: cohorts/<name>/ written and Limen's Trainer and Cohort run by
+grid/limen_cohort.py, here with a stand-in limen package
+(tests/fixtures/fake_limen_pkg) that trains nothing.
 
 tests/fixtures/limen_cohort_rounds.json.gz holds three rounds of a Limen
 5.20 run (lightgbm_binary_full_market) that traded, without take-profit or
@@ -18,8 +21,10 @@ import gzip
 import json
 import os
 import shutil
+import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -34,6 +39,7 @@ from grid.cohort import (
     judge,
     long_flat,
 )
+from grid.experiment import Project
 from grid.server import serve
 from grid.sweep import Json
 
@@ -41,7 +47,52 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROUNDS: list[Json] = json.load(gzip.open(os.path.join(
     HERE, "..", "fixtures", "limen_cohort_rounds.json.gz"), "rt"))
 RUN = os.path.join(HERE, "..", "fixtures", "limen_cohort")
+FAKE_PKG = os.path.join(HERE, "..", "fixtures", "fake_limen_pkg")
+FAKE_CLI = os.path.join(HERE, "..", "fixtures", "fake_limen.py")
 HOUR = 3600
+
+
+def wait(check: Any, timeout: float = 20.0) -> None:
+    deadline = time.monotonic() + timeout
+    while not check():
+        if time.monotonic() > deadline:
+            raise AssertionError("timed out waiting")
+        time.sleep(0.05)
+
+
+def records_of(directory: str) -> list[Json]:
+    with open(os.path.join(directory, "round_data.jsonl")) as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
+class LimenProject(unittest.TestCase):
+    """A Limen project whose predictors are made with the stand-in limen
+    package."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="grid-cohort-")
+        self.root = os.path.join(self.tmp, "lab")
+        os.makedirs(os.path.join(self.root, "manifests"))
+        with open(os.path.join(self.root, "limen.toml"), "w") as f:
+            f.write("[store]\n")
+        self.p = Project(self.root, FAKE_CLI)
+        self.p.python = sys.executable
+        self.saved = {k: os.environ.get(k) for k in ("PYTHONPATH",
+                                                     "FAKE_TRAIN_FAIL")}
+        os.environ["PYTHONPATH"] = FAKE_PKG
+
+    def tearDown(self) -> None:
+        for k, v in self.saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        shutil.rmtree(self.tmp)
+
+    def made(self, name: str) -> Json:
+        wait(lambda: next(c for c in self.p.cohorts()
+                          if c["name"] == name)["state"] != "training")
+        return next(c for c in self.p.cohorts() if c["name"] == name)
 
 
 def signal(rec: Json) -> list[int]:
@@ -266,3 +317,121 @@ class Route(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Make(LimenProject):
+    def test_a_predictor_is_trained_bound_and_written(self) -> None:
+        src = os.path.join(RUN, "s1")
+        records = records_of(src)
+        ids = sorted(r["round_id"] for r in records)
+        self.assertEqual(self.p.make_cohort("pair", src, records,
+                                            {"rows": [0, 1]}), "pair")
+        c = self.made("pair")
+        self.assertEqual((c["state"], c["members"]), ("made", 2))
+        folder = os.path.join(self.root, "cohorts", "pair")
+        with open(os.path.join(folder, "cohort.json")) as f:
+            spec = json.load(f)
+        with open(os.path.join(src, "metadata.json")) as f:
+            manifest_id = json.load(f)["manifest_id"]
+        self.assertEqual(spec["permutation_ids"], ids)
+        self.assertEqual(spec["manifest_id"], manifest_id)
+        self.assertEqual(c["cohortId"], spec["cohort_id"])
+        self.assertTrue(spec["cohort_id"].startswith("sha256:"))
+        self.assertEqual((spec["aggregation_mode"], spec["limen_version"],
+                          spec["chosen"]), ("probability_weighted", "5.20.0",
+                                            {"rows": [0, 1]}))
+        # the slim result directory: the members' metadata, lines, rows
+        # and manifest copy, and their sensors in Furnace's layout
+        exp = os.path.join(folder, "experiment")
+        self.assertEqual(sorted(os.listdir(exp)),
+                         ["metadata.json", "results.csv", "round_data.jsonl",
+                          "s1.yaml", "sensors"])
+        self.assertEqual(sorted(r["round_id"] for r in records_of(exp)), ids)
+        with open(os.path.join(exp, "results.csv")) as f:
+            self.assertEqual(len(f.read().strip().splitlines()), 3)
+        self.assertEqual(sorted(os.listdir(os.path.join(exp, "sensors"))),
+                         sorted([i + ".json" for i in ids]
+                                + [i + ".pkl" for i in ids]))
+        with open(os.path.join(exp, "sensors", ids[0] + ".json")) as f:
+            side = json.load(f)
+        self.assertEqual((side["permutation_id"], side["manifest_id"],
+                          side["limen_version"]), (ids[0], manifest_id,
+                                                   "5.20.0"))
+
+    def test_a_member_that_does_not_train_fails_the_predictor(
+            self) -> None:
+        src = os.path.join(RUN, "s1")
+        records = records_of(src)
+        os.environ["FAKE_TRAIN_FAIL"] = records[1]["round_id"][:8]
+        self.p.make_cohort("drift", src, records, {})
+        c = self.made("drift")
+        self.assertEqual(c["state"], "failed")
+        self.assertIn("ReconstructionError", c["tail"])
+
+    def test_what_is_not_made(self) -> None:
+        src = os.path.join(RUN, "s1")
+        records = records_of(src)
+        self.p.make_cohort("once", src, records, {})
+        with self.assertRaisesRegex(ValueError, "cohorts/once exists"):
+            self.p.make_cohort("once", src, records, {})
+        with self.assertRaisesRegex(ValueError, "letters, digits"):
+            self.p.make_cohort("../up", src, records, {})
+        with self.assertRaisesRegex(ValueError, "members, each once"):
+            self.p.make_cohort("twice", src, records + records[:1], {})
+        self.p.python = None
+        with self.assertRaisesRegex(ValueError, "limen-python"):
+            self.p.make_cohort("none", src, records, {})
+        self.made("once")
+
+
+class MakeRoute(LimenProject):
+    def setUp(self) -> None:
+        super().setUp()
+        args = argparse.Namespace(limen=[RUN], results=None, name=None,
+                                  ssh=None, as_=None, log=None, run=None,
+                                  label=None, project=None)
+        w = Wiring(args, follow=False)
+        self.sweep = w.build()
+        w.read_once()
+        self.httpd = serve(self.sweep, lambda: b"page", "127.0.0.1", 0,
+                           self.p, "t0ken")
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        host, port = self.httpd.server_address[:2]
+        self.base = "http://%s:%d" % (host, port)
+
+    def tearDown(self) -> None:
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        super().tearDown()
+
+    def post(self, body: Json) -> tuple[int, Any]:
+        req = urllib.request.Request(
+            self.base + "/api/experiment/cohort", method="POST",
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json",
+                     "X-Grid-Token": "t0ken", "Origin": self.base})
+        try:
+            with urllib.request.urlopen(req) as res:
+                return res.status, json.loads(res.read())
+        except urllib.error.HTTPError as err:
+            with err:
+                return err.code, json.loads(err.read())
+
+    def test_a_runs_rows_are_made_a_predictor_from_one_directory(
+            self) -> None:
+        run = self.sweep.runs[0]
+        shard = [run.store.row_object(i).get("shard")
+                 for i in range(run.store.rows)]
+        s1 = [i for i, d in enumerate(shard) if d == "s1"]
+        code, out = self.post({"run": run.id, "rows": s1, "name": "s1pair"})
+        self.assertEqual((code, out), (200, {"cohort": "s1pair"}), out)
+        self.assertEqual(self.made("s1pair")["state"], "made")
+        code, out = self.post({"run": run.id, "rows": [0, 1, 2, 3],
+                               "name": "both"})
+        self.assertEqual(code, 400)
+        self.assertIn("one result directory", out["error"])
+        code, out = self.post({"run": run.id, "rows": "0", "name": "x"})
+        self.assertEqual((code, out["error"]), (400, "rows are row numbers"))
+        with urllib.request.urlopen(self.base + "/api/experiment") as res:
+            listed = json.loads(res.read())["cohorts"]
+        self.assertEqual([c["name"] for c in listed], ["s1pair"])
