@@ -431,10 +431,14 @@ another site's DNS points here gets neither.
 A cohort is chosen where the analysis found it and judged where nothing
 chose it. The pool is the rows in view that are in the pocket and pass
 every gate set in Gates (Grid's standing gates only when set there, as
-they cannot be taken off). Its members are the pool's best by the needle
-on the first half of the test window, from one result directory: a Limen
-`Cohort` binds one experiment's rounds, and each shard's manifest differs
-by its seed. The second half judges them.
+they cannot be taken off), each gate read on the first half of the test
+window where its needle is measured on each half. Its members are the
+pool's best by the needle on the first half, from one result directory: a
+Limen `Cohort` binds one experiment's rounds, and each shard's manifest
+differs by its seed. The second half judges them. A needle or a gate read
+over the whole window lets the second half help choose, and the view
+says so in its verdict; so does a pocket found by reading the whole
+window, which the view cannot know.
 
 The judgement trains nothing. The server rebuilds the cohort from what
 the run recorded (`grid/cohort.py`): each member's test probabilities bar
@@ -446,7 +450,10 @@ own thresholds take no part); the signal executed as Limen executes one
 notional and the exit proceeds), checked against the execution Limen
 recorded for its rounds. Each member is executed alike from its own
 predictions, so the cohort, its best member alone and its members' mean
-are set side by side on each half. Exits by take-profit or stop-loss need
+are set side by side on each half. The halves are where every member's
+own halves agree (each member was ranked on its own window's halves), so
+no bar of the second half chose a member; where the members' windows
+differ, the bars between are in neither half. Exits by take-profit or stop-loss need
 prices the run does not record, and are not rebuilt; the view says so.
 
 Make predictor writes `cohorts/<name>/` in the project: `experiment/`, a

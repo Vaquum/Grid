@@ -190,6 +190,26 @@ class Alignment(unittest.TestCase):
         self.assertEqual(out["bars"], 5)
         self.assertEqual((out["last"] - out["first"]) // HOUR, 5)
 
+    def test_the_second_half_holds_no_bar_that_chose_a_member(
+            self) -> None:
+        # a's own halves split at its 5th hour, b's (four hours dropped) at
+        # its 3rd: the bars they share are hours 0-4 and 9, and hours 3
+        # and 4, in b's second half but a's first, are in neither half
+        a = synthetic("a", [0.9] * 10)
+        b = synthetic("b", [0.9] * 6, dropped=["5", "6", "7", "8"])
+        out = judge([a, b], HOUR, 0.0, 0.0)
+        self.assertEqual((out["bars"], out["between"]), (6, 2))
+        for part in [out["cohort"], *out["members"]]:
+            self.assertEqual([h["bars"] for h in part["halves"]], [3, 1])
+        self.assertIn("2 bars, in the first half of some members and the "
+                      "second of others, are in neither half", out["notes"][0])
+        # members alike in their windows: Limen's ordinal halves
+        same = judge([synthetic("c", [0.9] * 10), a], HOUR, 0.0, 0.0)
+        self.assertEqual(same["between"], 0)
+        self.assertEqual([h["bars"] for h in same["cohort"]["halves"]],
+                         [5, 5])
+        self.assertEqual(same["notes"], [])
+
 
 class Aggregation(unittest.TestCase):
     def test_probabilities_average_and_ties_fall_to_no(self) -> None:

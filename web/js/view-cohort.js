@@ -15,9 +15,14 @@
 import { h, tip, fmtInt, fmtNum, fmtPct, fmtRowValue, fmtClock } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { rowsIn } from "./engine.js";
+import { OPS } from "./gates.js";
 
 export const COHORT_DEFAULT = 5;
 const JUDGE_MS = 300;
+// a judgement or a listing that failed is asked for again after this long
+const RETRY_MS = 5000;
+// the fee and slippage the view takes, in bps a fill
+const COST_MAX = 1000;
 // the rows of the pool shown past the members, and how many more a click
 // shows
 const MORE = 10;
@@ -28,11 +33,11 @@ const MORE_STEP = 20;
 // costs set, how many rows past the members are shown, and the judgement
 // as last fetched.
 const pick = { run: null, n: COHORT_DEFAULT, out: new Set(), in: new Set(), dir: null, fee: null, slip: null,
-  more: MORE, key: "", judged: null, judging: false, error: null, timer: 0 };
+  more: MORE, key: "", judged: null, judging: false, error: null, failedAt: 0, timer: 0 };
 
 function reset(id) {
   Object.assign(pick, { run: id, n: COHORT_DEFAULT, out: new Set(), in: new Set(), dir: null, fee: null, slip: null,
-    more: MORE, key: "", judged: null, judging: false, error: null });
+    more: MORE, key: "", judged: null, judging: false, error: null, failedAt: 0 });
 }
 
 // The gates a pool is filtered by: those set in Gates and the runner's
@@ -49,17 +54,46 @@ export function pocketOf(schema, pocket) {
   return (pocket || []).filter(c => schema.dimById.has(c.dim));
 }
 
-// The rows in view that are in the pocket and pass every gate of
-// poolGates.
-export function poolOf(schema, rows, pocket, edge) {
+// Each gate of the pool as the pool reads it. A gate set in Gates on a
+// needle measured on each half is read on the first half of the test
+// window, so the second half chooses no row of the pool; any other (on a
+// needle of the whole window, or the runner's own) is read as it stands,
+// over the whole window.
+export function gateReads(schema) {
+  return poolGates(schema).map(g => {
+    const halves = g.def && g.target && g.target.halves;
+    const op = halves && OPS[g.def.op];
+    if (!op) return { gate: g, firstHalf: false, pass: g.pass };
+    const first = halves[0], pass = new Float64Array(schema.n);
+    for (let i = 0; i < schema.n; i++) {
+      const v = first[i];
+      pass[i] = v === v ? (op.test(v, g.def.value) ? 1 : 0) : NaN;
+    }
+    return { gate: g, firstHalf: true, pass };
+  });
+}
+
+// Why the second half helped choose the members, or null when it chose
+// none of them: the needle, or a gate of the pool, read over the whole
+// window.
+export function touchedBy(t, reads) {
+  if (!t.halves) return `${t.label} is not measured on each half`;
+  const whole = reads.filter(r => !r.firstHalf).map(r => r.gate.label);
+  if (!whole.length) return null;
+  return whole.length === 1 ? `the gate ${whole[0]} is read over the whole window`
+    : `the gates ${whole.join("; ")} are read over the whole window`;
+}
+
+// The rows in view that are in the pocket and pass every gate of the pool,
+// each read as gateReads reads it.
+export function poolOf(schema, rows, pocket, edge, reads = gateReads(schema)) {
   const inView = new Uint8Array(schema.n);
   for (let j = 0; j < rows.length; j++) inView[rows[j]] = 1;
-  const gates = poolGates(schema);
   const out = [];
   for (const i of rowsIn(schema, pocketOf(schema, pocket), edge)) {
     if (!inView[i]) continue;
     let ok = true;
-    for (const g of gates) if (g.pass[i] !== 1) { ok = false; break; }
+    for (const r of reads) if (r.pass[i] !== 1) { ok = false; break; }
     if (ok) out.push(i);
   }
   return out;
@@ -74,11 +108,13 @@ export function rankedOf(t, pool) {
   return pool.filter(i => a[i] === a[i] && b[i] === b[i]).sort((p, q) => (a[q] - a[p]) * dir || p - q);
 }
 
-// Each row's result directory, on a run read from several (its shard).
-export function dirsOf(schema) {
-  const d = schema.dims.find(x => x.column === "shard");
-  if (!d) return null;
-  return (i) => { const c = d.codes[i]; return c >= 0 ? String(d.levels[c].value) : null; };
+// Each row's result directory, on a run read from several: its shard, as
+// the run wrote it (not the shard parameter's levels, which fold all past
+// the first few dozen into one).
+export function dirsOf(ds) {
+  const col = ds.cols && ds.cols.get("shard");
+  if (!col || (col.kind !== "str" && col.kind !== "num")) return null;
+  return (i) => col.stateAt(i) !== 0 ? null : col.kind === "str" ? col.levels[col.codes[i]] : String(col.vals[i]);
 }
 
 // The members: the best n of the chosen directory's ranked rows, less those
@@ -101,19 +137,21 @@ export function renderCohort(view, m, A) {
   if (pick.run !== m.ds.id) reset(m.ds.id);
   const t = m.target;
   const pocket = pocketOf(m.schema, m.state.pocket);
-  const pool = poolOf(m.schema, m.rows, pocket, m.edge);
+  const reads = gateReads(m.schema);
+  const touched = touchedBy(t, reads);
+  const pool = poolOf(m.schema, m.rows, pocket, m.edge, reads);
   const ranked = rankedOf(t, pool);
-  const dirOf = dirsOf(m.schema);
+  const dirOf = dirsOf(m.ds);
   const counts = new Map();
   if (dirOf) for (const i of ranked) counts.set(dirOf(i), (counts.get(dirOf(i)) || 0) + 1);
   if (dirOf && (!pick.dir || !counts.has(pick.dir))) pick.dir = ranked.length ? dirOf(ranked[0]) : null;
   const { mine, members } = membersOf(ranked, dirOf, pick.dir, pick.n, pick.out, pick.in);
   judge(m, A, members);
   view.append(cohortStrip(m, A, pool, members, t));
-  view.append(poolIsland(m, A, pocket, pool));
+  view.append(poolIsland(m, A, pocket, reads, pool));
   view.append(cohortMembersIsland(m, A, t, mine, members, dirOf, counts));
-  view.append(judgedIsland(m, A, members, t));
-  if (A.project) view.append(makeIsland(m, A, pocket, mine, members));
+  view.append(judgedIsland(m, A, members, t, touched));
+  if (A.project) view.append(makeIsland(m, A, pocket, reads, mine, members));
 }
 
 // ---------------------------------------------------------------------------
@@ -121,7 +159,9 @@ export function renderCohort(view, m, A) {
 
 function judge(m, A, members) {
   const key = `${m.ds.id}|${members.join(",")}|${pick.fee}|${pick.slip}`;
-  if (key === pick.key) return;
+  // the same members are judged once, but asked for again a while after
+  // a failure (a round's line still being written, a server back up)
+  if (key === pick.key && !(pick.error && !pick.judging && Date.now() - pick.failedAt >= RETRY_MS)) return;
   pick.key = key;
   clearTimeout(pick.timer);
   if (!members.length || !A.isLive()) { pick.judged = null; pick.judging = false; pick.error = null; return; }
@@ -138,7 +178,8 @@ function judge(m, A, members) {
       Object.assign(pick, { judged: out, error: null });
     } catch (err) {
       if (pick.key !== key) return;
-      Object.assign(pick, { judged: null, error: String(err.message || err) });
+      Object.assign(pick, { judged: null, error: String(err.message || err), failedAt: Date.now() });
+      setTimeout(() => { if (pick.key === key && pick.error && A.view() === "cohort") A.rerender(); }, RETRY_MS);
     } finally {
       if (pick.key === key) { pick.judging = false; A.rerender(); }
     }
@@ -175,7 +216,9 @@ function cohortStrip(m, A, pool, members, t) {
         h("div", { class: "k", text: `The pool's best by ${t.label}${t.halves ? " on the first half of the test window" : ""}, as set below.` }))),
     stripCell("Cohort, second half", j ? bpsText(pnlOf(second(j.cohort))) : "–", "net per bar", () => h("div", null,
       h("b", { text: "The cohort on the second half of the test window" }),
-      h("div", { class: "k", text: "Its members' probabilities averaged, over 0.5, executed long-flat at the costs set below." })), null, stale),
+      h("div", { class: "k", text: j && j.aggregation === "majority_vote"
+        ? "Its members' votes (the run recorded no probabilities), long where more than half of them vote for it, executed long-flat at the costs set below."
+        : "Its members' probabilities averaged, over 0.5, executed long-flat at the costs set below." })), null, stale),
     stripCell("Best member alone", best ? bpsText(pnlOf(second(best))) : "–", "net per bar", () => h("div", null,
       h("b", { text: t.halves ? "The member best on the first half, alone, on the second" : "The member best on the whole window, alone, on the second half" })), null, stale),
     stripCell("Members' mean", mean ? bpsText(mean.pnl) : "–", "net per bar", () => h("div", null,
@@ -183,7 +226,7 @@ function cohortStrip(m, A, pool, members, t) {
   ];
   return strip("The cohort in figures", cells, { key: "cohort", label: "About the cohort", content: () => about("Cohort",
     "The pool is the rows in view that are in the pocket and pass every gate set in Gates (Grid's own standing gates only when set there): the pocket found with the other views, filtered down. Its members are the pool's best by the needle on the first half of the test window, from one result directory, since a Limen Cohort takes one (each shard's manifest differs by its seed).",
-    "The cohort is judged on the second half, which chose nothing: rebuilt from what the run recorded, its members' probabilities averaged and over 0.5 as Limen's Cohort averages them, and executed as Limen executes a signal (long on the bar after a 1, at the fee and slippage set here). Its best member alone and its members' mean are executed the same way, so the three compare like for like.",
+    "The cohort is judged on the second half, which chose nothing: rebuilt from what the run recorded, its members' probabilities averaged and over 0.5 as Limen's Cohort averages them (their votes, more than half, when the run recorded no probabilities), and executed as Limen executes a signal (long on the bar after a 1, at the fee and slippage set here). Its best member alone and its members' mean are executed the same way, so the three compare like for like. A gate set in Gates is read on the first half where its needle is measured on each half; a gate or a needle of the whole window lets the second half help choose, and the view says so. The pocket is yours: found by reading the whole window in the other views, it was chosen with the second half too.",
     "Exits by take-profit or stop-loss are not rebuilt (the run does not record the prices they need); calibrated and uncalibrated members' probabilities are averaged as they come, as Limen's Cohort averages them.") }, null, A);
 }
 
@@ -202,8 +245,7 @@ export function meanOf(parts) {
 // ---------------------------------------------------------------------------
 // The pool
 
-function poolIsland(m, A, pocket, pool) {
-  const gates = poolGates(m.schema);
+function poolIsland(m, A, pocket, reads, pool) {
   const standing = m.schema.gatesStanding || [];
   const isl = h("section", { class: "island", "aria-labelledby": "co-pool" });
   isl.append(h("header", { class: "isl-head" }, h("h2", { class: "isl-title", id: "co-pool", text: "Pool" }),
@@ -214,7 +256,8 @@ function poolIsland(m, A, pocket, pool) {
   }).filter(Boolean) : [];
   isl.append(h("p", { class: "isl-note" },
     said.length ? ["In the pocket: ", h("span", { class: "mono", text: said.join("; ") }), ". "] : "No pocket: every row in view. ",
-    gates.length ? `Passing every gate (${fmtInt(gates.length)}): ${gates.map(g => g.label).join("; ")}.` : "No gate set.",
+    reads.length ? `Passing every gate (${fmtInt(reads.length)}): ${reads.map(r => `${r.gate.label}, ${r.firstHalf ? "on the first half" : "over the whole window"}`).join("; ")}.` : "No gate set.",
+    reads.some(r => !r.firstHalf) ? " A gate read over the whole window lets the second half help choose the pool, so it no longer judges the cohort untouched." : "",
     standing.length ? ` Grid's own gates (${standing.map(g => g.label).join("; ")}) are not applied here; set them in Gates to apply them.` : ""));
   isl.append(h("div", { class: "co-acts" },
     h("button", { class: "btn small", type: "button", onclick: () => A.set({ view: "pocket" }) }, "Pocket ", h("kbd", { text: "2" })),
@@ -288,7 +331,7 @@ function cohortMembersIsland(m, A, t, mine, members, dirOf, counts) {
 // ---------------------------------------------------------------------------
 // The judgement
 
-function judgedIsland(m, A, members, t) {
+function judgedIsland(m, A, members, t, touched) {
   const busy = pick.judging && !!pick.judged;
   const isl = h("section", { class: "island co-judged", "aria-labelledby": "co-judged", "aria-busy": busy ? "true" : null });
   isl.append(h("header", { class: "isl-head" }, h("h2", { class: "isl-title", id: "co-judged", text: "Judged on the second half" }),
@@ -302,20 +345,27 @@ function judgedIsland(m, A, members, t) {
   const j = pick.judged;
   if (!j) { isl.append(h("p", { class: "isl-note", text: "Judging…" })); return isl; }
   const cost = (key, label, value) => {
-    const input = h("input", { class: "co-num num", type: "number", min: "0", max: "1000", step: "0.5", value: String(value),
+    const input = h("input", { class: "co-num num", type: "number", min: "0", max: String(COST_MAX), step: "0.5", value: String(value),
       "aria-label": label, dataset: { focus: `co-${key}` } });
+    tip(input, `${label} in bps a fill, 0 to ${fmtInt(COST_MAX)}`);
     input.addEventListener("change", () => {
       const v = Number(input.value);
-      if (Number.isFinite(v) && v >= 0 && v < 1000) { pick[key] = v; A.rerender(); }
+      const ok = input.value.trim() !== "" && Number.isFinite(v) && v >= 0 && v <= COST_MAX;
+      // a cost out of bounds is marked, and the figures stay at the last
+      if (!ok) { input.setAttribute("aria-invalid", "true"); return; }
+      input.removeAttribute("aria-invalid");
+      pick[key] = v;
+      A.rerender();
     });
     return h("label", { class: "co-cost" }, h("span", { text: label }), input, h("span", { class: "muted", text: "bps" }));
   };
-  isl.append(h("div", { class: "co-costs" }, cost("fee", "Fee", j.fee), cost("slip", "Slippage", j.slip),
+  isl.append(h("div", { class: "co-costs" }, cost("fee", "Fee", pick.fee !== null ? pick.fee : j.fee),
+    cost("slip", "Slippage", pick.slip !== null ? pick.slip : j.slip),
     h("span", { class: "isl-note", text: `per fill; the members' own, unless set here. ${fmtInt(j.bars)} bars they share, the cohort long on ${fmtPct(j.fired, 0)} of their signals.` })));
   const best = j.members[0], mean = { whole: meanOf(j.members.map(x => x.whole)), halves: [meanOf(j.members.map(x => x.halves && x.halves[0])), meanOf(j.members.map(second))] };
   const c2 = second(j.cohort), b2 = second(best);
-  const verdict = t.halves ? `Chosen on the first half, the cohort makes ${bpsText(pnlOf(c2))} a bar on the second`
-    : `Chosen on the whole window (${t.label} is not measured on each half), the cohort makes ${bpsText(pnlOf(c2))} a bar on the second half, which chose it too`;
+  const verdict = !touched ? `Chosen on the first half, the cohort makes ${bpsText(pnlOf(c2))} a bar on the second`
+    : `Chosen with the second half too (${touched}), the cohort makes ${bpsText(pnlOf(c2))} a bar on the second half, which chose it too`;
   isl.append(h("p", { class: "co-verdict" }, `${verdict}; its best member alone ${bpsText(pnlOf(b2))}; its members on average ${bpsText(pnlOf(mean.halves[1]))}.`));
   if (j.notes.length) isl.append(h("ul", { class: "co-notes" }, j.notes.map(x => h("li", { text: x }))));
   const rows = [["Cohort", j.cohort, true], ["Best member alone", best, false], ["Members' mean", mean, false]];
@@ -329,8 +379,8 @@ function judgedIsland(m, A, members, t) {
   const heads = ["Net per bar", "Trades", "Mean trade", "Per-trade t"];
   isl.append(h("div", { class: "table-wrap" }, h("table", { class: "vals co-judge", "aria-label": "The cohort, its best member and its members' mean, on each half" },
     h("thead", null,
-      h("tr", null, h("th", null), h("th", { colspan: "4", class: "co-half", text: t.halves ? "First half (chose it)" : "First half" }),
-        h("th", { colspan: "4", class: "co-half co-h2", text: t.halves ? "Second half (judges it)" : "Second half (chose it too)" })),
+      h("tr", null, h("th", null), h("th", { colspan: "4", class: "co-half", text: touched ? "First half" : "First half (chose it)" }),
+        h("th", { colspan: "4", class: "co-half co-h2", text: touched ? "Second half (chose it too)" : "Second half (judges it)" })),
       h("tr", null, h("th", null), ...heads.map(x => h("th", { class: "r", text: x })), ...heads.map(x => h("th", { class: "r co-h2", text: x })))),
     tb)));
   return isl;
@@ -341,40 +391,52 @@ function judgedIsland(m, A, members, t) {
 // and Limen's Cohort binds them (grid/limen_cohort.py, run in Limen's own
 // Python), into cohorts/<name>/ in the project.
 
-const made = { list: null, at: 0, loading: false, name: null, busy: false, error: null, timer: 0 };
+const made = { list: null, at: 0, gen: 0, loading: false, name: null, busy: false, error: null, timer: 0 };
 
+// The project's predictors read; a read started later answers in place of
+// one still on its way.
 async function cohorts(A) {
-  if (made.loading) return;
+  const gen = ++made.gen;
   made.loading = true;
+  clearTimeout(made.timer);
+  made.timer = 0;
   let changed = false;
   try {
     const res = await fetch(A.project.url, { cache: "no-store" });
     const out = await res.json().catch(() => ({}));
+    if (gen !== made.gen) return;
     if (!res.ok) throw new Error(out.error || `the server answered ${res.status}`);
     const list = out.cohorts || [];
     changed = made.error !== null || JSON.stringify(list) !== JSON.stringify(made.list);
     made.list = list;
     made.error = null;
   } catch (err) {
+    if (gen !== made.gen) return;
     const said = `The project's predictors could not be read: ${String(err.message || err)}`;
     changed = said !== made.error;
     made.error = said;
   } finally {
-    made.loading = false;
-    made.at = Date.now();
+    if (gen === made.gen) {
+      made.loading = false;
+      made.at = Date.now();
+    }
   }
   if (changed) A.rerender();
-  // read again while one is being made, or until the listing is read
-  clearTimeout(made.timer);
-  if (A.view() === "cohort" && (made.error || (made.list || []).some(c => c.state === "training"))) {
-    made.timer = setTimeout(() => cohorts(A), made.error ? 5000 : 2000);
-  }
+  // read again while one is being made, or until the listing is read, as
+  // long as the view shows them (it starts again when shown)
+  if (A.view() === "cohort" && polled()) made.timer = setTimeout(() => { made.timer = 0; cohorts(A); }, made.error ? RETRY_MS : 2000);
 }
 
-function makeIsland(m, A, pocket, mine, members) {
+// Whether the listing is read again by itself: a predictor training, or a
+// listing that failed.
+function polled() {
+  return !!made.error || (made.list || []).some(c => c.state === "training");
+}
+
+function makeIsland(m, A, pocket, reads, mine, members) {
   const isl = h("section", { class: "island", "aria-labelledby": "co-make" });
   isl.append(h("header", { class: "isl-head" }, h("h2", { class: "isl-title", id: "co-make", text: "Predictor" })));
-  if (made.at === 0 || Date.now() - made.at > 5000) cohorts(A);
+  if (!made.loading && (made.at === 0 || Date.now() - made.at > 5000 || (polled() && !made.timer))) cohorts(A);
   const exp = m.ds.meta.experiment;
   const base = String(((exp.manifest || {}).metadata || {}).name || "experiment").replace(/[^A-Za-z0-9_-]+/g, "_");
   if (made.name === null) made.name = `${base}_cohort`;
@@ -382,7 +444,7 @@ function makeIsland(m, A, pocket, mine, members) {
     "aria-label": "The predictor's name", dataset: { focus: "co-name" } });
   name.addEventListener("input", () => { made.name = name.value; });
   const go = h("button", { class: "btn primary", type: "button", disabled: made.busy || !members.length ? true : null, dataset: { focus: "co-go" },
-    onclick: () => makePredictor(m, A, members, howChosen(m, pocket, mine, members)) }, made.busy ? "Starting…" : "Make predictor");
+    onclick: () => makePredictor(m, A, members, howChosen(m, pocket, reads, mine, members)) }, made.busy ? "Starting…" : "Make predictor");
   tip(go, "Limen's Trainer retrains each member as its round ran, and Limen's Cohort binds them; written into the project's cohorts/.");
   isl.append(h("div", { class: "co-form" }, h("label", { class: "ex-field" }, h("span", { class: "k", text: "Name" }), name), go));
   isl.append(h("p", { class: "isl-note", text: `${fmtInt(members.length)} member${members.length === 1 ? "" : "s"}${pick.dir ? ` from ${pick.dir}` : ""}. Each is trained again on the data its round used, a few seconds each, and checked against what its round recorded.` }));
@@ -414,7 +476,7 @@ function makeIsland(m, A, pocket, mine, members) {
 // it: the predictor keeps it (cohort.json's "chosen"). The rows taken out
 // or put in by hand are those that made the members differ from the best
 // N of the directory's ranked pool (`mine`) as it stands.
-export function howChosen(m, pocket, mine, members) {
+export function howChosen(m, pocket, reads, mine, members) {
   const t = m.target;
   const j = pick.judging ? null : pick.judged;
   const said = pocketOf(m.schema, pocket).map(c => {
@@ -424,7 +486,8 @@ export function howChosen(m, pocket, mine, members) {
   const top = new Set(mine.slice(0, pick.n)), chosen = new Set(members);
   const out = { needle: t.label, on: t.halves ? "the first half" : "the whole window", best: pick.n,
     byHand: { out: [...top].filter(i => !chosen.has(i)).length, in: members.filter(i => !top.has(i)).length },
-    pocket: said, gates: poolGates(m.schema).map(g => g.label) };
+    pocket: said, gates: reads.map(r => `${r.gate.label} (${r.firstHalf ? "on the first half" : "over the whole window"})`),
+    untouched: !touchedBy(t, reads) };
   if (j) {
     const half = (p) => p ? { pnl: p.pnl, trades: p.trades } : null;
     out.judged = { on: "the second half", bars: j.bars, fee: j.fee, slip: j.slip, cohort: half(second(j.cohort)),
@@ -442,6 +505,7 @@ export function chosenText(how) {
   const pocket = how.pocket && how.pocket.length ? `in the pocket ${how.pocket.join("; ")}` : "no pocket";
   const gates = how.gates && how.gates.length ? `passing ${how.gates.join("; ")}` : "no gate";
   const lines = [`The best ${fmtInt(how.best)} by ${how.needle} on ${how.on}${hand.length ? `, ${hand.join(" and ")} by hand` : ""}; ${pocket}; ${gates}.`];
+  if (how.untouched === false) lines.push("The second half helped choose them, so it does not judge them untouched.");
   const j = how.judged;
   if (j && j.cohort) {
     const pnl = (p) => bpsText(p ? p.pnl : NaN);
@@ -465,7 +529,6 @@ async function makePredictor(m, A, members, how) {
     A.toast(h("span", null, h("b", { text: "Making the predictor failed. " }), String(err.message || err)), "crit");
   } finally {
     made.busy = false;
-    made.at = 0;
     cohorts(A);
     A.rerender();
   }

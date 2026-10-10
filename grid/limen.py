@@ -362,16 +362,19 @@ def _span(pos: list[float], gross: list[float], net: list[float],
 
 
 def windows(pos: list[float], gross: list[float], net: list[float],
-            ret: list[float | None] | None) -> Json:
+            ret: list[float | None] | None,
+            cut: tuple[int, int] | None = None) -> Json:
     """A test window's execution read whole and by each half of it
     (``whole``, ``halves``), each by _span. The halves are Limen's ordinal
-    ones, bars [0, n // 2) and [n // 2, n); a window of one bar has
-    none."""
+    ones, bars [0, n // 2) and [n // 2, n), unless ``cut`` (a, b) makes
+    them [0, a) and [b, n), the bars between in neither; a window of one
+    bar, or a cut that leaves a half empty, has none."""
     n = len(pos)
-    k = n // 2
+    a, b = cut if cut is not None else (n // 2, n // 2)
     return {"whole": _span(pos, gross, net, ret, 0, n),
-            "halves": [_span(pos, gross, net, ret, 0, k),
-                       _span(pos, gross, net, ret, k, n)] if k else None}
+            "halves": [_span(pos, gross, net, ret, 0, a),
+                       _span(pos, gross, net, ret, b, n)]
+            if 0 < a <= b < n else None}
 
 
 def execution_summary(rec: Json, index: int) -> Json | None:

@@ -1439,7 +1439,7 @@ test("cohort: a Limen run's pool chosen on the first half, judged on the second,
     // whole window, one value a row, and the second half chose them too
     const needle = await page.locator("#target-pick").inputValue();
     await page.selectOption("#target-pick", "auc");
-    await page.waitForFunction(() => /^Chosen on the whole window \(.+ is not measured on each half\), the cohort makes .+ a bar on the second half, which chose it too;/
+    await page.waitForFunction(() => /^Chosen with the second half too \(.+ is not measured on each half\), the cohort makes .+ a bar on the second half, which chose it too;/
       .test((document.querySelector(".co-verdict") || {}).textContent || ""), null, { timeout: 20000 });
     assert.equal(await page.locator(".co-table").getAttribute("aria-label"), "The pool, best first");
     assert.equal(await page.locator(".co-table thead th").count(), 4);
@@ -1448,6 +1448,19 @@ test("cohort: a Limen run's pool chosen on the first half, judged on the second,
     await page.selectOption("#target-pick", needle);
     await page.waitForFunction(() => /^Chosen on the first half,/.test((document.querySelector(".co-verdict") || {}).textContent || ""), null, { timeout: 20000 });
     assert.deepEqual(await page.locator(".co-judge th.co-half").allInnerTexts(), ["First half (chose it)", "Second half (judges it)"]);
+    // a fee past the view's bound is marked and not taken; one within it is
+    const fee = page.locator("input[aria-label=Fee]");
+    const own = await fee.inputValue();
+    await fee.fill("1001");
+    await fee.press("Enter");
+    assert.equal(await fee.getAttribute("aria-invalid"), "true");
+    await fee.fill("1000");
+    await fee.press("Enter");
+    await page.waitForFunction(() => { const f = document.querySelector("input[aria-label=Fee]"); return f && f.value === "1000" && !f.hasAttribute("aria-invalid")
+      && !document.querySelector(".co-judged[aria-busy]"); }, null, { timeout: 20000 });
+    await page.locator("input[aria-label=Fee]").fill(own);
+    await page.locator("input[aria-label=Fee]").press("Enter");
+    await page.waitForFunction(own => document.querySelector("input[aria-label=Fee]").value === own && !document.querySelector(".co-judged[aria-busy]"), own, { timeout: 20000 });
     // made a predictor in the project: Limen's Trainer and Cohort (the stand-in)
     await page.locator(".co-form input").fill("lgbm_pair");
     await page.locator(".co-form .btn.primary").click();
