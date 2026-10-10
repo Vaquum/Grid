@@ -100,7 +100,7 @@ test("a run read from several result directories joins each row to its own direc
   assert.deepEqual(pack.rounds.get(roundKey(0, "s2")), s.ds.rounds.get(300));
   const ri = { kind: "num", state: new Uint8Array(600), vals: Float64Array.from({ length: 600 }, (_, i) => indexOf(i)) };
   const sh = { value: i => shardOf(i) };
-  const ds = { n: 600, rounds: pack.rounds, meta: { experiment: { shards: { s1: "/a", s2: "/b" } } },
+  const ds = { n: 600, rounds: pack.rounds, meta: { experiment: { shards: [["s1", "/a"], ["s2", "/b"]] } },
     col: name => (name === "_round_index" ? ri : name === "shard" ? sh : null) };
   assert.deepEqual(ablationMembers(ds, s.schema, s.design, s.rows).perRow, plain.perRow);
 });

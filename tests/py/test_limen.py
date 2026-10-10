@@ -21,6 +21,7 @@ from grid.__main__ import Wiring, main
 from grid.limen import (
     CsvRecords,
     csv_value,
+    differences,
     manifest_copy,
     read_experiment,
     round_record,
@@ -319,8 +320,8 @@ class Shards(unittest.TestCase):
         assert run.experiment is not None
         self.assertIsNone(run.experiment["dir"])
         self.assertEqual(run.experiment["shards"],
-                         {"a": os.path.abspath(self.a),
-                          "b": os.path.abspath(self.b)})
+                         [["a", os.path.abspath(self.a)],
+                          ["b", os.path.abspath(self.b)]])
         # each round is its directory's
         self.assertEqual(len(run.rounds), 40)
         self.assertEqual(sorted({r[2] for r in run.rounds}), ["a", "b"])
@@ -334,7 +335,8 @@ class Shards(unittest.TestCase):
         with open(out, encoding="utf-8") as f:
             run = json.load(f)["runs"][0]
         self.assertEqual(run["rows"], 40)
-        self.assertEqual(sorted(run["experiment"]["shards"]), ["a", "b"])
+        self.assertEqual([s[0] for s in run["experiment"]["shards"]],
+                         ["a", "b"])
         self.assertEqual(len(run["rounds"]), 40)
 
     def test_a_folder_of_them_reads_the_same(self) -> None:
@@ -343,7 +345,8 @@ class Shards(unittest.TestCase):
         self.assertEqual(run.label, "runs")
         self.assertEqual(run.store.rows, 40)
         assert run.experiment is not None
-        self.assertEqual(sorted(run.experiment["shards"]), ["a", "b"])
+        self.assertEqual([s[0] for s in run.experiment["shards"]],
+                         ["a", "b"])
 
     def test_a_later_row_joins_as_it_arrives(self) -> None:
         shard(self.b, range(20, 40), 2)
@@ -369,6 +372,70 @@ class Shards(unittest.TestCase):
         s.run_line(run, b[2], False, 1)
         self.assertEqual(run.store.rows, 5)
         self.assertEqual(run.store.row_object(4)["shard"], "b")
+
+    def test_one_file_starting_over_leaves_the_others_rows(self) -> None:
+        shard(self.b, range(20, 40), 2)
+        s = Sweep("t")
+        run = Run("r0", "two", "x", None, True, None, "csv", {},
+                  ["a", "b"])
+        s.add_run(run)
+        with open(os.path.join(self.a, "results.csv"), encoding="utf-8") as f:
+            a = f.read().splitlines()
+        with open(os.path.join(self.b, "results.csv"), encoding="utf-8") as f:
+            b = f.read().splitlines()
+        for line in a[:3]:
+            s.run_line(run, line, True, 0)
+        for line in b[:3]:
+            s.run_line(run, line, True, 1)
+        s.merge(run)
+        s.run_reset(run, "truncated", 1)
+        # the archive keeps every row; the run goes on with a's
+        old = s.runs[0]
+        self.assertEqual((old.store.rows, old.archived_shard), (4, "b"))
+        self.assertEqual(run.store.rows, 2)
+        self.assertEqual({run.store.row_object(i)["shard"]
+                          for i in range(run.store.rows)}, {"a"})
+        self.assertEqual(run.resets[-1]["shard"], "b")
+        # b reads its header again; a goes on
+        s.run_line(run, b[0], False, 1)
+        s.run_line(run, b[1], False, 1)
+        s.run_line(run, a[3], False, 0)
+        self.assertEqual([run.store.row_object(i)["shard"]
+                          for i in range(run.store.rows)],
+                         ["a", "a", "b", "a"])
+        self.assertEqual(run.bad_count, 0)
+
+    def test_a_bad_round_line_names_its_directory(self) -> None:
+        run = Run("r0", "two", "x", None, True, None, "csv", {}, ["a", "b"])
+        run.add_round_line(self.round(0), 0)
+        run.add_round_line(self.round(0), 1)
+        run.add_round_line("not a round", 1)
+        bad = run.rounds_bad[0]
+        self.assertEqual((bad["line"], bad["shard"]), (2, "b"))
+
+    def round(self, index: int) -> str:
+        return json.dumps({"_round_index": index, "round_params": {}})
+
+    def test_a_manifest_parameter_named_shard_is_refused(self) -> None:
+        path = os.path.join(self.a, "metadata.json")
+        with open(path, encoding="utf-8") as f:
+            meta = json.load(f)
+        meta["yaml_reference"]["sfd"]["params"]["shard"] = [1, 2]
+        for d, seed in ((self.a, 1), (self.b, 2)):
+            if d == self.b:
+                shard(self.b, range(20, 40), 2)
+            meta["yaml_reference"]["uel"]["search_strategy"]["seed"] = seed
+            with open(os.path.join(d, "metadata.json"), "w",
+                      encoding="utf-8") as f:
+                json.dump(meta, f)
+        with self.assertRaisesRegex(SystemExit, "a parameter named shard"):
+            read(self.a, self.b)
+
+    def test_manifests_compare_as_json(self) -> None:
+        self.assertEqual(differences({"x": [True]}, {"x": [True]}), [])
+        self.assertEqual(differences({"x": [True]}, {"x": [1]}),
+                         ["x [true], then [1]"])
+        self.assertEqual(differences({"x": 1}, {"x": 1.0}), ["x 1, then 1.0"])
 
     def test_another_manifest_is_refused_with_where_it_differs(self) -> None:
         shard(self.b, range(20, 40), 2, n_permutations=900)

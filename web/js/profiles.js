@@ -180,8 +180,9 @@ export function limenProfile(experiment) {
   const sfd = m.sfd || {};
   const uel = m.uel || {};
   const meta = m.metadata || {};
-  const shards = experiment.shards && typeof experiment.shards === "object" ? experiment.shards : null;
-  const dirOf = row => (shards ? shards[row.shard] : experiment.dir);
+  // [label, directory] for each, in the order read
+  const shards = Array.isArray(experiment.shards) ? new Map(experiment.shards) : null;
+  const dirOf = row => (shards ? shards.get(row.shard) : experiment.dir);
   return {
     id: "limen",
     name: meta.name || "Limen experiment",
@@ -197,7 +198,7 @@ export function limenProfile(experiment) {
     defaultTarget: "backtest_pnl_per_bar_bps",
     objective: [["backtest_pnl_per_bar_bps", -1]],
     objectiveLabel: "net PnL per bar",
-    planned: Number.isInteger(uel.n_permutations) ? uel.n_permutations * (shards ? Object.keys(shards).length : 1) : null,
+    planned: Number.isInteger(uel.n_permutations) ? uel.n_permutations * (shards ? shards.size : 1) : null,
     // A round is replayed from its result directory by Limen's Trainer,
     // which rebuilds it from the manifest and checks its metrics against
     // results.csv (docs/Trainer.md); a pack made before the page knew the

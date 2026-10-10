@@ -33,7 +33,9 @@ export function runStatus(s) {
   }
   if (meta.archivedFrom) {
     return { kind: "archived", label: "Archived", detail: Number.isFinite(meta.archivedAt) ? `until ${fmtClock(meta.archivedAt)}` : null,
-      tip: `The rows read before its results file ${meta.archivedReason === "replaced" ? "was replaced" : "started over"}, kept as they were. The run goes on under its own name in the run picker.` };
+      tip: meta.archivedShard
+        ? `The rows read before the results file of ${meta.archivedShard} ${meta.archivedReason === "replaced" ? "was replaced" : "started over"}, kept as they were. The run goes on under its own name in the run picker, with the other directories' rows.`
+        : `The rows read before its results file ${meta.archivedReason === "replaced" ? "was replaced" : "started over"}, kept as they were. The run goes on under its own name in the run picker.` };
   }
   if (s.mode !== "live") {
     return { kind: "recorded", label: "Recorded", detail: s.mode === "demo" ? null : "file", tip: "A snapshot of the sweep's files. Press play to replay its rows as they arrived." };

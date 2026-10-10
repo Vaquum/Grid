@@ -355,6 +355,20 @@ class Store:
         for col in self.columns.values():
             col.pad(self.rows - col.n)
 
+    def take(self, rows: list[int]) -> Store:
+        """A store of these rows only, in this order, value for value."""
+        self.level()
+        out = Store()
+        for name in self.order:
+            col = self.columns[name]
+            new = Column(name, col.kind)
+            for i in rows:
+                new.push(col.value_at(i))
+            out.columns[name] = new
+            out.order.append(name)
+        out.rows = len(rows)
+        return out
+
     def _to_json(self, col: Column, row: int) -> Column:
         new = Column(col.name, JSON)
         for j in range(len(col)):

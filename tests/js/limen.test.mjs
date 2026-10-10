@@ -81,7 +81,7 @@ test("net PnL per bar is written to 0.1 bps, so a round shows 0.7, not 0.700", (
 
 test("a run read from several result directories has its directory as a parameter, plans their rounds together and replays each from its own", () => {
   const exp = { manifest: { sfd: { params: { a: [1, 2] } }, uel: { n_permutations: 500 } }, dir: null, host: null,
-    shards: { s1: "/runs/s1", s2: "/runs/s2" } };
+    shards: [["s1", "/runs/s1"], ["s2", "/runs/s2"]] };
   const p = limenProfile(exp);
   assert.deepEqual(Object.keys(p.params), ["a", "shard"]);
   assert.equal(p.planned, 1000);

@@ -37,7 +37,7 @@ import sys
 import threading
 import time
 import webbrowser
-from typing import Any
+from typing import Any, cast
 
 from . import __version__
 from .follow import (
@@ -58,7 +58,7 @@ from .limen import (
     shards_problem,
 )
 from .server import serve
-from .sweep import Json, Run, Sweep
+from .sweep import SHARD, Json, Run, Sweep
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PAGE = os.path.join(os.path.dirname(HERE), "dist", "grid.html")
@@ -113,6 +113,13 @@ class Wiring:
                 problem = shards_problem(self.shards, experiments)
                 if problem:
                     raise SystemExit(problem)
+                params: Any = cast(Json, experiments[0]["manifest"].get(
+                    "sfd") or {}).get("params")
+                if isinstance(params, dict) and SHARD in params:
+                    raise SystemExit("the manifest has a parameter named %s, "
+                                     "the name Grid gives each row's "
+                                     "directory when it reads several"
+                                     % SHARD)
             self.experiment = experiments[0]
             # where the run's directories are, for the command that replays
             # a round (Limen's Trainer reads the directory itself); a local
@@ -121,9 +128,12 @@ class Wiring:
             if self.shards is None:
                 self.experiment["dir"] = full[0]
             else:
+                # in the order given: the first's manifest copy is the one
+                # the page shows
                 self.experiment["dir"] = None
-                self.experiment["shards"] = dict(zip(self.shards, full,
-                                                     strict=True))
+                self.experiment["shards"] = [
+                    [label, d] for label, d in zip(self.shards, full,
+                                                   strict=True)]
             self.experiment["host"] = args.ssh or None
             name = name or experiment_name(self.experiment)
         self.sweep = Sweep(name or default_name(self.results_path()))

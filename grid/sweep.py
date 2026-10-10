@@ -83,6 +83,8 @@ class Run:
         self.rounds_lines = 0
         self.rounds_bad: list[Json] = []
         self.rounds_bad_count = 0
+        self.rounds_shard_lines: dict[int, int] = {}
+        self.archived_shard: str | None = None  # the file that started over
 
     def meta(self) -> Json:
         return {"id": self.id, "label": self.label, "source": self.source,
@@ -93,7 +95,8 @@ class Run:
                 "bad": self.bad, "schemaEvents": self.store.events,
                 "archivedFrom": self.archived_from,
                 "archivedAt": self.archived_at,
-                "archivedReason": self.archived_reason, "resets": self.resets,
+                "archivedReason": self.archived_reason,
+                "archivedShard": self.archived_shard, "resets": self.resets,
                 "format": self.fmt, "experiment": self.experiment,
                 "roundsBadCount": self.rounds_bad_count,
                 "roundsBad": self.rounds_bad}
@@ -113,6 +116,9 @@ class Run:
             if row is None:
                 return
             if shard is not None and self.shards is not None:
+                if SHARD in row:
+                    raise ValueError("the row has a field named %s, the name "
+                                     "Grid gives each row's directory" % SHARD)
                 row[SHARD] = self.shards[shard]
                 if self.pending is not None:
                     self.pending[shard].append(
@@ -179,6 +185,10 @@ class Run:
         not a round is counted with its reason, as a bad results line
         is."""
         self.rounds_lines += 1
+        line = self.rounds_lines
+        if shard is not None:
+            line = self.rounds_shard_lines[shard] = \
+                self.rounds_shard_lines.get(shard, 0) + 1
         if not text.strip():
             return
         try:
@@ -186,9 +196,11 @@ class Run:
         except ValueError as exc:
             self.rounds_bad_count += 1
             if len(self.rounds_bad) < BAD_KEEP:
-                self.rounds_bad.append({"line": self.rounds_lines,
-                                        "error": str(exc),
-                                        "text": text[:300]})
+                bad: Json = {"line": line, "error": str(exc),
+                             "text": text[:300]}
+                if shard is not None and self.shards is not None:
+                    bad[SHARD] = self.shards[shard]
+                self.rounds_bad.append(bad)
             return
         if shard is not None and self.shards is not None:
             self.rounds.append([index, dropped, self.shards[shard]])
@@ -202,6 +214,7 @@ class Run:
             label = self.shards[shard]
             self.rounds = [r for r in self.rounds
                            if len(r) < 3 or r[2] != label]
+            self.rounds_shard_lines.pop(shard, None)
         else:
             self.rounds = []
             self.rounds_lines = 0
@@ -271,6 +284,8 @@ class Sweep:
                           run.source, self._segment_of(run), False,
                           run.log_id, run.fmt, run.experiment, run.shards)
                 old.pending = None
+                if shard is not None and run.shards is not None:
+                    old.archived_shard = run.shards[shard]
                 old.archived_at, old.archived_reason = time.time(), reason
                 old.store, old.lines = run.store, run.lines
                 old.bad, old.bad_count = run.bad, run.bad_count
@@ -280,14 +295,25 @@ class Sweep:
                 # the round log itself starts over
                 old.rounds = list(run.rounds)
                 self.runs.insert(self.runs.index(run), old)
-            run.resets.append({"at": time.time(), "reason": reason,
-                               "rows": run.store.rows})
+            reset: Json = {"at": time.time(), "reason": reason,
+                           "rows": run.store.rows}
+            kept = run.store
+            arrivals = run.arrivals
             run.restart()
-            # the file that started over reads its header again; the
-            # others go on
-            if shard is not None:
+            if shard is not None and run.shards is not None:
+                # one file started over: the run goes on with the other
+                # files' rows (the archive keeps them all), and that file
+                # reads its header again
+                label = run.shards[shard]
+                reset[SHARD] = label
+                col = kept.columns.get(SHARD)
+                keep = [i for i in range(kept.rows) if col is None
+                        or col.value_at(i) != label]
+                run.store = kept.take(keep)
+                run.arrivals = array("d", (arrivals[i] for i in keep))
                 run.shard_records.pop(shard, None)
                 run.shard_lines.pop(shard, None)
+            run.resets.append(reset)
             self._bump()
 
     def _segment_of(self, run: Run) -> int | None:
