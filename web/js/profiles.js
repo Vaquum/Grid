@@ -154,6 +154,25 @@ export const LIMEN_METRICS = {
   backtest_trades_per_bar: { label: "Entries per bar", unit: "", better: 0, digits: 4 },
   backtest_inventory_per_bar: { label: "Mean deployed notional", unit: "", better: 0, digits: 3, group: "activity" },
   backtest_cost_per_bar_bps: { label: "Mean cost per bar", unit: BPS, better: -1, digits: 2 },
+  // an event-execution product's ledger on the test window (Limen's
+  // trade_execution, which a declared objective needs): returns and the
+  // drawdown on marked equity, as fractions; money in the quote currency
+  backtest_total_return: { label: "Total return", unit: "", better: 1, digits: 3 },
+  backtest_ending_equity: { label: "Ending equity", unit: "", better: 1, digits: 2 },
+  // drawdowns are at most 0: the higher, the shallower
+  backtest_max_drawdown: { label: "Deepest drawdown", unit: "", better: 1, digits: 3, group: "risk" },
+  backtest_net_pnl: { label: "Net PnL", unit: "", better: 1, digits: 2 },
+  backtest_gross_pnl: { label: "Gross PnL", unit: "", better: 1, digits: 2 },
+  backtest_fees: { label: "Fees", unit: "", better: -1, digits: 2 },
+  backtest_slippage: { label: "Slippage", unit: "", better: -1, digits: 2 },
+  backtest_funding_pnl: { label: "Funding", unit: "", better: 1, digits: 2 },
+  backtest_completed_trades: { label: "Completed trades", unit: "", better: 0, digits: 0, group: "activity" },
+  backtest_open_trades: { label: "Trades open at the end", unit: "", better: 0, digits: 0 },
+  backtest_episode_win_rate: { label: "Winning trades", unit: "share of trades", better: 1, digits: 3 },
+  backtest_avg_absolute_exposure: { label: "Mean absolute exposure", unit: "", better: 0, digits: 3, group: "activity" },
+  // the validation window's total return, which a run that declares the
+  // objective selects by (Limen 5.18); its direction is the declared one
+  val_backtest_total_return: { label: "Validation total return", unit: "", better: 1, digits: 3 },
   execution_time: { label: "Seconds per row", unit: "s", better: -1, digits: 2, cost: true },
   optimal_threshold: { label: "Chosen threshold", unit: "", better: 0, digits: 3 },
   // LightGBM's and XGBoost's, with uel.record_model_outputs (Limen 5.17)
@@ -184,7 +203,11 @@ export const LIMEN_DERIVED = [
 
 // A Limen experiment's profile, read from its own manifest: the manifest's
 // sfd.params are the sampled parameters; the rest are Limen's metrics and
-// the round's bookkeeping. A run read from several result directories of
+// the round's bookkeeping (the ablation's dropped features too, which
+// Limen 5.17.4 writes in results.csv: the Features view reads them). A run
+// that declares its objective (Limen 5.18) is ranked as it selects, by the
+// validation window's value of the declared metric, the declared way; its
+// needle is that metric on the test window. A run read from several result directories of
 // the manifest (shards) has each row's directory as a parameter too, so
 // the checks on how parameters were drawn say whether the shards drew
 // alike, and each round replays from its own directory.
@@ -195,6 +218,11 @@ export function limenProfile(experiment) {
   const meta = m.metadata || {};
   // [label, directory] for each, in the order read
   const shards = Array.isArray(experiment.shards) ? new Map(experiment.shards) : null;
+  const objective = experiment.objective || ((sfd.manifest || {}).objective);
+  const declared = objective && typeof objective.metric === "string" ? objective : null;
+  const way = declared && declared.direction === "minimize" ? 1 : -1;
+  const valId = declared ? `val_${declared.metric}` : null;
+  const metrics = declared ? { ...LIMEN_METRICS, [valId]: { ...(LIMEN_METRICS[valId] || { label: `Validation ${declared.metric}`, unit: "", digits: 3 }), better: -way } } : LIMEN_METRICS;
   const dirOf = row => (shards ? shards.get(row.shard) : experiment.dir);
   return {
     id: "limen",
@@ -205,12 +233,12 @@ export function limenProfile(experiment) {
     nested: {}, effective: {}, alias: {}, setSize: {},
     ids: ["_round_index"],
     diagnostic: ["execution_time", "optimal_threshold", "best_iteration", "_generation_index", "_injected"],
-    text: ["id", "_id", "_warnings", "_search_strategy", "strict_mode_error"],
-    metrics: LIMEN_METRICS,
+    text: ["id", "_id", "_warnings", "_search_strategy", "strict_mode_error", "_dropped_features"],
+    metrics,
     derived: LIMEN_DERIVED, roundTargets: LIMEN_ROUND, gates: [], gatesPrefix: null, invariants: [],
-    defaultTarget: "backtest_pnl_per_bar_bps",
-    objective: [["backtest_pnl_per_bar_bps", -1]],
-    objectiveLabel: "net PnL per bar",
+    defaultTarget: declared ? declared.metric : "backtest_pnl_per_bar_bps",
+    objective: declared ? [[valId, way]] : [["backtest_pnl_per_bar_bps", -1]],
+    objectiveLabel: declared ? metrics[valId].label.toLowerCase() : "net PnL per bar",
     planned: Number.isInteger(uel.n_permutations) ? uel.n_permutations * (shards ? shards.size : 1) : null,
     // A round is replayed from its result directory by Limen's Trainer,
     // which rebuilds it from the manifest and checks its metrics against

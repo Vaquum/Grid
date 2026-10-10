@@ -66,11 +66,15 @@ def read_experiment(text: str, path: str, manifest_file: str,
     manifest: Any = meta["yaml_reference"]
     if not isinstance(manifest, dict):
         raise ValueError("%s: yaml_reference is not a mapping" % path)
+    objective: Any = meta.get("objective")
     return {"kind": "limen", "manifest": cast(Json, manifest),
             "manifestFile": manifest_file, "manifestText": manifest_text,
             "limenVersion": meta.get("limen_version"),
             "createdAt": meta.get("created_at"),
-            "manifestId": meta.get("manifest_id")}
+            "manifestId": meta.get("manifest_id"),
+            # the objective the run selects by, when its manifest declares
+            # one (Limen 5.18): {metric, direction}
+            "objective": objective if isinstance(objective, dict) else None}
 
 
 def shard_labels(dirs: list[str]) -> list[str]:

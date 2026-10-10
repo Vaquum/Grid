@@ -45,7 +45,9 @@ function limenFeatures(m) {
   const out = { design, groups: null, columns: null };
   if (design.groups.length && groupsDim) out.groups = groupContrasts(design, groupsDim, m.target, m.rows);
   if (design.ablation) {
-    if (!exp.roundLog) out.columns = { missing: true };
+    // the dropped columns: in results.csv (Limen 5.17.4 on) or the round log
+    const recorded = m.ds.col("_dropped_features");
+    if (!exp.roundLog && !(recorded && recorded.kind === "set")) out.columns = { missing: true };
     else {
       const am = ablationMembers(m.ds, m.schema, design, m.rows);
       const movers = m.order.filter(e => e.detectable).map(e => m.schema.dimById.get(e.dim));
@@ -200,7 +202,7 @@ function columnsIsland(m, A, lf) {
   const head = h("header", { class: "isl-head" }, h("h2", { class: "isl-title", id: "ft-cols", text: "Columns the ablation dropped" }));
   const isl = h("section", { class: "island ft-island", "aria-labelledby": "ft-cols" }, head);
   if (cl.missing) {
-    isl.append(h("p", { class: "isl-note", text: "This run's directory has no round_data.jsonl, Limen's round log, so the columns each row dropped are not known." }));
+    isl.append(h("p", { class: "isl-note", text: "This run's results.csv records no _dropped_features (Limen writes them from 5.17.4) and its directory has no round_data.jsonl, Limen's round log, so the columns each row dropped are not known." }));
     return isl;
   }
   head.append(h("span", { class: "isl-count num", text: `${fmtInt(cl.members.length)} columns · ${fmtInt(cl.dropped)} of ${fmtInt(cl.recorded)} rows dropped some` }),
