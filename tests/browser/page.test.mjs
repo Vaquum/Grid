@@ -9,7 +9,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -1364,6 +1364,117 @@ test("experiment: a reading of the project asked for before a new experiment was
     await page.waitForTimeout(6000);
     assert.equal(await page.locator(".ex-table tr.sel td.v").innerText(), "b");
     assert.equal(await page.locator(".ex-mf .mf-file").innerText(), "manifests/b.yaml");
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    proc.kill();
+  }
+});
+
+test("cohort: on the rail only for a Limen run", async () => {
+  const { page, errors } = await open();
+  assert.equal(await page.locator(".rail button[aria-label=Cohort]").count(), 0);
+  assert.equal(await page.locator(".rail button").last().getAttribute("aria-label"), "Run");
+  await page.keyboard.press("8");
+  assert.equal(await page.locator(".rail button[aria-current=page]").getAttribute("aria-label"), "Board");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("cohort: a Limen run's pool chosen on the first half, judged on the second, and made a predictor in its project", async () => {
+  // a Limen project holding a run of two shards, as Grid's Experiment view
+  // ran it; its predictors are made with a stand-in limen package
+  const project = mkdtempSync(join(tmpdir(), "grid-project-"));
+  writeFileSync(join(project, "limen.toml"), "[store]\n");
+  mkdirSync(join(project, "manifests"));
+  const folder = join(project, "results", "dev", "lgbm", "20261010_220749");
+  for (const s of ["s1", "s2"]) {
+    mkdirSync(join(folder, s), { recursive: true });
+    for (const f of readdirSync(join(ROOT, "tests/fixtures/limen_cohort", s))) copyFileSync(join(ROOT, "tests/fixtures/limen_cohort", s, f), join(folder, s, f));
+  }
+  writeFileSync(join(folder, "grid-run.json"), JSON.stringify({ experiment: "lgbm", started_at: Date.now() / 1000, rounds: 4, threads: 1,
+    record: { execution: true, outputs: true },
+    shards: ["s1", "s2"].map((label, k) => ({ label, rounds: 2, seed: k + 1, pid: null, state: "finished", exit: 0, stopping: false })) }));
+  const proc = spawn("python3", ["-m", "grid", "serve", "--project", project, "--limen-cli", join(ROOT, "tests/fixtures/fake_limen.py"),
+    "--limen-python", "python3", "--port", "0"], { cwd: ROOT, env: { ...process.env, PYTHONPATH: join(ROOT, "tests/fixtures/fake_limen_pkg") } });
+  try {
+    const url = await serverUrl(proc);
+    const { page, errors } = await limenPage();
+    await page.goto(url);
+    // the project's newest run opens with the page; on a Limen run the rail
+    // ends in Cohort (8)
+    await page.waitForSelector(".rail button[aria-label=Cohort]", { timeout: 20000 });
+    // the project's predictors cannot be read at first: the view says so,
+    // and reads them again until they are read
+    const unread = /\/api\/experiment$/;
+    await page.route(unread, route => route.request().method() === "GET"
+      ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "the project could not be read" }) })
+      : route.continue());
+    const logged = errors.length;
+    await page.keyboard.press("8");
+    await page.waitForSelector(".co-table");
+    const failed = "section[aria-labelledby=co-make] .co-error";
+    await page.waitForSelector(failed, { timeout: 20000 });
+    assert.equal(await page.locator(failed).innerText(), "The project's predictors could not be read: the project could not be read");
+    await page.unroute(unread);
+    await page.waitForSelector(failed, { state: "detached", timeout: 20000 });
+    // (the browser logs each failed read)
+    assert.ok(errors.slice(logged).every(e => /status of 500/.test(e)), errors.slice(logged).join("\n"));
+    errors.splice(logged);
+    // the pool: no pocket and no gate set (Grid's own gates are not the pool's)
+    assert.match(await page.locator(".strip").innerText(), /Pool\s+4\s+of 4 in view/);
+    // the members, the best on the first half, from one result directory
+    assert.equal(await page.locator(".co-dir select option").count(), 2);
+    assert.equal(await page.locator(".co-table tbody input:checked").count(), 2);
+    // judged on the second half, from what the run recorded
+    await page.waitForSelector(".co-verdict", { timeout: 20000 });
+    assert.match(await page.locator(".co-verdict").innerText(), /^Chosen on the first half, the cohort makes 0\.00 bps a bar on the second/);
+    assert.match(await page.locator(".co-costs").innerText(), /696 bars they share/);
+    // a member taken out: judged again on the one left
+    await page.locator(".co-table tbody input").nth(1).uncheck();
+    await page.waitForFunction(() => /Members\s+1\s/.test(document.querySelector(".strip").innerText), null, { timeout: 20000 });
+    await page.locator(".co-table tbody input").nth(1).check();
+    await page.waitForFunction(() => /Members\s+2\s/.test(document.querySelector(".strip").innerText), null, { timeout: 20000 });
+    // a needle not measured on each half: the members are chosen on the
+    // whole window, one value a row, and the second half chose them too
+    const needle = await page.locator("#target-pick").inputValue();
+    await page.selectOption("#target-pick", "auc");
+    await page.waitForFunction(() => /^Chosen with the second half too \(.+ is not measured on each half\), the cohort makes .+ a bar on the second half, which chose it too;/
+      .test((document.querySelector(".co-verdict") || {}).textContent || ""), null, { timeout: 20000 });
+    assert.equal(await page.locator(".co-table").getAttribute("aria-label"), "The pool, best first");
+    assert.equal(await page.locator(".co-table thead th").count(), 4);
+    assert.equal(await page.locator(".co-table tbody tr").first().locator("td").count(), 4);
+    assert.deepEqual(await page.locator(".co-judge th.co-half").allInnerTexts(), ["First half", "Second half (chose it too)"]);
+    await page.selectOption("#target-pick", needle);
+    await page.waitForFunction(() => /^Chosen on the first half,/.test((document.querySelector(".co-verdict") || {}).textContent || ""), null, { timeout: 20000 });
+    assert.deepEqual(await page.locator(".co-judge th.co-half").allInnerTexts(), ["First half (chose it)", "Second half (judges it)"]);
+    // a fee past the view's bound is marked and not taken; one within it is
+    const fee = page.locator("input[aria-label=Fee]");
+    const own = await fee.inputValue();
+    await fee.fill("1001");
+    await fee.press("Enter");
+    assert.equal(await fee.getAttribute("aria-invalid"), "true");
+    await fee.fill("1000");
+    await fee.press("Enter");
+    await page.waitForFunction(() => { const f = document.querySelector("input[aria-label=Fee]"); return f && f.value === "1000" && !f.hasAttribute("aria-invalid")
+      && !document.querySelector(".co-judged[aria-busy]"); }, null, { timeout: 20000 });
+    await page.locator("input[aria-label=Fee]").fill(own);
+    await page.locator("input[aria-label=Fee]").press("Enter");
+    await page.waitForFunction(own => document.querySelector("input[aria-label=Fee]").value === own && !document.querySelector(".co-judged[aria-busy]"), own, { timeout: 20000 });
+    // made a predictor in the project: Limen's Trainer and Cohort (the stand-in)
+    await page.locator(".co-form input").fill("lgbm_pair");
+    await page.locator(".co-form .btn.primary").click();
+    await page.waitForSelector(".co-made tbody tr .tag", { timeout: 20000 });
+    await page.waitForFunction(() => document.querySelector(".co-made tbody tr .tag").textContent === "Made", null, { timeout: 30000 });
+    const row = await page.locator(".co-made tbody tr").first().innerText();
+    const dir = /results\/dev\/lgbm\/20261010_220749\/(s[12])/.exec(row);
+    assert.ok(dir, row);
+    const spec = JSON.parse(readFileSync(join(project, "cohorts", "lgbm_pair", "cohort.json"), "utf8"));
+    assert.equal(spec.state, "made");
+    assert.equal(spec.source, `results/dev/lgbm/20261010_220749/${dir[1]}`);
+    assert.equal(spec.permutation_ids.length, 2);
+    // the row names it by Limen's cohort id, made when Limen bound it
+    assert.match(row, new RegExp(`^lgbm_pair\\s+2\\s+${spec.source}\\s+Made\\s+${spec.cohort_id.slice(7, 19)}\\s+\\d\\d:\\d\\d`));
     assert.deepEqual(errors, []);
     await page.close();
   } finally {

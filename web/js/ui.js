@@ -494,6 +494,8 @@ const ICONS = {
   clock: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2",
   // the Experiment view: a flask
   flask: "M9 3h6M10 3v6.5L4.6 18.2A2 2 0 0 0 6.3 21h11.4a2 2 0 0 0 1.7-2.8L14 9.5V3M7.2 15h9.6",
+  // the Cohort view: members joined into one
+  cohort: "M6 7.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM18 7.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM12 8.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM12 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM6.8 7.3l4.2 8.9M17.2 7.3l-4.2 8.9M12 8.5V16",
 };
 
 export function icon(name, cls) {

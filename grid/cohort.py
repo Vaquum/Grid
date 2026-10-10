@@ -27,6 +27,7 @@ not record: they are not rebuilt (``notes`` says when members use them).
 
 from __future__ import annotations
 
+import bisect
 import json
 import math
 import os
@@ -64,6 +65,10 @@ def bar_times(rec: Json, step: int) -> list[int]:
     less those it dropped; refused when they do not number its arrays."""
     raw: Any = rec.get("alignment")
     if not isinstance(raw, dict):
+        if rec.get("preds") is None:
+            raise ValueError("round %s recorded no model outputs (record "
+                             "them with uel.record_model_outputs, Limen "
+                             "5.17 or later)" % _rid(rec))
         raise ValueError("round %s recorded no alignment" % _rid(rec))
     a = cast(Json, raw)
     first = _epoch(a.get("first_test_datetime"), "first_test_datetime")
@@ -193,7 +198,15 @@ def judge(records: list[Json], step: int, fee_bps: float,
     they share: its signal (the members' mean probability over 0.5, or the
     mean of their votes over 0.5 when they recorded no probabilities), and
     the cohort and each member executed alike, each over the whole window
-    and its halves."""
+    and its halves.
+
+    The halves are where every member's own halves agree. A member's needle
+    was read on its own test window's halves (Limen's ordinal ones, its
+    second half from its middle bar), so the second half here starts where
+    the last member's own second half starts, and the first ends where the
+    first member's own second half starts: no bar of the second half chose
+    a member. Bars between the two, where the members' windows differ, are
+    in neither half."""
     if not records:
         raise ValueError("a cohort has at least one member")
     if len(records) > MAX_MEMBERS:
@@ -225,28 +238,40 @@ def judge(records: list[Json], step: int, fee_bps: float,
             mean = sum(s[1][at[k][t]]
                        for k, s in enumerate(series)) / len(series)
         signal.append(1 if mean > 0.5 else 0)
-    cohort = windows(*long_flat(signal, ret, fee_bps, slip_bps), ret)
+    starts = [s[0][len(s[0]) // 2] for s in series]
+    cut = (bisect.bisect_left(bars, min(starts)),
+           bisect.bisect_left(bars, max(starts)))
+    cohort = windows(*long_flat(signal, ret, fee_bps, slip_bps), ret, cut)
     members: list[Json] = []
     for k, rec in enumerate(records):
         own = [series[k][1][at[k][t]] for t in bars]
         members.append({"id": rec.get("round_id"),
                         **windows(*long_flat(own, ret, fee_bps, slip_bps),
-                                  ret)})
+                                  ret, cut)})
     notes: list[str] = []
+    if cut[1] > cut[0]:
+        notes.append("The members' test windows differ: %d bars, in the "
+                     "first half of some members and the second of others, "
+                     "are in neither half, so no bar of the second half "
+                     "chose a member." % (cut[1] - cut[0]))
     exits = sum(1 for rec in records
                 if _param(rec, "take_profit_bps") is not None
                 or _param(rec, "stop_loss_bps") is not None)
     if exits:
         notes.append("%d of the %d members exit by take-profit or "
                      "stop-loss, which is not rebuilt here (the run does "
-                     "not record the prices it needs): every series is "
-                     "long while its signal is" % (exits, len(records)))
+                     "not record the prices it needs): here each is long "
+                     "on every bar after a 1, so their figures differ from "
+                     "those their rounds recorded. The cohort, its best "
+                     "member and its members' mean are rebuilt alike."
+                     % (exits, len(records)))
     calibrated = {bool(_param(rec, "use_calibration")) for rec in records}
     if weighted and len(calibrated) > 1:
-        notes.append("calibrated and uncalibrated members' probabilities "
+        notes.append("Calibrated and uncalibrated members' probabilities "
                      "are averaged together, as Limen's Cohort averages "
-                     "them")
+                     "them.")
     return {"bars": len(bars), "first": bars[0], "last": bars[-1],
+            "between": cut[1] - cut[0],
             "step": step, "fee": fee_bps, "slip": slip_bps,
             "aggregation": ("probability_weighted" if weighted
                             else "majority_vote"),

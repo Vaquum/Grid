@@ -55,6 +55,7 @@ from .sweep import SHARD, Cursor, Json, Sweep
 CURSOR_TTL = 600.0
 PING_EVERY = 15.0
 MAX_BODY = 4 << 20     # a manifest is a few kilobytes
+CHOSEN_MAX = 64 << 10   # how a predictor's members were chosen, as JSON
 ACTIONS = ("validate", "save", "create", "start", "stop", "resume", "open",
            "diff", "cohort")
 
@@ -191,8 +192,14 @@ class Server:
             raise ValueError("a predictor's members come from one result "
                              "directory (a Limen Cohort takes one); these "
                              "come from %d" % len(set(where)))
-        chosen: Json = {"run": body.get("run"), "rows": rows,
-                        "fee": body.get("fee"), "slip": body.get("slip")}
+        # how the page chose and judged them, as it says it: kept with the
+        # predictor (row numbers and run ids are the page's own, so it is
+        # not asked for them)
+        how: Any = body.get("how")
+        chosen: Json = cast(Json, how) if isinstance(how, dict) else {}
+        if len(json.dumps(chosen)) > CHOSEN_MAX:
+            raise ValueError("how the members were chosen is too long to "
+                             "keep")
         return {"cohort": project.make_cohort(name, where[0], records,
                                               chosen)}
 

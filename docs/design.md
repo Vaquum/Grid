@@ -335,6 +335,13 @@ it shows.
    cluster); the halves of the test window (the market on each, and how
    alike the rows rank on them, needle by needle); then the best against
    luck, pace and segments, problems, the sampler and warnings.
+8. **Cohort** (a Limen run): last on the rail. A strip of the pool, the
+   members and the cohort, its best member and its members' mean on the
+   second half; the pool (the pocket and the gates it is filtered by);
+   the members, the pool's best on the first half from one result
+   directory, with how many and which by hand; the judgement on each
+   half at the fee and slippage set; and on a project, Make predictor and
+   the project's predictors as they train.
 
 ## A card
 
@@ -390,7 +397,7 @@ needle, the context, the edge) sorts afresh.
 ## Experiments
 
 Grid makes and runs experiments the way Limen does, through its command
-line only: `limen validate` checks a manifest (its own words, mapped to
+line: `limen validate` checks a manifest (its own words, mapped to
 their lines), `limen list-templates` and `limen init` start one, and
 `limen run` runs it, so what Grid runs is what a shell would. A manifest is
 edited as text, so its comments and spelling stay; Grid itself writes only
@@ -418,6 +425,47 @@ the undo or an open menu. A write needs the page's own token, from the
 page's own origin, as JSON; on a project the server answers only requests
 that name it by its address or as localhost, so a page reached by a name
 another site's DNS points here gets neither.
+
+## Cohorts
+
+A cohort is chosen where the analysis found it and judged where nothing
+chose it. The pool is the rows in view that are in the pocket and pass
+every gate set in Gates (Grid's standing gates only when set there, as
+they cannot be taken off), each gate read on the first half of the test
+window where its needle is measured on each half. Its members are the
+pool's best by the needle on the first half, from one result directory: a
+Limen `Cohort` binds one experiment's rounds, and each shard's manifest
+differs by its seed. The second half judges them. A needle or a gate read
+over the whole window lets the second half help choose, and the view
+says so in its verdict; so does a pocket found by reading the whole
+window, which the view cannot know.
+
+The judgement trains nothing. The server rebuilds the cohort from what
+the run recorded (`grid/cohort.py`): each member's test probabilities bar
+by bar, aligned by the bars' times (rebuilt from each round's first and
+last bar, at the data's interval, less the bars it dropped), averaged and
+over 0.5, as Limen's probability-weighted `Cohort` predicts (the members'
+own thresholds take no part); the signal executed as Limen executes one
+(long on the bar after a 1, slippage on each fill, the fee on the entry
+notional and the exit proceeds), checked against the execution Limen
+recorded for its rounds. Each member is executed alike from its own
+predictions, so the cohort, its best member alone and its members' mean
+are set side by side on each half. The halves are where every member's
+own halves agree (each member was ranked on its own window's halves), so
+no bar of the second half chose a member; where the members' windows
+differ, the bars between are in neither half. Exits by take-profit or stop-loss need
+prices the run does not record, and are not rebuilt; the view says so.
+
+Make predictor writes `cohorts/<name>/` in the project: `experiment/`, a
+result directory of the members' metadata, round lines, results rows and
+manifest copy (so Limen reads only them), and `cohort.json`, the members
+and how the page chose and judged them. A script run in Limen's own
+Python (`grid/limen_cohort.py`) has Limen's `Trainer` train each member
+again on the data its round used, checked against what the round
+recorded, and Limen's `Cohort` bind them, which gives the cohort its id;
+each sensor is pickled beside a sidecar of the versions it was made with,
+the layout Furnace reads. Grid's server never imports the script, and the
+script imports nothing of Grid.
 
 ## Non-goals
 

@@ -173,6 +173,14 @@ class Alignment(unittest.TestCase):
         rec["preds"] = rec["preds"][:4]
         with self.assertRaisesRegex(ValueError, "a gap in the data"):
             bar_times(rec, HOUR)
+        # a round of a run that did not record its model outputs (before
+        # Limen 5.17, or with uel.record_model_outputs off) says so
+        bare = {"round_id": "9bbfc39e316c", "round_params": {}}
+        with self.assertRaisesRegex(ValueError, "round 9bbfc39e316c recorded "
+                                    "no model outputs .*record_model_outputs"):
+            bar_times(bare, HOUR)
+        with self.assertRaisesRegex(ValueError, "recorded no alignment"):
+            bar_times({**bare, "preds": [1, 0]}, HOUR)
 
     def test_members_meet_on_the_bars_they_share(self) -> None:
         # three bars more on one; a bar dropped by the other
@@ -181,6 +189,26 @@ class Alignment(unittest.TestCase):
         out = judge([a, b], HOUR, 0.0, 0.0)
         self.assertEqual(out["bars"], 5)
         self.assertEqual((out["last"] - out["first"]) // HOUR, 5)
+
+    def test_the_second_half_holds_no_bar_that_chose_a_member(
+            self) -> None:
+        # a's own halves split at its 5th hour, b's (four hours dropped) at
+        # its 3rd: the bars they share are hours 0-4 and 9, and hours 3
+        # and 4, in b's second half but a's first, are in neither half
+        a = synthetic("a", [0.9] * 10)
+        b = synthetic("b", [0.9] * 6, dropped=["5", "6", "7", "8"])
+        out = judge([a, b], HOUR, 0.0, 0.0)
+        self.assertEqual((out["bars"], out["between"]), (6, 2))
+        for part in [out["cohort"], *out["members"]]:
+            self.assertEqual([h["bars"] for h in part["halves"]], [3, 1])
+        self.assertIn("2 bars, in the first half of some members and the "
+                      "second of others, are in neither half", out["notes"][0])
+        # members alike in their windows: Limen's ordinal halves
+        same = judge([synthetic("c", [0.9] * 10), a], HOUR, 0.0, 0.0)
+        self.assertEqual(same["between"], 0)
+        self.assertEqual([h["bars"] for h in same["cohort"]["halves"]],
+                         [5, 5])
+        self.assertEqual(same["notes"], [])
 
 
 class Aggregation(unittest.TestCase):
@@ -228,7 +256,7 @@ class Aggregation(unittest.TestCase):
         for part in [out["cohort"], *out["members"]]:
             self.assertEqual([h["bars"] for h in part["halves"]], [505, 506])
         self.assertEqual(len(out["notes"]), 1)
-        self.assertIn("calibrated and uncalibrated", out["notes"][0])
+        self.assertIn("Calibrated and uncalibrated", out["notes"][0])
         with self.assertRaisesRegex(ValueError, "basis points"):
             judge(ROUNDS, HOUR, -1.0, 5.0)
 
@@ -337,6 +365,9 @@ class Make(LimenProject):
         self.assertEqual(spec["manifest_id"], manifest_id)
         self.assertEqual(c["cohortId"], spec["cohort_id"])
         self.assertTrue(spec["cohort_id"].startswith("sha256:"))
+        self.assertEqual((c["startedAt"], c["madeAt"]),
+                         (spec["started_at"], spec["made_at"]))
+        self.assertLessEqual(c["startedAt"], c["madeAt"])
         self.assertEqual((spec["aggregation_mode"], spec["limen_version"],
                           spec["chosen"]), ("probability_weighted", "5.20.0",
                                             {"rows": [0, 1]}))
@@ -367,6 +398,7 @@ class Make(LimenProject):
         c = self.made("drift")
         self.assertEqual(c["state"], "failed")
         self.assertIn("ReconstructionError", c["tail"])
+        self.assertIsNone(c["madeAt"])
 
     def test_what_is_not_made(self) -> None:
         src = os.path.join(RUN, "s1")
@@ -423,9 +455,24 @@ class MakeRoute(LimenProject):
         shard = [run.store.row_object(i).get("shard")
                  for i in range(run.store.rows)]
         s1 = [i for i, d in enumerate(shard) if d == "s1"]
-        code, out = self.post({"run": run.id, "rows": s1, "name": "s1pair"})
+        how = {"needle": "Net PnL per bar", "on": "the first half",
+               "best": 2, "pocket": [], "gates": []}
+        code, out = self.post({"run": run.id, "rows": s1, "name": "s1pair",
+                               "how": how})
         self.assertEqual((code, out), (200, {"cohort": "s1pair"}), out)
-        self.assertEqual(self.made("s1pair")["state"], "made")
+        made = self.made("s1pair")
+        self.assertEqual((made["state"], made["chosen"]), ("made", how))
+        # how the members were chosen is kept as the page says it, within
+        # bounds; the page's row numbers and run id are not
+        with open(os.path.join(self.root, "cohorts", "s1pair",
+                               "cohort.json")) as f:
+            self.assertEqual(json.load(f)["chosen"], how)
+        code, out = self.post({"run": run.id, "rows": s1, "name": "long",
+                               "how": {"note": "x" * (70 << 10)}})
+        self.assertEqual(code, 400)
+        self.assertIn("too long to keep", out["error"])
+        self.assertFalse(os.path.exists(os.path.join(self.root, "cohorts",
+                                                     "long")))
         code, out = self.post({"run": run.id, "rows": [0, 1, 2, 3],
                                "name": "both"})
         self.assertEqual(code, 400)

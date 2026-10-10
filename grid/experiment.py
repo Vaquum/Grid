@@ -805,9 +805,9 @@ class Project:
     # -- predictors -----------------------------------------------------------
     def cohorts(self) -> list[Json]:
         """The project's predictors, each cohorts/<name>/: its members, the
-        result directory they came from, how its making stands (training
-        with its progress, made with its cohort id, or failed with the
-        end of its log)."""
+        result directory they came from, how they were chosen, how its
+        making stands (training with its progress, made with its cohort id,
+        or failed with the end of its log)."""
         top = os.path.join(self.root, COHORTS)
         out: list[Json] = []
         for name in sorted(_listdir(top)):
@@ -824,7 +824,8 @@ class Project:
                 if isinstance(ids, list) else 0,
                 "source": spec.get("source"),
                 "cohortId": spec.get("cohort_id"),
-                "madeAt": spec.get("made_at") or spec.get("started_at"),
+                "startedAt": spec.get("started_at"),
+                "madeAt": spec.get("made_at"), "chosen": spec.get("chosen"),
                 "progress": None, "tail": None}
             if state == "training":
                 entry["progress"] = _progress(log)
