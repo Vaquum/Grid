@@ -165,7 +165,12 @@ class Server:
                 slip = float(q.get("slip", slip))
             except ValueError as err:
                 raise ValueError("fee and slip are basis points") from err
-        out = judge(records, bar_step(exp), fee, slip)
+        manifest: Any = exp.get("manifest")
+        sfd_module: Any = exp.get("sfdModule")
+        out = judge(records, bar_step(exp), fee, slip,
+                    cast(Json, manifest) if isinstance(manifest, dict)
+                    else None,
+                    sfd_module if isinstance(sfd_module, str) else None)
         out["rows"] = rows
         shards: Any = exp.get("shards")
         labels = ({str(p[1]): str(p[0])

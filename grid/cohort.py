@@ -1,18 +1,21 @@
 """A cohort of a Limen run's rounds, judged on what the run recorded (the
 Cohort view).
 
-A Limen ``Cohort`` binds sensors of one experiment's rounds and averages
-their probabilities on each bar: with ``probability_weighted`` aggregation
-its prediction is the mean probability over 0.5 (the members' own
-thresholds play no part), with ``majority_vote`` the mean of their votes
-over 0.5 (limen/cohort/cohort.py). A run that recorded its model outputs
+A Limen ``Cohort`` binds sensors of one experiment's rounds, all of one
+architecture, and aggregates them on each bar as the architecture's name
+says (limen/cohort/cohort.py): an architecture it knows to give
+probabilities is ``probability_weighted``, its prediction the members' mean
+probability over 0.5 (their own thresholds play no part); any other is
+``majority_vote``, the mean of their votes over 0.5, each member voting for
+a prediction above 0.5 (a regressor's, a predicted move above 0, as its
+backtest trades it). A run that recorded its model outputs
 (``uel.record_model_outputs``, Limen 5.17) keeps each round's test
 probabilities and predictions bar by bar in ``round_data.jsonl``, and one
 that recorded its execution (``uel.record_execution``) keeps the market's
 return on each bar (``market.ret``, Limen 5.20). From them, the cohort the
 members would make is rebuilt over the test window without training
-anything: the members' bars aligned by time, their probabilities averaged,
-and the signal executed as Limen executes one (limen/backtest/
+anything: the members' bars aligned by time, aggregated as Limen's Cohort
+aggregates them, and the signal executed as Limen executes one (limen/backtest/
 long_flat_strategy.py: long while the signal of the bar before was 1, at
 the fee and slippage given). Each member is executed the same way from its
 own recorded predictions, so the cohort and its members are set side by
@@ -23,6 +26,10 @@ window's first and last bar, at the data's bar interval, less the bars it
 dropped (``alignment``), and checked against the length of its arrays.
 Exits by take-profit or stop-loss need the bars' prices, which the run does
 not record: they are not rebuilt (``notes`` says when members use them).
+Nor does a member's predictor always predict what its round recorded:
+price-line features find their lines on the history they are given, so
+on other history their values, and the predictions, differ (``notes``
+says when members use them).
 """
 
 from __future__ import annotations
@@ -39,14 +46,28 @@ from typing import Any, cast
 from .limen import windows
 
 Json = dict[str, Any]
-# a member over its test window: its bars' times, its 0/1 predictions, its
-# probabilities (None when it recorded none) and the market's returns
-Series = tuple[list[int], list[int], list[float] | None, list[float | None]]
+# a member over its test window: its bars' times, its predictions (0/1, or
+# a regressor's predicted moves), its probabilities (None when it recorded
+# none) and the market's returns
+Series = tuple[list[int], list[float], list[float] | None,
+               list[float | None]]
 
 BPS = 10_000.0
 FEE_BPS = 5.0       # Limen's long_flat_strategy defaults
 SLIP_BPS = 5.0
 MAX_MEMBERS = 200
+# Limen 5.20's Cohort: the round parameters it names a round's architecture
+# by, and the hints in an architecture's name that it averages by
+# probability (limen/cohort/cohort.py)
+ARCHITECTURE_KEYS = ("architecture", "model_architecture", "_architecture",
+                     "reference_architecture", "decoder_architecture",
+                     "model_name")
+PROBABILITY_HINTS = ("logreg", "tabpfn", "random_binary", "random forest",
+                     "random_forest", "lightgbm", "lgbm", "ridge", "svm",
+                     "hmm", "garch", "lstm", "cnn")
+# features that find their lines on the history they are given
+# (limen.features.price_lines, limen.features.quantile_price_lines)
+LINE_FEATURES = re.compile(r"(^|\.)(quantile_)?price_lines$")
 _ROUND_ID = re.compile(rb'^\{"round_id": "([^"]+)"')
 
 
@@ -106,9 +127,8 @@ def _numbers(v: Any, what: str, rec: Json,
     return values
 
 
-def _preds(rec: Json) -> list[int]:
-    preds = _numbers(rec.get("preds"), "preds", rec)
-    return [1 if p > 0.5 else 0 for p in preds]
+def _preds(rec: Json) -> list[float]:
+    return [float(p) for p in _numbers(rec.get("preds"), "preds", rec)]
 
 
 def _probs(rec: Json) -> list[float] | None:
@@ -192,13 +212,79 @@ def costs_of(records: list[Json]) -> tuple[float, float]:
     return max(seen.items(), key=lambda kv: (kv[1], -kv[0][0] - kv[0][1]))[0]
 
 
+def _sfd_manifest(manifest: Json | None) -> Json:
+    sfd: Any = manifest.get("sfd") if manifest else None
+    inner: Any = cast(Json, sfd).get("manifest") if isinstance(
+        sfd, dict) else None
+    return cast(Json, inner) if isinstance(inner, dict) else {}
+
+
+def architecture_of(rec: Json, manifest: Json | None,
+                    sfd_module: str | None) -> str:
+    """A round's architecture as Limen's Cohort names it: a round parameter
+    naming it, else the manifest's reference architecture, else the run's
+    sfd_module."""
+    for key in ARCHITECTURE_KEYS:
+        value = _param(rec, key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    ref: Any = _sfd_manifest(manifest).get("reference_architecture")
+    if isinstance(ref, str) and ref.strip():
+        return ref.strip()
+    if isinstance(sfd_module, str) and sfd_module.strip():
+        return sfd_module.strip()
+    return "unknown_architecture"
+
+
+def aggregation_of(architecture: str) -> str:
+    """How Limen's Cohort aggregates members of an architecture."""
+    name = architecture.strip().lower()
+    return ("probability_weighted" if any(h in name
+                                          for h in PROBABILITY_HINTS)
+            else "majority_vote")
+
+
+def vote_threshold(architecture: str) -> float:
+    """The prediction above which a member is long, and votes so: a
+    regressor's predicted move above 0 (as Limen's Cohort votes and its
+    backtest trades it), else a prediction above 0.5."""
+    return 0.0 if "regressor" in architecture.strip().lower() else 0.5
+
+
+def line_features(rec: Json, manifest: Json | None) -> bool:
+    """Whether a round used a price-line feature: one of the manifest's,
+    included as Limen includes a feature (its include_if flag on, if it
+    has one, and its group, if it has one, among the round's
+    feature_groups: 'all', or none set, is every group)."""
+    raw: Any = _sfd_manifest(manifest).get("features")
+    groups: Any = _param(rec, "feature_groups")
+    for entry in cast(list[Any], raw) if isinstance(raw, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        feature = cast(Json, entry)
+        func: Any = feature.get("func")
+        if not isinstance(func, str) or not LINE_FEATURES.search(func):
+            continue
+        params: Any = feature.get("params")
+        args: Json = cast(Json, params) if isinstance(params, dict) else {}
+        flag: Any = args.get("include_if") or feature.get("include_if")
+        if isinstance(flag, str) and _param(rec, flag) is not True:
+            continue
+        group: Any = args.get("group") or feature.get("group")
+        if (not isinstance(group, str) or groups is None or groups == "all"
+                or (isinstance(groups, str) and group in groups.split("|"))):
+            return True
+    return False
+
+
 def judge(records: list[Json], step: int, fee_bps: float,
-          slip_bps: float) -> Json:
-    """The cohort of ``records`` (round lines of one run) over the bars
-    they share: its signal (the members' mean probability over 0.5, or the
-    mean of their votes over 0.5 when they recorded no probabilities), and
-    the cohort and each member executed alike, each over the whole window
-    and its halves.
+          slip_bps: float, manifest: Json | None = None,
+          sfd_module: str | None = None) -> Json:
+    """The cohort of ``records`` (round lines of one run, whose manifest is
+    ``manifest``) over the bars they share: its signal, aggregated as Limen's
+    Cohort aggregates the members' architecture (their mean probability
+    over 0.5, or the mean of their votes over 0.5), and the cohort and each
+    member executed alike, each over the whole window and its halves.
 
     The halves are where every member's own halves agree. A member's needle
     was read on its own test window's halves (Limen's ordinal ones, its
@@ -214,18 +300,38 @@ def judge(records: list[Json], step: int, fee_bps: float,
     if not (math.isfinite(fee_bps) and math.isfinite(slip_bps)
             and 0 <= fee_bps < BPS and 0 <= slip_bps < BPS):
         raise ValueError("the fee and slippage are basis points from 0")
+    kinds = sorted({architecture_of(rec, manifest, sfd_module)
+                    for rec in records})
+    if len(kinds) > 1:
+        raise ValueError("a Limen Cohort's members are of one architecture; "
+                         "these are of %d (%s)" % (len(kinds),
+                                                    ", ".join(kinds)))
+    architecture = kinds[0]
+    aggregation = aggregation_of(architecture)
+    weighted = aggregation == "probability_weighted"
+    cut_at = vote_threshold(architecture)
     series: list[Series] = []
     for rec in records:
         times = bar_times(rec, step)
         series.append((times, _preds(rec), _probs(rec),
                        _market(rec, len(times))))
+    bare = sum(1 for s in series if s[2] is None)
+    if weighted and bare:
+        if cut_at == 0.0:
+            raise ValueError("Limen's Cohort averages the probabilities of "
+                             "%s's members, and the architecture gives "
+                             "none: its cohort cannot predict" % architecture)
+        raise ValueError("Limen's Cohort averages the probabilities of %s's "
+                         "members, and %d of these %d rounds recorded none "
+                         "(record them with uel.record_model_outputs, "
+                         "Limen 5.17 or later)"
+                         % (architecture, bare, len(records)))
     shared: set[int] = set(series[0][0])
     for s in series[1:]:
         shared &= set(s[0])
     bars = sorted(shared)
     if len(bars) < 2:
         raise ValueError("the members share fewer than two test bars")
-    weighted = all(s[2] is not None for s in series)
     at: list[dict[int, int]] = [{t: j for j, t in enumerate(s[0])}
                                 for s in series]
     ret: list[float | None] = [series[0][3][at[0][t]] for t in bars]
@@ -235,7 +341,7 @@ def judge(records: list[Json], step: int, fee_bps: float,
             mean = sum(cast(list[float], s[2])[at[k][t]]
                        for k, s in enumerate(series)) / len(series)
         else:
-            mean = sum(s[1][at[k][t]]
+            mean = sum(1 if s[1][at[k][t]] > cut_at else 0
                        for k, s in enumerate(series)) / len(series)
         signal.append(1 if mean > 0.5 else 0)
     starts = [s[0][len(s[0]) // 2] for s in series]
@@ -244,7 +350,7 @@ def judge(records: list[Json], step: int, fee_bps: float,
     cohort = windows(*long_flat(signal, ret, fee_bps, slip_bps), ret, cut)
     members: list[Json] = []
     for k, rec in enumerate(records):
-        own = [series[k][1][at[k][t]] for t in bars]
+        own = [1 if series[k][1][at[k][t]] > cut_at else 0 for t in bars]
         members.append({"id": rec.get("round_id"),
                         **windows(*long_flat(own, ret, fee_bps, slip_bps),
                                   ret, cut)})
@@ -270,11 +376,18 @@ def judge(records: list[Json], step: int, fee_bps: float,
         notes.append("Calibrated and uncalibrated members' probabilities "
                      "are averaged together, as Limen's Cohort averages "
                      "them.")
+    lines = sum(1 for rec in records if line_features(rec, manifest))
+    if lines:
+        notes.append("%d of the %d members use price-line features, which "
+                     "find their lines on the history they are given: on "
+                     "other history than their rounds had, as when they "
+                     "predict live, their predictions can differ from "
+                     "those recorded and judged here."
+                     % (lines, len(records)))
     return {"bars": len(bars), "first": bars[0], "last": bars[-1],
             "between": cut[1] - cut[0],
             "step": step, "fee": fee_bps, "slip": slip_bps,
-            "aggregation": ("probability_weighted" if weighted
-                            else "majority_vote"),
+            "architecture": architecture, "aggregation": aggregation,
             "fired": sum(signal) / len(signal),
             "cohort": cohort, "members": members, "notes": notes}
 

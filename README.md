@@ -96,9 +96,10 @@ pool is the rows in view that are in the pocket and pass every gate set
 in Gates; its members are the pool's best by the needle on the first half
 of the test window, from one result directory (a Limen Cohort takes one).
 The cohort is judged on the second half, which chose nothing: rebuilt
-from what the run recorded (the members' probabilities averaged and over
-0.5, as Limen's Cohort averages them, executed as Limen executes a
-signal), against its best member alone and its members' mean. On a
+from what the run recorded (the members aggregated as Limen's Cohort
+aggregates their architecture, by their probabilities averaged or by
+their votes, and executed as Limen executes a signal), against its best
+member alone and its members' mean. On a
 project, Make predictor has Limen's `Trainer` train each member again on
 the data its round used and Limen's `Cohort` bind them, into
 `cohorts/<name>/`: Limen's cohort id, each member's sensor beside a
