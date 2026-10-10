@@ -25,8 +25,11 @@ export function limenOutputsRun(dir) {
   copyFileSync(join(FX, "lightgbm_binary_full.yaml"), join(dir, "lightgbm_binary_full.yaml"));
   const meta = JSON.parse(readFileSync(join(FX, "metadata.json"), "utf8"));
   writeFileSync(join(dir, "metadata.json"), JSON.stringify({ ...meta, record_model_outputs: true }));
-  const csv = readFileSync(join(FX, "results.csv"), "utf8").trimEnd().split("\n");
-  writeFileSync(join(dir, "results.csv"), csv.map((line, i) => `${line},${i ? 100 * (1 + (i % 4)) : "best_iteration"}`).join("\n") + "\n");
+  // Limen's CSV ends its records with \r\n, as Python's csv module does
+  const text = readFileSync(join(FX, "results.csv"), "utf8");
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  const csv = text.trimEnd().split(eol);
+  writeFileSync(join(dir, "results.csv"), csv.map((line, i) => `${line},${i ? 100 * (1 + (i % 4)) : "best_iteration"}`).join(eol) + eol);
   const rounds = readFileSync(join(FX, "round_data.jsonl"), "utf8").trimEnd().split("\n").map(line => {
     const r = JSON.parse(line);
     return JSON.stringify({ ...r, probs: probsOf(r._round_index), optimal_threshold: 0.5, threshold_rule: ">=" });
