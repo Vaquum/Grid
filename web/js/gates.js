@@ -51,30 +51,49 @@ function gateProblem(def, targetById) {
   return null;
 }
 
-// The schema with the gates set here: each a gate (runner gates first), a
-// needle `gate:<id>`, and with any set, `gates:all` and `gates:count`. A
-// definition that cannot be read is kept in `gateProblems` with its reason.
+// A need on a needle as a gate, and its pass as a needle `gate:<id>`.
+function needGate(t, def, n, source) {
+  const { test, word } = OPS[def.op];
+  const sign = def.op[0] === ">" ? 1 : -1;
+  const pass = new Float64Array(n), margin = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const v = t.values[i];
+    pass[i] = v === v ? (test(v, def.value) ? 1 : 0) : NaN;
+    margin[i] = v === v ? sign * (v - def.value) : NaN;
+  }
+  const label = gateLabel(t, def);
+  const need = `${word} ${needText(t, def.value)}`;
+  return {
+    gate: { id: def.id, label, need, unit: t.unit, needAt: def.value, pass, value: t.values, margin, set: source === "set", standing: source === "profile", def, target: t },
+    target: { id: `gate:${def.id}`, label, unit: "share of rows passing", kind: "binary", better: 1, values: pass,
+      gate: def.id, gateSet: true, source, definition: `${t.label} ${need}`, rev: JSON.stringify(def) },
+  };
+}
+
+// The schema with the gates its profile stands by (`standingGates`: a
+// Limen run's trades, where it recorded them), beside the runner's, and
+// the gates set here: each a gate (the runner's first, then the
+// profile's), a needle `gate:<id>`, and with any set here, `gates:all`
+// and `gates:count`. A definition that cannot be read is kept in
+// `gateProblems` with its reason.
 export function applyGates(schema, defs) {
   const n = schema.n;
-  const runner = schema.gates.length > 0;
-  const gates = [], targets = [], gateProblems = [];
-  for (const def of defs) {
-    const why = gateProblem(def, schema.targetById);
-    if (why) { gateProblems.push({ def, why }); continue; }
+  const standing = [], gates = [], targets = [], gateProblems = [];
+  for (const def of schema.standingGates || []) {
     const t = schema.targetById.get(def.target);
-    const { test, word } = OPS[def.op];
-    const sign = def.op[0] === ">" ? 1 : -1;
-    const pass = new Float64Array(n), margin = new Float64Array(n);
-    for (let i = 0; i < n; i++) {
-      const v = t.values[i];
-      pass[i] = v === v ? (test(v, def.value) ? 1 : 0) : NaN;
-      margin[i] = v === v ? sign * (v - def.value) : NaN;
-    }
-    const label = gateLabel(t, def);
-    const need = `${word} ${needText(t, def.value)}`;
-    gates.push({ id: def.id, label, need, unit: t.unit, needAt: def.value, pass, value: t.values, margin, set: true, def, target: t });
-    targets.push({ id: `gate:${def.id}`, label, unit: "share of rows passing", kind: "binary", better: 1, values: pass,
-      gate: def.id, gateSet: true, source: "set", definition: `${t.label} ${need}`, rev: JSON.stringify(def) });
+    if (!t) continue;
+    const g = needGate(t, def, n, "profile");
+    standing.push(g.gate);
+    targets.push(g.target);
+  }
+  const runner = schema.gates.length > 0 || standing.length > 0;
+  const taken = new Set(standing.map(g => g.id));
+  for (const def of defs) {
+    const why = gateProblem(def, schema.targetById) || (taken.has(def.id) ? `${asSet(def.id)} names a gate this run has` : null);
+    if (why) { gateProblems.push({ def, why }); continue; }
+    const g = needGate(schema.targetById.get(def.target), def, n, "set");
+    gates.push(g.gate);
+    targets.push(g.target);
   }
   if (gates.length) {
     const all = new Float64Array(n), count = new Float64Array(n);
@@ -101,8 +120,8 @@ export function applyGates(schema, defs) {
       definition: `how many of these a row passes: ${list}`, rev });
   }
   const allTargets = [...schema.targets, ...targets];
-  return { ...schema, gates: [...schema.gates, ...gates], targets: allTargets, targetById: new Map(allTargets.map(t => [t.id, t])),
-    gatesSet: gates, gateProblems };
+  return { ...schema, gates: [...schema.gates, ...standing, ...gates], targets: allTargets, targetById: new Map(allTargets.map(t => [t.id, t])),
+    gatesSet: gates, gatesStanding: standing, gateProblems };
 }
 
 // The next free id for a gate set here.

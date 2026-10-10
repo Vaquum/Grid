@@ -190,6 +190,39 @@ export const LIMEN_ROUND = [
     definition: "the share of the test bars whose probability passed the threshold or came within 0.05 of it" },
 ];
 
+// What a round's test window did, from its recorded execution: each bar's
+// position, gross and net return (uel.record_execution, Limen 5.16) and
+// the market's return (Limen 5.20), which the server sums up for the whole
+// window and for each half of it, each read as a window of its own
+// (limen.execution_summary), joined to the round's row from the round log.
+// `needles` are its own, `key` the figure in a window's summary (entries
+// only where results.csv does not give them); `halves` are the needles
+// each half has too, by the figure that is theirs; `gates`, the needs a
+// score resting on trades should meet: 30 trades, and a mean trade two of
+// its standard errors from 0 (fewer, or nearer, and the score is mostly
+// luck).
+export const LIMEN_EXECUTION = {
+  needles: [
+    { id: "entries", key: "trades", label: "Entries", unit: "", better: 0, digits: 0, group: "activity",
+      definition: "the round's trades on the test window, each a run of bars in the market that starts with an entry" },
+    { id: "trade_mean", key: "tradeMean", label: "Mean trade", unit: BPS, better: 1, digits: 2,
+      definition: "the mean net return of the round's trades, each compounded over its bars" },
+    { id: "trade_t", key: "tradeT", label: "Per-trade t", unit: "", better: 1, digits: 2, group: "activity",
+      definition: "the mean trade over its standard error: how many of its own noise's widths the trades' mean lies from 0; it needs two trades" },
+    { id: "timing", key: "timing", label: "Timing per bar", unit: BPS, better: 1, digits: 2, group: "skill",
+      definition: "the mean gross return per bar beyond the mean deployed notional times the market's mean return, over the bars with a market return: what choosing the bars earned beyond being in the market" },
+  ],
+  halves: {
+    backtest_pnl_per_bar_bps: "pnl", backtest_cost_per_bar_bps: "cost", backtest_wins_per_bar: "wins",
+    backtest_inventory_per_bar: "inventory", backtest_trades_per_bar: s => s.trades / s.bars,
+    entries: "trades", trade_mean: "tradeMean", trade_t: "tradeT", timing: "timing",
+  },
+  gates: [
+    { id: "entries", target: "entries", op: ">=", value: 30 },
+    { id: "trade_t", target: "trade_t", op: ">=", value: 2 },
+  ],
+};
+
 // What Limen's metrics give once combined. Entries: Limen writes entries
 // per bar (to five decimals), and its confusion counts cover the same test
 // bars, so their product is the count; on two real runs (1,560 rounds) it
@@ -210,7 +243,8 @@ export const LIMEN_DERIVED = [
 // needle is that metric on the test window. A run read from several result directories of
 // the manifest (shards) has each row's directory as a parameter too, so
 // the checks on how parameters were drawn say whether the shards drew
-// alike, and each round replays from its own directory.
+// alike, and each round replays from its own directory. A run that
+// recorded its execution has the needles and gates of LIMEN_EXECUTION.
 export function limenProfile(experiment) {
   const m = experiment.manifest || {};
   const sfd = m.sfd || {};
@@ -235,7 +269,7 @@ export function limenProfile(experiment) {
     diagnostic: ["execution_time", "optimal_threshold", "best_iteration", "_generation_index", "_injected"],
     text: ["id", "_id", "_warnings", "_search_strategy", "strict_mode_error", "_dropped_features"],
     metrics,
-    derived: LIMEN_DERIVED, roundTargets: LIMEN_ROUND, gates: [], gatesPrefix: null, invariants: [],
+    derived: LIMEN_DERIVED, roundTargets: LIMEN_ROUND, execution: LIMEN_EXECUTION, gates: [], gatesPrefix: null, invariants: [],
     defaultTarget: declared ? declared.metric : "backtest_pnl_per_bar_bps",
     objective: declared ? [[valId, way]] : [["backtest_pnl_per_bar_bps", -1]],
     objectiveLabel: declared ? metrics[valId].label.toLowerCase() : "net PnL per bar",

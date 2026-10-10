@@ -2,15 +2,20 @@
 // its full record and its replay. The strip sets the best row against what
 // noise alone and the rows like it give; toggles over the table add columns:
 // the parameters that move the needle and the rest, the rows like each
-// row, and the activity, risk, model skill and run time behind each score
-// where the sweep records them.
+// row, each row's halves, and the activity, risk, model skill and run time
+// behind each score where the sweep records them. Where the ranking needle
+// is measured on each half of the test window (a Limen run that recorded
+// its execution), every row's rank on the first half is set against its
+// second: the luck line measured, not modelled.
 
-import { h, tip, keyTip, icon, fmtT, fmtInt, fmtP, fmtRowValue, inText, rangeText, runName } from "./ui.js";
+import { h, tip, keyTip, icon, fmtT, fmtInt, fmtP, fmtPct, fmtDelta, fmtRowValue, inText, rangeText, runName } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { summarize, MIN_N } from "./engine.js";
 import { expectedMaxZ } from "./stats.js";
 import { bestRows, objectiveKeys, BEST_LIMIT } from "./model.js";
 import { strengthText } from "./view-board.js";
+import { halfTargets, firstHalfRanks, keptLead, persistence, HALF_NAMES } from "./halves.js";
+import { lineChart } from "./charts.js";
 
 // The column sets, in the order of their toggles: a row's parameters, the
 // checks on its score, and what it cost.
@@ -18,6 +23,7 @@ const PRESETS = [
   { id: "movers", icon: "needle", name: "Movers", part: 0 },
   { id: "rest", icon: "sliders", name: "Other parameters", part: 0 },
   { id: "like", icon: "like", name: "Rows like it", part: 1 },
+  { id: "halves", icon: "halves", name: "Halves", part: 1 },
   { id: "activity", icon: "activity", name: "Activity", part: 1 },
   { id: "risk", icon: "risk", name: "Risk", part: 1 },
   { id: "skill", icon: "skill", name: "Model skill", part: 1 },
@@ -35,6 +41,48 @@ export function renderTrials(view, m, A) {
   const base = baseColumns(m, keys);
   view.append(trialsStrip(m, A, ranked, keys, base, cols, shown));
   view.append(bestIsland(m, A, ranked, keys, base, cols, shown));
+  const { t: lt, better } = keys[keys.length - 1];
+  if (lt.halves) view.append(leadIsland(m, lt, better));
+}
+
+// ---------------------------------------------------------------------------
+// The halves: every row's rank on the first half of the test window
+// against its second half, the luck line measured.
+
+function leadOf(m, lt, better) {
+  const c = m.cache;
+  if (!c.lead || c.leadKey !== c.key || c.lead.t !== lt) c.lead = { t: lt, r: keptLead(lt, m.rows, better), p: persistence(lt, m.rows, better) };
+  c.leadKey = c.key;
+  return c.lead;
+}
+
+function keptText(k) {
+  return Number.isFinite(k) ? fmtPct(k, 0) : "–";
+}
+
+function leadIsland(m, lt, better) {
+  const { r, p } = leadOf(m, lt, better);
+  const isl = h("section", { class: "island", "aria-labelledby": "tr-halves" },
+    h("header", { class: "isl-head" }, h("h2", { class: "isl-title", id: "tr-halves", text: "The first half against the second" }),
+      h("span", { class: "isl-count num", text: r ? `${fmtInt(r.n)} rows with both halves` : "too few rows" })));
+  if (!p) {
+    isl.append(h("p", { class: "isl-note", text: `Under ${fmtInt(10 * MIN_N)} rows have ${inText(lt.label)} on both halves of the test window: the tenths would hold too few rows to read.` }));
+    return isl;
+  }
+  const pts = p.points;
+  isl.append(lineChart([
+    { label: "second half, by tenth on the first", color: "var(--data)", points: pts.map(x => [x.bin, x.mean]) },
+    { label: "95% interval", group: "ci", color: "var(--muted)", points: pts.map(x => [x.bin, x.lo]), width: 1, endDot: false },
+    { label: "95% interval", group: "ci", color: "var(--muted)", points: pts.map(x => [x.bin, x.hi]), width: 1, endDot: false },
+    { label: "every row's second half", color: "var(--ink-2)", points: [[1, p.all.mean], [pts.length, p.all.mean]], dash: "5 4", endDot: false },
+  ], { kind: "halves", height: 192, target: lt, label: "the second half by the tenth on the first",
+    fmtX: v => `tenth ${fmtInt(v)} on the first half${v === 1 ? ", the best" : ""}` }));
+  const lead = r && Number.isFinite(r.kept) ? r : null;
+  isl.append(h("p", { class: "isl-note" },
+    h("b", { text: lead ? `${keptText(lead.kept)} of the lead kept` : "No lead to keep" }),
+    lead ? `: the best tenth on the first half (${fmtInt(lead.k)} rows) led every row by ${fmtDelta(lt, lead.lead)} there, and by ${fmtDelta(lt, lead.top2.mean - lead.all2.mean)} on the second half (95% ${rangeText(lt, lead.top2.lo - lead.all2.mean, lead.top2.hi - lead.all2.mean)}). ` : ". ",
+    `The rows are ranked by ${inText(lt.label)} on the first half of the test window and cut into tenths, the best first; the line is each tenth's mean on the second half, a stretch of the market none of them was ranked on. A line that falls from left to right says the first half's order holds; a flat one, at every row's mean (dashed), says it was luck.`));
+  return isl;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,6 +126,15 @@ function trialsStrip(m, A, ranked, keys, base, cols, shown) {
     () => h("div", null, h("b", { text: "What noise alone would reach" }),
       h("div", { text: `The best ${inText(lt.label)} of ${luck ? fmtInt(luck.n) : "these"} rows if every configuration were equally good and all their spread were noise: the mean plus the spread times the expected largest of as many normal draws.` }),
       h("div", { class: "k", text: "A needle with heavy tails (most rows at 0, a few far out) reaches past this line more often than normal noise does." }))));
+  if (lt.halves) {
+    const { r } = leadOf(m, lt, better);
+    const ok = r && Number.isFinite(r.kept);
+    cells.push(stripCell("Lead kept", ok ? keptText(r.kept) : "–", ok ? `of the best tenth's on the first half` : "too few rows",
+      () => h("div", null, h("b", { text: "The luck line, measured" }),
+        h("div", { text: `The best tenth of the rows on the first half of the test window led every row there; the share of that lead they keep on the second half, which none of them was ranked on. 100%: the order holds; 0%: it was luck.` }),
+        ok ? h("div", { class: "k", text: `${fmtInt(r.k)} rows: ${fmtDelta(lt, r.lead)} on the first half, ${fmtDelta(lt, r.top2.mean - r.all2.mean)} on the second.` }) : null),
+      ok ? () => { const el = document.getElementById("tr-halves"); if (el) el.scrollIntoView({ block: "start" }); } : null));
+  }
   cells.push(stripCell("Clear of luck", luck ? fmtInt(luck.clear) : "–", luck ? (luck.clear ? `of ${fmtInt(luck.n)} rows` : "the best is inside it") : null,
     () => h("div", null, h("b", { text: "Rows above the luck line" }),
       h("div", { class: "k", text: `Rows whose ${inText(lt.label)} beats what noise alone would reach in as many rows: hard to get by luck, though not proof. Their activity and the rows like them say more.` }))));
@@ -98,7 +155,8 @@ function trialsAbout(m) {
   return about("The best rows",
     `Ranked by ${m.schema.objectiveLabel}, as the runner ranks them, over the rows in view. Rows that tie share a rank (4=) and keep the order they arrived in; a tie too large for the list of ${BEST_LIMIT} is told in one line instead, since inside it the order means nothing.`,
     "The best of many noisy rows is also the luckiest. The strip sets the best row against the luck line, what noise alone would reach in as many rows, and against the rows like it: the other rows that share its values where the needle moves, which is what those values earn without its luck.",
-    "The toggles above the table add columns: the parameters that move the needle and the other parameters; the rows like each row; and, where the sweep records them, the activity, risk and model skill behind each score and the time it took. Choose a row to open its full record and its replay.");
+    "The toggles above the table add columns: the parameters that move the needle and the other parameters; the rows like each row; each row's halves, where the needle is measured on each half of the test window; and, where the sweep records them, the activity, risk and model skill behind each score and the time it took. Choose a row to open its full record and its replay.",
+    "On a Limen run that recorded its execution, each round's test window has two halves, stretches of the market that do not overlap. Every row's rank on the first half is set against its second half: Lead kept is the share of the best tenth's first-half lead that the second half keeps, the luck line measured rather than modelled, and the chart under the table gives each tenth's second half.");
 }
 
 // No objective: nothing to rank by.
@@ -159,7 +217,7 @@ function baseColumns(m, keys) {
         return pills;
       },
       cellTip: x => h("div", null, sc.gates.map(g => h("div", null, h("b", { text: g.pass[x.i] === 1 ? "pass " : g.pass[x.i] === 0 ? "fail " : "no value " }),
-        g.set ? h("span", { text: g.label }) : [h("span", { class: "mono", text: g.id }), h("span", { class: "k", text: `  ${g.need}` })]))) });
+        g.target ? h("span", { text: g.label }) : [h("span", { class: "mono", text: g.id }), h("span", { class: "k", text: `  ${g.need}` })]))) });
   }
   for (const { t } of keys) cols.push(targetCol(t));
   if (!keys.some(k => k.t === m.target)) cols.push(targetCol(m.target));
@@ -185,11 +243,35 @@ function columnSets(m, ranked) {
         head: () => h("div", null, h("b", { text: "Rows like it" }), h("div", { class: "k", text: `At least ${MIN_N}: matched on the strongest movers that leave as many.` })),
         text: x => fmtInt(x.like.n), cell: x => fmtInt(x.like.n), cellTip: x => likeTip(m, ranked, x) },
     ] : [],
+    halves: halfColumns(m),
     activity: recorded(sc.targets.filter(x => x.group === "activity")),
     risk: recorded(sc.targets.filter(x => x.group === "risk")),
     skill: recorded(sc.targets.filter(x => x.group === "skill")),
     time: recorded(sc.targets.filter(x => x.cost)),
   };
+}
+
+// The halves of the ranking needle: each row's rank on the first half
+// among the rows in view, and its value on each half. null when the
+// needle has none.
+function halfColumns(m) {
+  const keys = objectiveKeys(m);
+  const { t: lt, better } = keys[keys.length - 1];
+  const halves = halfTargets(lt);
+  if (!halves) return null;
+  const c = m.cache;
+  if (!c.halfRank || c.halfRankKey !== c.key || c.halfRank.t !== lt) c.halfRank = { t: lt, rank: firstHalfRanks(lt, m.rows, better, m.ds.n) };
+  c.halfRankKey = c.key;
+  const rank = c.halfRank.rank;
+  const rankText = x => (Number.isFinite(rank[x.i]) ? fmtInt(rank[x.i]) : "–");
+  const n = rank.reduce((a, v) => a + (v === v ? 1 : 0), 0);
+  return [
+    { key: "half-rank", label: "Rank, first half", note: "Rank on the first half", unit: "", num: true, needle: lt,
+      head: () => h("div", null, h("b", { text: "The row's rank on the first half" }), h("div", { class: "k", text: `By ${inText(lt.label)} on the first half of the test window, among the ${fmtInt(n)} rows in view with it; rows that tie share a rank.` })),
+      text: rankText, cell: rankText },
+    ...halves.map((ht, k) => ({ ...targetCol(ht), label: k ? "Second half" : "First half", note: ht.label,
+      head: () => h("div", null, h("b", { text: ht.label }), h("div", { class: "k", text: `${lt.label} on the ${HALF_NAMES[k]} of the round's test window, read as a window of its own.` })) })),
+  ];
 }
 
 // What a column set's toggle says: its name, and what it adds here.
@@ -200,7 +282,8 @@ function presetWhat(id, m, cols) {
     case "movers": return cols.length ? `Each row's values of the ${cols.length} parameters that move ${t}, strongest first.` : `Nothing moves ${t} detectably yet.`;
     case "rest": return cols.length ? `Each row's values of the ${cols.length} parameters with no detectable effect on ${t}: the rest of its configuration.` : `Every parameter moves ${t}.`;
     case "like": return cols.length ? `${m.target.label} over the other rows that share a row's values where the needle moves: what those values earn without the row's own luck.` : `Nothing moves ${t} yet, so every row is like every other.`;
-    case "activity": return `How much trading a row's score rests on: ${names}. A score from a handful of trades is mostly luck.`;
+    case "halves": return `Each row's rank on the first half of the test window, and ${inText(cols[0].needle.label)} on each half: a row that led the first half by luck falls back on the second.`;
+    case "activity": return `How much trading a row's score rests on: ${names}. A score from a handful of trades, or from trades whose mean is within two of its standard errors of 0, is mostly luck.`;
     case "risk": return `The downside that came with a row's score: ${names}.`;
     case "skill": return `Whether the model behind a row's score predicts anything: ${names}.`;
     case "time": return `The compute each row took: ${names}.`;
@@ -317,5 +400,7 @@ function trialsNotes(m, ranked, base, cols, shown, luck, lt) {
   for (const x of ranked.list) lines.push(`| ${all.map(c => c.text(x)).join(" | ")} |`);
   if (ranked.cut) lines.push("", `From rank ${ranked.cut.rank}, ${fmtInt(ranked.cut.n)} rows tie; they are not listed.`);
   if (luck) lines.push("", `Luck line: ${fmtT(lt, luck.line)}, the best of ${fmtInt(luck.n)} rows by noise alone; ${fmtInt(luck.clear)} ${luck.clear === 1 ? "row clears" : "rows clear"} it.`);
+  const lead = lt.halves ? leadOf(m, lt, objectiveKeys(m).slice(-1)[0].better).r : null;
+  if (lead && Number.isFinite(lead.kept)) lines.push(`Lead kept: the best tenth on the first half (${fmtInt(lead.k)} rows) led by ${fmtDelta(lt, lead.lead)} there and by ${fmtDelta(lt, lead.top2.mean - lead.all2.mean)} on the second half, ${keptText(lead.kept)} of it.`);
   return lines.join("\n");
 }

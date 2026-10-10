@@ -2,7 +2,9 @@
 //
 // A Limen run reads it from its manifest and its round log: the drawn
 // combinations of feature groups, what adding one group did, and what each
-// column its ablation dropped did (engine of ablation.js). A sweep that
+// column its ablation dropped did (engine of ablation.js). Where the
+// needle is measured on each half of the test window, a group's or a
+// column's effect counts only when it shows in both, of one sign. A sweep that
 // draws a random subset of a pool for every row (plate sweeps' feats)
 // shows each member's inclusion effect, compared inside each subset size.
 
@@ -12,6 +14,7 @@ import { memberEffects, dimEffect } from "./engine.js";
 import { memberDims } from "./model.js";
 import { lineChart, intervalBar } from "./charts.js";
 import { limenDesign, groupContrasts, ablationMembers, ablationFactors, ablationModel, MIN_DROPS } from "./ablation.js";
+import { halfTargets, twiceDiff, showsIn, SHOWS_TEXT, HALF_NAMES } from "./halves.js";
 
 export function renderFeatures(view, m, A) {
   view.append(h("h1", { class: "sr", text: "Features" }));
@@ -43,7 +46,16 @@ function limenFeatures(m) {
   const groupsDim = m.schema.dimById.get("feature_groups");
   if (!design.ablation && !(design.groups.length && groupsDim)) return null;
   const out = { design, groups: null, columns: null };
-  if (design.groups.length && groupsDim) out.groups = groupContrasts(design, groupsDim, m.target, m.rows);
+  const halves = halfTargets(m.target);
+  out.halves = !!halves;
+  if (design.groups.length && groupsDim) {
+    out.groups = groupContrasts(design, groupsDim, m.target, m.rows);
+    // the pairs come in the same order whatever the needle
+    if (halves) {
+      const hs = halves.map(ht => groupContrasts(design, groupsDim, ht, m.rows).contrasts);
+      out.groups.contrasts.forEach((c, k) => twiceDiff(c, hs.map(x => x[k] || null), x => x.delta));
+    }
+  }
   if (design.ablation) {
     // the dropped columns: in results.csv (Limen 5.17.4 on) or the round log
     const recorded = m.ds.col("_dropped_features");
@@ -53,6 +65,11 @@ function limenFeatures(m) {
       const movers = m.order.filter(e => e.detectable).map(e => m.schema.dimById.get(e.dim));
       const factors = ablationFactors(m.schema, design, movers);
       const fit = ablationModel(m.target, m.rows, factors, am.members, am.perRow);
+      if (halves) {
+        // each half's terms by their columns (a half can leave rows out)
+        const hs = halves.map(ht => new Map(ablationModel(ht, m.rows, factors, am.members, am.perRow).terms.map(x => [termName(x), x])));
+        for (const x of fit.terms) twiceDiff(x, hs.map(mp => mp.get(termName(x)) || null), y => y.keep);
+      }
       let recorded = 0, dropped = 0;
       for (let r = 0; r < m.rows.length; r++) { const l = am.perRow[m.rows[r]]; if (l) { recorded++; if (l.length) dropped++; } }
       out.columns = { members: am.members, fit, factors, recorded, dropped };
@@ -81,6 +98,8 @@ function memberSets(m) {
 const betterSign = (t) => (t.better < 0 ? -1 : 1);
 const termName = (x) => x.members.map(mm => mm.name).join(" + ");
 const verdictOf = (t, delta, detectable) => (!detectable ? "quiet" : delta * betterSign(t) > 0 ? "helps" : "hurts");
+// a difference's verdict, and where it shows when not in both halves
+const verdictFor = (t, x, delta) => { const w = showsIn(x); return w && w !== "twice" ? w : verdictOf(t, delta, x.detectable); };
 
 function rowsCell(m) {
   return stripCell("Rows", fmtInt(m.rows.length), m.rows.length < m.ds.n ? `of ${fmtInt(m.ds.n)}` : null,
@@ -136,6 +155,7 @@ function featuresAbout(m, lf, sets) {
     paras.push("On a Limen run the features come from its manifest and its round log. The manifest puts each feature function in a group; each row (a Limen round) switches groups on (feature_groups), and its ablation then drops a few of the row's columns (feature_drop_count of them, chosen with feature_drop_seed), which the round log names.");
     if (lf.groups) paras.push(`Feature groups: each drawn combination with its ${t}; where two differ by one group, their difference is what adding that group did, corrected across the pairs.`);
     if (lf.design.ablation) paras.push(`Columns: with few seeds, columns dropped together come in fixed sets, so one model over every row gives each column the share its varied company allows: ${t} as the row's feature groups, the parameters its features take and the ones that move the needle, plus a term for each column it dropped. Keeping a column is minus its term; columns never dropped apart are one term.`);
+    if (lf.halves) paras.push(`Halves: ${t} is measured on each half of every round's test window too, two stretches of the market that do not overlap. Each group's and column's difference is worked out on each half the same way, and it helps or hurts only when it is detectable over the whole window and in each half, of one sign in all three; one that shows otherwise is named for where it shows.`);
   }
   if (sets.length) paras.push(`Subsets: each row includes a random subset of a pool. For each member, the difference in ${t} between rows that included it and rows that left it out, compared inside each subset size and averaged (larger subsets include every member more often, so the size's own effect would leak into every member otherwise).`);
   if (!lf && !sets.length) paras.push("A sweep's features show here when its rows hold a subset of a pool, or when it is a Limen run whose manifest names feature groups or an ablation.");
@@ -145,7 +165,16 @@ function featuresAbout(m, lf, sets) {
 // ---------------------------------------------------------------------------
 // Feature groups.
 
-const verdictTag = (v) => h("span", { class: `ft-v ${v}`, text: v === "helps" ? "helps" : v === "hurts" ? "hurts" : "no detectable effect" });
+const verdictTag = (v) => (Object.hasOwn(SHOWS_TEXT, v)
+  ? h("span", { class: "ft-v quiet", text: SHOWS_TEXT[v] })
+  : h("span", { class: `ft-v ${v}`, text: v === "helps" ? "helps" : v === "hurts" ? "hurts" : "no detectable effect" }));
+
+// A difference on each half, as cells: its value there, or – where the half
+// has none.
+function halfCells(t, x, value) {
+  return [0, 1].map(k => { const y = x.halves ? x.halves[k] : null; return h("td", { class: "r num", text: y && Number.isFinite(value(y)) ? fmtDelta(t, value(y)) : "–" }); });
+}
+const halfHeads = () => HALF_NAMES.map(name => h("th", { class: "r", text: name.replace(" half", "") }));
 
 function groupsIsland(m, lf) {
   const t = m.target, g = lf.groups, d = lf.design;
@@ -180,12 +209,13 @@ function groupsIsland(m, lf) {
     for (const c of g.contrasts) m0 = Math.max(m0, Math.abs(c.lo), Math.abs(c.hi));
     const dom = [-m0 * 1.06 || -1e-6, m0 * 1.06 || 1e-6];
     const tbl = h("table", { class: "vals ft-table" }, h("thead", null, h("tr", null,
-      h("th", { text: "Adding" }), h("th", { class: "r", text: "Difference" }), h("th", { class: "iv", text: "95% interval (line: no difference)" }), h("th", { class: "r", text: "Corrected" }), h("th", { text: "" }))));
+      h("th", { text: "Adding" }), h("th", { class: "r", text: "Difference" }), h("th", { class: "iv", text: "95% interval (line: no difference)" }), h("th", { class: "r", text: "Corrected" }),
+      lf.halves ? halfHeads() : null, h("th", { text: "" }))));
     const b = h("tbody");
     for (const c of g.contrasts) {
       b.append(h("tr", null, h("td", null, h("b", { text: c.added }), h("span", { class: "muted", text: ` to ${c.from.label}` })),
         h("td", { class: "r num", text: fmtDelta(t, c.delta) }), h("td", { class: "iv" }, intervalBar(c.delta, c.lo, c.hi, 0, dom)),
-        h("td", { class: "r num", text: fmtP(c.q) }), h("td", null, verdictTag(verdictOf(t, c.delta, c.detectable)))));
+        h("td", { class: "r num", text: fmtP(c.q) }), lf.halves ? halfCells(t, c, x => x.delta) : null, h("td", null, verdictTag(verdictFor(t, c, c.delta)))));
     }
     tbl.append(b);
     part.append(h("div", { class: "table-wrap" }, tbl));
@@ -220,17 +250,18 @@ function columnsIsland(m, A, lf) {
     : (!a.reason - !b.reason) * -1 || ((b.keep - a.keep) * betterSign(t)) || termName(a).localeCompare(termName(b))));
   const tbl = h("table", { class: "vals ft-table" }, h("thead", null, h("tr", null,
     h("th", { text: "Column" }), h("th", { class: "r", text: "Rows dropping it" }), h("th", { class: "r", text: "Keeping it" }),
-    h("th", { class: "iv", text: "95% interval (line: no difference)" }), h("th", { class: "r", text: "Corrected" }), h("th", { text: "" }))));
+    h("th", { class: "iv", text: "95% interval (line: no difference)" }), h("th", { class: "r", text: "Corrected" }), lf.halves ? halfHeads() : null, h("th", { text: "" }))));
   const tb = h("tbody");
   for (const x of order) {
     const name = termName(x);
     const tr = h("tr", null, h("td", { class: "v", text: name }), h("td", { class: "r num", text: fmtInt(x.drops) }));
     if (x.reason) {
       tr.append(h("td", { class: "r num muted", text: "–" }), h("td", { class: "iv" }), h("td", { class: "r num muted", text: "–" }),
+        lf.halves ? [h("td", { class: "r num muted", text: "–" }), h("td", { class: "r num muted", text: "–" })] : null,
         h("td", null, h("span", { class: "ft-v quiet", text: x.reason === "few" ? `fewer than ${MIN_DROPS} drops` : "cannot be told apart" })));
     } else {
       tr.append(h("td", { class: "r num", text: fmtDelta(t, x.keep) }), h("td", { class: "iv" }, intervalBar(x.keep, x.lo, x.hi, 0, dom)),
-        h("td", { class: "r num", text: fmtP(x.q) }), h("td", null, verdictTag(verdictOf(t, x.keep, x.detectable))));
+        h("td", { class: "r num", text: fmtP(x.q) }), lf.halves ? halfCells(t, x, y => y.keep) : null, h("td", null, verdictTag(verdictFor(t, x, x.keep))));
       tip(tr.children[3], () => h("div", null, h("b", { text: `Keeping ${name}` }),
         h("div", { text: `${fmtDelta(t, x.keep)}, 95% ${deltaRange(t, x.lo, x.hi)}` }),
         h("div", { class: "k", text: `dropped in ${fmtInt(x.drops)} rows${x.members.length > 1 ? "; these columns were always dropped together, so they are one term" : ""}` })));

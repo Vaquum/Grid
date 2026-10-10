@@ -487,6 +487,7 @@ const ICONS = {
   needle: "M4 17a8 8 0 0 1 16 0M12 17l4-5M3 20h18",
   sliders: "M4 7h16M4 12h16M4 17h16M9 5v4M15 10v4M7 15v4",
   like: "M5 10c2.3-2 4.7-2 7 0s4.7 2 7 0M5 15c2.3-2 4.7-2 7 0s4.7 2 7 0",
+  halves: "M4 6h16v12H4zM12 6v12",
   activity: "M5 20v-6M10 20V9M15 20v-9M20 20V5",
   risk: "M3 7l6 6 4-4 8 8M21 11v6h-6",
   skill: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 12h.01",

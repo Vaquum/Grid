@@ -202,11 +202,14 @@ export class Dataset {
     this.arrivals = new Float64Array(0);
     // a Limen run's rounds as its round log records them: round index (in
     // its directory, for a run read from several: roundKey) -> the feature
-    // columns its ablation dropped; and, for a run recorded with
+    // columns its ablation dropped; for a run recorded with
     // uel.record_model_outputs, -> what its test probabilities say of its
-    // threshold ({ fired, reach, margin })
+    // threshold ({ fired, reach, margin }); and for one recorded with
+    // uel.record_execution, -> what its test window did ({ whole, halves },
+    // grid/limen.py execution_summary)
     this.rounds = new Map();
     this.outputs = new Map();
+    this.execution = new Map();
     this.version = 0;
   }
 
@@ -215,11 +218,12 @@ export class Dataset {
   // Rounds from the round log, in the order they were written; a reset
   // starts the map over (the log was truncated or replaced).
   addRounds(entries, reset = false) {
-    if (reset) { this.rounds = new Map(); this.outputs = new Map(); }
-    for (const [index, dropped, shard, outputs] of entries) {
+    if (reset) { this.rounds = new Map(); this.outputs = new Map(); this.execution = new Map(); }
+    for (const [index, dropped, shard, outputs, execution] of entries) {
       const key = roundKey(index, shard);
       this.rounds.set(key, dropped);
       if (outputs) this.outputs.set(key, outputs);
+      if (execution) this.execution.set(key, execution);
     }
     this.version++;
   }

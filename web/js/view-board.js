@@ -6,6 +6,7 @@ import { h, tip, keyTip, fmtT, fmtP, fmtInt, fmtNum, fmtPct, fmtOmega2, rafThrot
 import { strip, stripCell, about } from "./strip.js";
 import { effectPlot, plotDomain, fitPlots } from "./main-effects.js";
 import { ensureModerators, independence, memberBoard, memberDims, setName, TOGETHER, together, togetherWhy } from "./model.js";
+import { showsIn, SHOWS_TEXT, HALF_NAMES } from "./halves.js";
 
 export function strengthText(e) {
   return fmtOmega2(e.omega2);
@@ -40,6 +41,23 @@ export function actsPhrase(m, acts) {
 const sentence = t => t.charAt(0).toUpperCase() + t.slice(1);
 const observed = new WeakSet();
 
+// What a parameter that does not move the needle is, said one way on its
+// card and in the inspector: no detectable effect, or, on a needle with
+// halves, an effect that shows somewhere but not in both halves.
+export function quietText(e) {
+  const w = showsIn(e);
+  return w && w !== "twice" ? `Not in both halves: ${SHOWS_TEXT[w]}` : "No detectable effect";
+}
+
+// A parameter's effect on each half, in words: its q there, and whether
+// the two order its values alike.
+export function halvesText(e) {
+  const [a, b] = e.halves;
+  const q = (x, k) => `${HALF_NAMES[k]} ${x ? fmtP(x.q) : "untested"}`;
+  const agree = Number.isFinite(e.agree) ? `; their values ${e.agree > 0 ? "ordered alike" : "ordered unlike"} (r ${fmtNum(e.agree, 2)})` : "";
+  return `${q(a, 0)}, ${q(b, 1)}${agree}`;
+}
+
 // While rows arrive the cards keep their places: the order and the
 // sections hold while the question stands (the run, the needle, the
 // context, the replay edge), and the reader re-sorts when they choose; a
@@ -67,7 +85,8 @@ export function renderBoard(view, m, A) {
   const mods = ensureModerators(m, A.rerender);
   const dependent = dependentOn(m);
   const sets = setGroups(m);
-  const domain = plotDomain([...board.effects.map(e => e.levels), ...sets.map(g => g.members.map(x => x.level))], base.mean, target);
+  const halfLevels = board.effects.flatMap(e => (e.halves || []).filter(Boolean).map(x => x.levels));
+  const domain = plotDomain([...board.effects.map(e => e.levels), ...halfLevels, ...sets.map(g => g.members.map(x => x.level))], base.mean, target);
   const strongest = Math.max(1e-9, ...board.effects.filter(e => e.detectable).map(e => e.omega2),
     ...sets.flatMap(g => g.members.filter(x => x.e.detectable).map(x => x.e.omega2)));
   const ctx = { mods, dependent, domain, strongest };
@@ -80,7 +99,7 @@ export function renderBoard(view, m, A) {
   for (const e of m.order) {
     const d = schema.dimById.get(e.dim), id = `dim:${e.dim}`;
     cards.set(id, () => card(m, A, d, e, ctx));
-    names.set(id, { name: d.label, open: () => A.select({ kind: "dim", id: d.id }), why: `${e.detectable ? "Moves the needle now" : "No detectable effect"} (${fmtP(e.q)}). Open it in the inspector.` });
+    names.set(id, { name: d.label, open: () => A.select({ kind: "dim", id: d.id }), why: `${e.detectable ? "Moves the needle now" : quietText(e)} (${fmtP(e.q)}). Open it in the inspector.` });
     live[e.detectable ? "on" : "off"].push(id);
   }
   for (const g of sets) {
@@ -96,9 +115,12 @@ export function renderBoard(view, m, A) {
   const resort = places.moved ? h("button", { class: "btn small sec-tool", type: "button", dataset: { key: "r" },
     onclick: () => { held = { key, on: live.on, off: live.off }; A.rerender(); } }, `Re-sort · ${fmtInt(places.moved)} would move`) : null;
   if (resort) tip(resort, keyTip("Re-sort", "R", "The cards keep their places while rows arrive, so nothing moves under you. Re-sort to put them in order again."));
+  const halves = !!board.halves;
   if (places.on.length) {
-    view.append(section("Moves the needle", places.on.length, "strongest first", places.on.map(id => cards.get(id)()), resort));
+    view.append(section("Moves the needle", places.on.length, halves ? "in both halves, strongest first" : "strongest first", places.on.map(id => cards.get(id)()), resort));
   }
+  // on a needle with halves, the rest have no effect that shows in both
+  const [offTitle, offNote] = halves ? ["Not in both halves", "within noise, or in one stretch of the market"] : ["No detectable effect", "their spread is within noise"];
   if (places.off.length) {
     // the cards with no detectable effect fold to their names
     const shown = m.state.show.flat !== false;
@@ -106,8 +128,8 @@ export function renderBoard(view, m, A) {
       onclick: () => A.set({ show: { ...m.state.show, flat: !shown } }, { replace: true }) }, shown ? "Fold to names" : "Show the cards"),
       keyTip(shown ? "Fold to names" : "Show the cards", "F", "The parameters with no detectable effect, as cards or as their names."));
     view.append(shown
-      ? section("No detectable effect", places.off.length, "their spread is within noise", places.off.map(id => cards.get(id)()), places.on.length ? null : resort, fold)
-      : section("No detectable effect", places.off.length, "their spread is within noise", null, places.on.length ? null : resort, fold,
+      ? section(offTitle, places.off.length, offNote, places.off.map(id => cards.get(id)()), places.on.length ? null : resort, fold)
+      : section(offTitle, places.off.length, offNote, null, places.on.length ? null : resort, fold,
         h("div", { class: "chips" }, places.off.map(id => {
           const x = names.get(id);
           return tip(h("button", { class: "chip mono", type: "button", onclick: x.open, text: x.name }), x.why);
@@ -154,7 +176,10 @@ function summaryStrip(m, A, mods, sets) {
     cell("Rows", fmtInt(m.rows.length), m.rows.length < m.ds.n ? `of ${fmtInt(m.ds.n)}` : null,
       () => h("div", null, h("b", { text: "Rows in view" }), h("div", { class: "k", text: m.context.length ? "Rows that hold every condition of the context." : m.edge < m.ds.n ? "Rows up to the replay edge." : "Every row of the run so far." }))),
     cell("Moves the needle", fmtInt(det.length + sets.filter(g => g.detectable).length), `of ${fmtInt(m.board.tests + sets.length)}`,
-      () => h("div", null, h("b", { text: "Parameters with a detectable effect" }), h("div", { class: "k", text: `After correcting for ${fmtInt(m.board.tests)} tests (Benjamini–Hochberg, q < 0.05). A set counts once, when any of its members moves the needle.` }))),
+      () => h("div", null, h("b", { text: m.board.halves ? "Parameters with an effect that shows in both halves" : "Parameters with a detectable effect" }),
+        m.board.halves ? h("div", { text: "Detectable over the whole test window and in each half of it, its values ordered alike in both: what one stretch of the market gave is not counted." }) : null,
+        h("div", { class: "k", text: `After correcting for ${fmtInt(m.board.tests)} tests${m.board.halves ? " on each" : ""} (Benjamini–Hochberg, q < 0.05). A set counts once, when any of its members moves the needle.` }))),
+    m.board.halves ? onceCell(m, A) : null,
     cell("Strongest", top ? name(top.dim) : "–", top ? `ω² ${strengthText(top)}` : "nothing detectable",
       () => h("div", null, h("b", { text: "The parameter that explains the most on its own" }), h("div", { class: "k", text: "ω²: the share of the needle's variance it explains, bias-corrected." })),
       top ? () => A.select({ kind: "dim", id: top.dim }) : null, top ? { valueClass: "mono" } : {}),
@@ -174,13 +199,26 @@ function summaryStrip(m, A, mods, sets) {
       text: () => boardSummary(m, mods), done: "Board copied." }, A);
 }
 
+// The parameters with an effect that does not show in both halves: how
+// many, and where the first of them shows.
+function onceCell(m, A) {
+  const once = m.order.filter(e => { const w = showsIn(e); return w && w !== "twice"; });
+  const first = once[0] || null;
+  return stripCell("Not in both halves", fmtInt(once.length), first ? `${m.schema.dimById.get(first.dim).label}: ${SHOWS_TEXT[showsIn(first)]}` : "every effect shows in both",
+    () => h("div", null, h("b", { text: "Effects of one stretch of the market" }),
+      h("div", { text: "Parameters detectable over the whole test window or in one half of it, whose effect does not show in both halves (or whose values the two order unlike). They do not count as moving the needle; their cards say where they show." })),
+    first ? () => A.select({ kind: "dim", id: first.dim }) : null);
+}
+
 // What the board is, behind the strip's (i).
 function boardAbout(m) {
   const t = m.target;
   return about(`What moves ${t.label}`,
     t.definition ? `${t.definition}.` : null,
     `Each card is a parameter. Its plot puts ${t.kind === "binary" ? `the share of its rows that are ${inText(t.label)}` : `the mean ${inText(t.label)} of its rows`} at each of its values, with a 95% interval, on one scale every card shares; the dashed line is the base, ${fmtT(t, m.base.mean)} over the rows in view.`,
-    `A parameter moves the needle when its effect is detectable after correcting for ${fmtInt(m.board.tests)} tests (Benjamini–Hochberg); the rest have no detectable effect. Choose a card to open it in the inspector.`);
+    m.board.halves
+      ? `${t.label} is measured on each half of every round's test window too, two stretches of the market that do not overlap: the 1 left of a value's mark is its mean on the first half, the 2 right of it its mean on the second. A parameter moves the needle when its effect is detectable over the whole window and in each half (Benjamini–Hochberg over the ${fmtInt(m.board.tests)} tests on each), its values ordered alike in both, so what one stretch of the market gave does not count. Choose a card to open it in the inspector.`
+      : `A parameter moves the needle when its effect is detectable after correcting for ${fmtInt(m.board.tests)} tests (Benjamini–Hochberg); the rest have no detectable effect. Choose a card to open it in the inspector.`);
 }
 
 // A section of cards (or, folded, `body` in their place) under its title,
@@ -203,7 +241,7 @@ function card(m, A, d, e, ctx) {
   const sel = m.state.sel;
   const selected = !!sel && ((sel.kind === "dim" && sel.id === d.id) || (sel.kind === "level" && sel.dim === d.id));
   const el = h("div", { class: "pcard" + (on ? "" : " off"), role: "listitem", tabindex: "0", "aria-pressed": selected ? "true" : "false",
-    "aria-label": `${d.label}: ${on ? `moves ${t.label}, ω² ${strengthText(e)}, ${fmtP(e.q)}` : "no detectable effect"}`,
+    "aria-label": `${d.label}: ${on ? `moves ${t.label}, ω² ${strengthText(e)}, ${fmtP(e.q)}` : quietText(e).toLowerCase()}`,
     dataset: { focus: "dim:" + d.id, dim: d.id } });
   // a second click on the open card closes the inspector
   const open = () => A.select(selected ? null : { kind: "dim", id: d.id });
@@ -219,6 +257,7 @@ function card(m, A, d, e, ctx) {
     best: e.best ? e.best.key : null, worst: e.worst ? e.worst.key : null, dead: e.dead,
     selected: sel && sel.kind === "level" && sel.dim === d.id ? sel.key : null,
     pick: key => A.select(sel && sel.kind === "level" && sel.dim === d.id && sel.key === key ? null : { kind: "level", dim: d.id, key }),
+    halves: e.halves ? e.halves.map(x => (x ? new Map(x.levels.map(l => [l.key, l])) : null)) : null,
   }));
   el.append(tags(m, d, e, ctx));
   return el;
@@ -240,9 +279,10 @@ function evidence(m, d, e, strongest) {
   const top = h("span", { class: "pc-w2 has-tip" }, h("span", { class: "meter", "aria-hidden": "true" }, h("i", { style: { width: `${(w * 100).toFixed(1)}%` } })),
     h("span", { class: "k", text: "ω²" }), h("b", { class: "num", text: strengthText(e) }));
   const bottom = h("span", { class: "pc-q num has-tip", text: fmtP(e.q) });
-  const explain = () => h("div", null, h("b", { text: on ? `Moves ${inText(m.target.label)}: ω² ${strengthText(e)}` : "No detectable effect" }),
+  const explain = () => h("div", null, h("b", { text: on ? `Moves ${inText(m.target.label)}: ω² ${strengthText(e)}` : quietText(e) }),
     h("div", { text: `ω² is the share of the needle's variance this parameter explains on its own${d.scope ? ", inside its scope" : ""}; the bar compares it with the strongest on the board.` }),
-    h("div", { class: "k", text: `${e.test === "G" ? `G-test, ${e.k - 1} df` : `F(${e.df1}, ${e.df2}) = ${fmtNum(e.F, 2)}`} · ${fmtP(e.p, "p")} · ${fmtP(e.q)} after correcting across the board` }));
+    h("div", { class: "k", text: `${e.test === "G" ? `G-test, ${e.k - 1} df` : `F(${e.df1}, ${e.df2}) = ${fmtNum(e.F, 2)}`} · ${fmtP(e.p, "p")} · ${fmtP(e.q)} after correcting across the board` }),
+    e.halves ? h("div", { class: "k", text: `On each half: ${halvesText(e)}` }) : null);
   tip(top, explain);
   tip(bottom, explain);
   return { top, bottom };
@@ -250,6 +290,12 @@ function evidence(m, d, e, strongest) {
 
 function tags(m, d, e, ctx) {
   const box = h("div", { class: "pc-foot" });
+  const where = showsIn(e);
+  if (where && where !== "twice") {
+    box.append(tag(sentence(SHOWS_TEXT[where]), "warn", () => h("div", null, h("b", { text: quietText(e) }),
+      h("div", { text: "Detectable over the whole test window or in one half of it, but not in both halves with its values ordered alike: the effect of one stretch of the market, so it does not count as moving the needle." }),
+      h("div", { class: "k", text: `On each half: ${halvesText(e)}` }))));
+  }
   const md = ctx.mods && ctx.mods.byDim.get(d.id);
   if (md && md.acts) {
     const phrase = actsPhrase(m, md.acts);
@@ -412,7 +458,7 @@ export function boardSummary(m, mods) {
   lines.push(`${m.sweep.meta.name} · ${runName(m.ds.meta)} · ${fmtInt(b.n)} rows${ctx.length ? ` inside ${ctx.join(", ")}` : ""}${m.state.edge !== null && m.state.edge < m.ds.n ? ` (up to row ${fmtInt(m.edge)})` : ""}`);
   lines.push(`${t.label}${t.definition ? ` (${t.definition})` : ""}: ${fmtT(t, b.mean)} (95% ${rangeText(t, b.lo, b.hi)})`);
   const det = m.order.filter(e => e.detectable);
-  lines.push(`Moves it (${det.length} of ${m.board.tests} parameters, q < 0.05):`);
+  lines.push(`Moves it (${det.length} of ${m.board.tests} parameters, q < 0.05${m.board.halves ? ", over the whole test window and in each half" : ""}):`);
   for (const e of det) {
     const d = m.schema.dimById.get(e.dim);
     const md = mods && mods.byDim.get(d.id);
@@ -420,7 +466,9 @@ export function boardSummary(m, mods) {
     const dead = e.dead.length ? `; dead: ${e.dead.map(k => (e.levels.find(l => l.key === k) || {}).label).join(", ")}` : "";
     lines.push(`- ${d.label}: ${e.best.label} ${fmtT(t, e.best.mean)} vs ${e.worst.label} ${fmtT(t, e.worst.mean)}, ω² ${strengthText(e)}, ${fmtP(e.q)}${acts}${dead}`);
   }
-  const flat = m.order.filter(e => !e.detectable).map(e => m.schema.dimById.get(e.dim).label);
+  const once = m.order.filter(e => { const w = showsIn(e); return w && w !== "twice"; });
+  if (once.length) lines.push(`Not in both halves: ${once.map(e => `${m.schema.dimById.get(e.dim).label} (${SHOWS_TEXT[showsIn(e)]})`).join(", ")}.`);
+  const flat = m.order.filter(e => !e.detectable && !once.includes(e)).map(e => m.schema.dimById.get(e.dim).label);
   if (flat.length) lines.push(`No detectable effect: ${flat.join(", ")}.`);
   return lines.join("\n");
 }

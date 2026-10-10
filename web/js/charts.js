@@ -19,7 +19,8 @@ export function needleDomain(effects, base) {
 }
 
 // `past` ("hi" or "lo") is set for a withheld value past the plot's scale.
-export function levelTip(l, target, base, past) {
+export function levelTip(l, target, base, past, halves) {
+  const half = (x, k) => `${k ? "2, second half" : "1, first half"} ${x && !x.withheld && Number.isFinite(x.mean) ? fmtT(target, x.mean) : "withheld"}`;
   return h("div", null,
     h("div", null, h("b", { text: l.withheld ? "withheld" : fmtT(target, l.mean) }),
       l.withheld ? "" : h("span", { class: "k", text: `  95% ${rangeText(target, l.lo, l.hi)}` })),
@@ -27,6 +28,7 @@ export function levelTip(l, target, base, past) {
     h("div", { class: "k", text: l.withheld
       ? `${fmtInt(l.n)} rows: fewer than 30, so no number is shown`
       : `${fmtInt(l.n)} rows · ${fmtDelta(target, l.mean - base)} against the base` }),
+    halves ? h("div", { class: "k", text: halves.map(half).join(" · ") }) : null,
     past ? h("div", { class: "k", text: `It lies ${past === "hi" ? "above" : "below"} the scale the shown values set.` }) : null);
 }
 
