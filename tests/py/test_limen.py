@@ -22,6 +22,7 @@ from grid.limen import (
     CsvRecords,
     csv_value,
     differences,
+    execution_summary,
     manifest_copy,
     model_outputs,
     read_experiment,
@@ -96,9 +97,9 @@ class RoundLog(unittest.TestCase):
             "round_params": {"feature_drop_count": 2,
                              "_dropped_features": ["roc_24", "minute_cos"]}})
         self.assertEqual(round_record(line),
-                         (7, ["minute_cos", "roc_24"], None))
+                         (7, ["minute_cos", "roc_24"], None, None))
         # a round that dropped nothing has no _dropped_features at all
-        self.assertEqual(round_record(self.EMPTY), (0, [], None))
+        self.assertEqual(round_record(self.EMPTY), (0, [], None, None))
 
     def test_a_line_that_is_not_a_round_is_refused(self) -> None:
         cases = [
@@ -193,12 +194,162 @@ class ModelOutputs(unittest.TestCase):
                            "threshold_rule": ">="})
         self.assertEqual(round_record(line),
                          (2, [], {"fired": 0.5, "reach": 0.5,
-                                  "margin": 0.05}))
+                                  "margin": 0.05}, None))
         run = Run("r0", "current", "x", None, True, None, "csv", {})
         run.add_round_line(line)
         self.assertEqual(run.rounds, [[2, [], None, {"fired": 0.5,
                                                     "reach": 0.5,
                                                     "margin": 0.05}]])
+
+
+class Execution(unittest.TestCase):
+    """A round recorded with uel.record_execution: what its test window
+    did, the whole window and each half, without keeping its bars."""
+
+    # eight bars: two trades in the first half (one losing over two bars),
+    # two in the second; costs on the bars that enter and exit
+    POS = [0, 1, 1, 0, 1, 0, 0, 1]
+    GROSS = [0, 0.011, -0.019, 0, 0.031, 0, 0, 0.011]
+    NET = [0, 0.01, -0.02, 0, 0.03, 0, 0, 0.01]
+    RET = [None, 0.011, -0.019, 0.002, 0.031, -0.005, 0.0, 0.011]
+
+    def summary(self, pos: Any = POS, gross: Any = GROSS, net: Any = NET,
+                market: Any = None, **rest: Any) -> Json | None:
+        rec: Json = {"execution": {"pos": pos, "gross": gross, "net": net},
+                     **rest}
+        if market is not None:
+            rec["market"] = market
+        return execution_summary(rec, 4)
+
+    def close(self, got: Json, want: Json) -> None:
+        for k, v in want.items():
+            if isinstance(v, float):
+                self.assertAlmostEqual(got[k], v, delta=1e-5 * max(1, abs(v)),
+                                       msg=k)
+            else:
+                self.assertEqual(got[k], v, k)
+
+    def test_trades_per_bar_figures_and_timing_over_the_whole_and_halves(
+            self) -> None:
+        got = self.summary(market={"ret": self.RET})
+        assert got is not None
+        whole, (h1, h2) = got["whole"], got["halves"]
+        trades = [1.01 * 0.98 - 1, 0.03, 0.01]
+        mean = sum(trades) / 3
+        sd = (sum((r - mean) ** 2 for r in trades) / 2) ** 0.5
+        market = 1.0
+        for r in self.RET[1:]:
+            market *= 1 + r
+        self.close(whole, {
+            "bars": 8, "trades": 3, "tradeMean": mean * 1e4,
+            "tradeT": mean / (sd / 3 ** 0.5), "pnl": 0.03 / 8 * 1e4,
+            "cost": 0.004 / 8 * 1e4, "wins": 3 / 8, "inventory": 0.5,
+            # the bars with a market return: gross 0.034, position 4 and
+            # market 0.031 over seven bars
+            "timing": (0.034 / 7 - 4 / 7 * 0.031 / 7) * 1e4,
+            "market": market - 1})
+        # each half read as a window of its own: one trade, then two whose
+        # mean is two of its standard errors
+        self.close(h1, {"bars": 4, "trades": 1, "tradeMean": trades[0] * 1e4,
+                        "pnl": -0.01 / 4 * 1e4, "inventory": 0.5})
+        self.assertIsNone(h1["tradeT"])
+        self.close(h2, {"bars": 4, "trades": 2, "tradeMean": 0.02 * 1e4,
+                        "tradeT": 2.0, "pnl": 0.04 / 4 * 1e4,
+                        "wins": 0.5, "inventory": 0.5})
+
+    def test_a_trade_open_across_the_middle_is_a_trade_in_each_half(
+            self) -> None:
+        got = self.summary([0, 1, 1, 1], [0, .01, .01, .01], [0, .01, .01, .01])
+        assert got is not None
+        self.assertEqual([got["whole"]["trades"]] + [h["trades"] for h in
+                                                      got["halves"]],
+                         [1, 1, 1])
+        # an odd middle bar belongs to the second half, as in Limen
+        odd = self.summary([0, 1, 0], [0, .01, 0], [0, .01, 0])
+        assert odd is not None
+        self.assertEqual([h["bars"] for h in odd["halves"]], [1, 2])
+        one = self.summary([1], [.01], [.01])
+        assert one is not None
+        self.assertIsNone(one["halves"])
+
+    def test_without_market_returns_there_is_no_timing(self) -> None:
+        got = self.summary()     # Limen 5.16 to 5.19 write no market
+        assert got is not None
+        self.assertIsNone(got["whole"]["timing"])
+        self.assertIsNone(got["whole"]["market"])
+        self.assertEqual(got["whole"]["trades"], 3)
+        # no market return on any bar of a half: none for it either
+        nulls = self.summary(market={"ret": [None] * 4 + self.RET[4:]})
+        assert nulls is not None
+        self.assertIsNone(nulls["halves"][0]["timing"])
+        self.assertIsNotNone(nulls["halves"][1]["timing"])
+
+    def test_a_round_without_execution_has_none(self) -> None:
+        self.assertIsNone(execution_summary({"round_params": {}}, 0))
+        # null where no snapshot ran (event execution, missing prices)
+        self.assertIsNone(execution_summary({"execution": None,
+                                             "market": None}, 0))
+
+    def test_what_is_not_an_execution_is_refused(self) -> None:
+        cases: list[tuple[Json, str]] = [
+            ({"execution": [1]}, "not a mapping"),
+            ({"execution": {"pos": [0, "1"], "gross": [0, 0],
+                            "net": [0, 0]}}, "execution.pos"),
+            ({"execution": {"pos": [0], "gross": [0], "net": []}},
+             "execution.net"),
+            ({"execution": {"pos": [0, 1], "gross": [0], "net": [0, 0]}},
+             "differ in length"),
+            ({"execution": {"pos": [0, 1], "gross": [0, 1], "net": [0, 1]},
+              "market": {"ret": [None]}}, "market.ret"),
+            ({"execution": {"pos": [0, 1], "gross": [0, 1], "net": [0, 1]},
+              "market": {"ret": [None, True]}}, "market.ret"),
+        ]
+        for rec, why in cases:
+            with self.assertRaisesRegex(ValueError, "round 6: .*" + why,
+                                        msg=json.dumps(rec)):
+                execution_summary(rec, 6)
+
+    def test_a_real_round_reproduces_its_results_csv_figures(self) -> None:
+        # round 5 of a lightgbm_binary_full run on Limen 5.20.0, with a
+        # 50 bps stop loss and a quarter notional: its execution and
+        # market returns, and the backtest figures results.csv has for it
+        with gzip.open(os.path.join(FIXTURE, "..",
+                                    "limen_execution_round.json.gz"),
+                       "rt", encoding="utf-8") as f:
+            rec = json.load(f)
+        got = execution_summary(rec, 5)
+        assert got is not None
+        res, whole = rec["results"], got["whole"]
+        n = whole["bars"]
+        self.assertEqual(n, len(rec["execution"]["pos"]))
+        self.close(whole, {
+            "pnl": res["backtest_pnl_per_bar_bps"],
+            "cost": res["backtest_cost_per_bar_bps"],
+            "wins": res["backtest_wins_per_bar"],
+            "inventory": res["backtest_inventory_per_bar"]})
+        self.assertEqual(whole["trades"],
+                         round(res["backtest_trades_per_bar"] * n))
+        self.assertGreaterEqual(whole["trades"], 40)
+        # the halves make up the whole
+        h1, h2 = got["halves"]
+        self.assertEqual(h1["bars"] + h2["bars"], n)
+        self.assertAlmostEqual((h1["pnl"] * h1["bars"] + h2["pnl"] *
+                                h2["bars"]) / n, whole["pnl"], delta=1e-5)
+        growth = (1 + h1["market"]) * (1 + h2["market"]) - 1
+        self.assertAlmostEqual(growth, whole["market"], delta=1e-5)
+
+    def test_the_round_carries_it_to_the_page(self) -> None:
+        line = json.dumps({"_round_index": 2, "round_params": {},
+                           "execution": {"pos": self.POS,
+                                         "gross": self.GROSS,
+                                         "net": self.NET}})
+        index, dropped, outputs, execution = round_record(line)
+        self.assertEqual((index, dropped, outputs), (2, [], None))
+        assert execution is not None
+        self.assertEqual(execution["whole"]["trades"], 3)
+        run = Run("r0", "current", "x", None, True, None, "csv", {})
+        run.add_round_line(line)
+        self.assertEqual(run.rounds, [[2, [], None, None, execution]])
 
 
 class Objective(unittest.TestCase):

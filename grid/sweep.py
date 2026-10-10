@@ -13,7 +13,9 @@ rows by ``_round_index`` on the page (a round's line comes after its row,
 and never for a round that failed).
 
 A round of a run recorded with ``uel.record_model_outputs`` also carries
-what its test probabilities say of its threshold (limen.model_outputs).
+what its test probabilities say of its threshold (limen.model_outputs),
+and one recorded with ``uel.record_execution`` what its test window did
+(limen.execution_summary).
 
 A run can be read from several Limen result directories of one manifest
 (shards: ``limen run`` side by side with different search seeds). Each
@@ -84,7 +86,8 @@ class Run:
         self.archived_at: float | None = None    # wall time it was kept
         self.archived_reason: str | None = None  # truncated or replaced
         self.resets: list[Json] = []
-        self.rounds: list[list[Any]] = []   # [round index, dropped columns]
+        # [round index, dropped columns, shard, outputs, execution]
+        self.rounds: list[list[Any]] = []
         self.rounds_generation = 0
         self.rounds_lines = 0
         self.rounds_bad: list[Json] = []
@@ -198,7 +201,7 @@ class Run:
         if not text.strip():
             return
         try:
-            index, dropped, outputs = round_record(text)
+            index, dropped, outputs, execution = round_record(text)
         except ValueError as exc:
             self.rounds_bad_count += 1
             if len(self.rounds_bad) < BAD_KEEP:
@@ -208,15 +211,13 @@ class Run:
                     bad[SHARD] = self.shards[shard]
                 self.rounds_bad.append(bad)
             return
-        # [index, dropped], then its directory's label (or None) and its
-        # outputs, each only when there is something after it
-        entry: list[Any] = [index, dropped]
+        # [index, dropped], then its directory's label, its outputs and its
+        # execution (each None when it has none), as far as the last there
         label = self.shards[shard] if shard is not None and \
             self.shards is not None else None
-        if label is not None or outputs is not None:
-            entry.append(label)
-        if outputs is not None:
-            entry.append(outputs)
+        entry: list[Any] = [index, dropped, label, outputs, execution]
+        while len(entry) > 2 and entry[-1] is None:
+            entry.pop()
         self.rounds.append(entry)
 
     def rounds_restart(self, shard: int | None = None) -> None:
