@@ -200,9 +200,12 @@ GRID_PLAYWRIGHT=/path/to/playwright/index.mjs ./tools/check.sh   # with browser 
 
 `tools/check.sh` runs the Python tests, the JavaScript tests, pyright
 (strict for `grid/` and `tools/`), ruff, `node --check`, the build, and
-the browser tests when `GRID_PLAYWRIGHT` is set. The reference values
-need numpy, pandas and scipy: `python tools/golden_engine.py --out
-tests/golden/engine.json`.
+the browser tests when `GRID_PLAYWRIGHT` is set. The same checks run on
+every pull request and every push to main
+([.github/workflows/checks.yml](.github/workflows/checks.yml)), on Python
+3.11 and Node 24 with pyright, ruff and Playwright at the versions pinned
+there. The reference values need numpy, pandas and scipy: `python
+tools/golden_engine.py --out tests/golden/engine.json`.
 
 - `grid/`: columnar store, log parser, followers (file, SSH), server, CLI
 - `web/js/`: stats, pack decoding, schema and profiles, the engine, the views

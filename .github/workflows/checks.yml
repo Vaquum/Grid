@@ -1,0 +1,114 @@
+name: checks
+
+# What tools/check.sh runs, on every pull request to main and every push to
+# main: the Python tests, pyright and ruff (python); the JavaScript tests,
+# node --check on every page module and the build (javascript); and the
+# browser tests on the built page in Playwright's Chromium (browser). The
+# tools are pinned to the versions the checks run with locally.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A newer push to a pull request cancels its older run. Each push to main
+# is a group of its own: one group for main would drop a waiting run when
+# a newer one is queued, and a commit in between would go unchecked.
+concurrency:
+  group: checks-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  python:
+    name: python
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+
+      - name: Install pyright and ruff
+        run: python -m pip install 'pyright[nodejs]==1.1.408' 'ruff==0.15.12'
+
+      - name: Python tests
+        run: python -m unittest discover -s tests/py -t . -q
+
+      - name: pyright
+        run: pyright
+
+      - name: ruff
+        run: ruff check grid tests/py tools
+
+  javascript:
+    name: javascript
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: '24'
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+
+      - name: JavaScript tests
+        run: npm test
+
+      - name: node --check
+        run: node tools/check_syntax.mjs
+
+      - name: Build
+        run: npm run build
+
+  browser:
+    name: browser
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: '24'
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+
+      # Playwright stays out of package.json: the page has no dependencies,
+      # and the tests take it from GRID_PLAYWRIGHT.
+      - name: Install Playwright and its Chromium
+        run: |
+          npm install --prefix "$RUNNER_TEMP/playwright" --no-save --no-audit --no-fund playwright@1.63.0
+          "$RUNNER_TEMP/playwright/node_modules/.bin/playwright" install --with-deps chromium
+
+      # The live tests start grid serve, which serves the built page.
+      - name: Build
+        run: npm run build
+
+      - name: Browser tests
+        run: GRID_PLAYWRIGHT="$RUNNER_TEMP/playwright/node_modules/playwright/index.mjs" npm run test:browser
