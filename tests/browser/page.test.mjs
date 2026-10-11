@@ -1481,3 +1481,81 @@ test("cohort: a Limen run's pool chosen on the first half, judged on the second,
     proc.kill();
   }
 });
+
+test("first half: every needle measured on each half reads its first half only, no view shows the second, and the Cohort view still judges on it", async () => {
+  const run = limenExecutionRun(join(mkdtempSync(join(tmpdir(), "grid-half-")), "run"));
+  const proc = spawn("python3", ["-m", "grid", "serve", "--limen", run, "--port", "0"], { cwd: ROOT });
+  try {
+    const url = await serverUrl(proc);
+    const { page, errors } = await limenPage();
+    await page.goto(url);
+    await page.waitForSelector(".pcard");
+    // offered beside the needle on a run measured on each half; off
+    const half = page.locator(".half-pick");
+    assert.equal(await half.isVisible(), true);
+    assert.equal(await half.getAttribute("aria-pressed"), "false");
+    const needle = await page.locator("#target-pick option:checked").textContent();
+    // on (H): the needle reads its first half, named so; the board no longer
+    // asks for both halves, nor marks them
+    await page.keyboard.press("h");
+    await page.waitForFunction(() => document.querySelector(".half-pick").getAttribute("aria-pressed") === "true");
+    assert.equal(await page.locator("#target-pick option:checked").textContent(), `${needle}, first half`);
+    await page.waitForFunction(() => !/Not in both halves/.test(document.querySelector(".strip").innerText));
+    assert.equal(await page.locator(".pcard .col .hm").count(), 0);
+    // the address keeps it
+    await page.reload();
+    await page.waitForSelector(".pcard");
+    assert.equal(await page.locator(".half-pick").getAttribute("aria-pressed"), "true");
+    // Grid's gates read the first half, named so
+    await page.keyboard.press("6");
+    await page.waitForSelector("article.gt-card");
+    assert.deepEqual(await page.locator("article.gt-card .gt-title").allInnerTexts(), ["Entries, first half ≥ 30", "Per-trade t, first half ≥ 2"]);
+    // Trials has no halves; the Run view no halves of the test window, nor
+    // a reliability across them
+    await page.keyboard.press("5");
+    await page.waitForSelector(".tr-island table.trials");
+    assert.doesNotMatch(await page.locator("table.trials thead").innerText(), /Second half/);
+    await page.keyboard.press("7");
+    await page.waitForSelector(".strip");
+    assert.equal(await page.locator("#rn-halves").count(), 0);
+    assert.doesNotMatch(await page.locator(".strip").innerText(), /Reliability/);
+    // the Cohort view reads the needle as measured: chosen on the first
+    // half, its second half beside it, and says the pocket was found
+    // without it (this run's round lines name no rounds, so the server
+    // cannot judge a cohort of them: the browser logs its answer)
+    const logged = errors.length;
+    await page.keyboard.press("8");
+    await page.waitForSelector(".co-table");
+    assert.deepEqual(await page.locator(".co-table thead th.r").allInnerTexts(), ["Rank", "Row", "First half", "Second half"]);
+    assert.match(await page.locator(".co-half").innerText(), /^First half is on/);
+    await page.waitForSelector(".co-judged .co-error", { timeout: 20000 });
+    assert.ok(errors.slice(logged).every(e => /status of 400/.test(e)), errors.slice(logged).join("\n"));
+    errors.splice(logged);
+    // a needle not measured on each half reads the whole window, and says so
+    await page.keyboard.press("1");
+    await page.selectOption("#target-pick", "auc");
+    await page.waitForSelector(".warn-chip:not([hidden])");
+    assert.equal(await page.locator(".warn-chip").innerText(), "Whole window");
+    assert.doesNotMatch(await page.locator("#target-pick option:checked").textContent(), /first half/);
+    // off (H): every view reads the whole window as before
+    await page.selectOption("#target-pick", "backtest_pnl_per_bar_bps");
+    await page.keyboard.press("h");
+    await page.waitForFunction(() => document.querySelector(".half-pick").getAttribute("aria-pressed") === "false");
+    await page.waitForFunction(() => /Not in both halves/.test(document.querySelector(".strip").innerText));
+    assert.equal(await page.locator(".warn-chip").isVisible(), false);
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    proc.kill();
+  }
+});
+
+test("first half: not offered on a run that is not measured on each half", async () => {
+  const { page, errors } = await open();
+  assert.equal(await page.locator(".half-pick").isVisible(), false);
+  // H does nothing there
+  await page.keyboard.press("h");
+  assert.equal(await page.locator(".half-pick").getAttribute("aria-pressed"), "false");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
