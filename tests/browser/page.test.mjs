@@ -374,15 +374,11 @@ test("a Limen run: its bookkeeping is no needle, and a long name wraps after an 
     const range = document.createRange();
     const tops = n => { range.selectNodeContents(n); return [...new Set([...range.getClientRects()].map(r => Math.round(r.top)))]; };
     const texts = () => { const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), out = []; while (w.nextNode()) out.push(w.currentNode); return out; };
-    const sel = getSelection();
-    sel.removeAllRanges();
-    range.selectNodeContents(el);
-    sel.addRange(range);
-    const copied = sel.toString();
-    sel.removeAllRanges();
-    // the lines a name takes, read off its text: its box (.nm) has a rect of its own
+    // the lines a name takes, read off its text: its box (.nm) has a rect of
+    // its own; and what a copy takes, the rendered text (a selection of the
+    // card's name read empty in headless Chromium on macOS, not on Linux)
     const parts = texts();
-    const alone = { text: el.textContent, copied, parts: parts.map(n => n.textContent), lines: parts.map(n => tops(n).length), all: new Set(parts.flatMap(tops)).size };
+    const alone = { text: el.textContent, copied: el.innerText, parts: parts.map(n => n.textContent), lines: parts.map(n => tops(n).length), all: new Set(parts.flatMap(tops)).size };
     el.prepend("xxxxxxxx ");
     const [word, ...after] = texts();
     return { ...alone, moved: tops(after[0])[0] > tops(word)[0], afterLines: after.map(n => tops(n).length) };
