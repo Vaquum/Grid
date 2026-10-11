@@ -434,6 +434,8 @@ class Project:
         # (set by the server's wiring)
         self.python: str | None = None
         self.procs: dict[tuple[str, str], subprocess.Popen[bytes]] = {}
+        # each predictor's watcher, until its worker has ended and been read
+        self.watchers: dict[str, threading.Thread] = {}
         # results.csv -> (bytes read, mtime, inode, records, in a quote,
         # the bytes read last)
         self.counts: dict[str, tuple[int, float, int, int, bool, bytes]] = {}
@@ -894,11 +896,16 @@ class Project:
         def wait() -> None:
             code = proc.wait()
             with self.lock:
-                spec = _read_json(os.path.join(folder, COHORT)) or {}
-                if code != 0 or spec.get("state") != "made":
+                spec = _read_json(os.path.join(folder, COHORT))
+                # a predictor whose record is gone (its folder being
+                # removed) gets none written back
+                if spec is not None and (code != 0
+                                         or spec.get("state") != "made"):
                     spec.update(state="failed", exit=code)
                     _write_json(os.path.join(folder, COHORT), spec)
-        threading.Thread(target=wait, daemon=True).start()
+        watcher = threading.Thread(target=wait, daemon=True)
+        self.watchers[name] = watcher
+        watcher.start()
         return name
 
     # -- starting, stopping, resuming ----------------------------------------

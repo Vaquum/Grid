@@ -1416,7 +1416,7 @@ test("cohort: a Limen run's pool chosen on the first half, judged on the second,
     // the run has written every round it planned (2 a shard): finished,
     // not quiet, though Limen keeps no log to say so
     assert.equal(await page.locator(".status").getAttribute("data-kind"), "finished");
-    assert.match(await page.locator(".status").innerText(), /^Finished\b/);
+    assert.equal(await page.locator(".status b").textContent(), "Finished");
     const failed = "section[aria-labelledby=co-make] .co-error";
     await page.waitForSelector(failed, { timeout: 20000 });
     assert.equal(await page.locator(failed).innerText(), "The project's predictors could not be read: the project could not be read");
