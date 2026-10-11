@@ -235,7 +235,10 @@ same in every view (`ui.js` holds the number formats):
 - **Names**: a parameter is named by its field (`tp`), a nested one with the
   value it varies under (`learning_rate · lgbm_hp`), in mono. Parameters
   shown together are named in the board's order, the strongest first,
-  joined by ×.
+  joined by ×. A name moves to the next line whole, as a word does; one
+  too long for its box wraps after an underscore (`long_threshold_` /
+  `percentile`), inside a word only when one part alone is wider than the
+  box. A copied name is the name as written.
 - **Words**: the outcome every view measures is the needle; a row is one
   evaluated configuration (a Limen round is a row); the sampler drawing
   two parameters together is "drawn together", in the warning colour.

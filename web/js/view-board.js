@@ -2,7 +2,7 @@
 // card per parameter, strongest first: how sure and how strong its effect
 // is, and the needle at each of its values on the board's shared scale.
 
-import { h, tip, keyTip, fmtT, fmtP, fmtInt, fmtNum, fmtPct, fmtOmega2, rafThrottle, inText, rangeText, runName } from "./ui.js";
+import { h, wrapName, tip, keyTip, fmtT, fmtP, fmtInt, fmtNum, fmtPct, fmtOmega2, rafThrottle, inText, rangeText, runName } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { effectPlot, plotDomain, fitPlots } from "./main-effects.js";
 import { ensureModerators, independence, memberBoard, memberDims, setName, TOGETHER, together, togetherWhy } from "./model.js";
@@ -132,7 +132,7 @@ export function renderBoard(view, m, A) {
       : section(offTitle, places.off.length, offNote, null, places.on.length ? null : resort, fold,
         h("div", { class: "chips" }, places.off.map(id => {
           const x = names.get(id);
-          return tip(h("button", { class: "chip mono", type: "button", onclick: x.open, text: x.name }), x.why);
+          return tip(h("button", { class: "chip mono", type: "button", onclick: x.open }, wrapName(x.name)), x.why);
         }))));
   }
   const quiet = notOnBoard(m);
@@ -267,7 +267,7 @@ function card(m, A, d, e, ctx) {
 // / · xgb_hp); the cards of a row keep their plots level (grid.css).
 function head(name, sub, ev) {
   return h("div", { class: "pc-head" },
-    h("div", { class: "pc-row" }, h("span", { class: "pc-name", title: name, text: name.replace(" · ", " ·\u00a0") }), ev.top),
+    h("div", { class: "pc-row" }, h("span", { class: "pc-name", title: name }, wrapName(name.replace(" · ", " ·\u00a0"))), ev.top),
     h("div", { class: "pc-row" }, h("span", { class: "pc-sub", title: sub, text: sub }), ev.bottom));
 }
 
@@ -414,13 +414,13 @@ function notOnBoard(m) {
   const chips = h("div", { class: "chips" });
   for (const f of quiet) {
     const why = f.role === "fixed" ? f.note : f.role === "alias" ? `alias: ${f.note}` : "resolved by the runner from other parameters, not sampled";
-    const c = h("span", { class: "chip has-tip" }, h("span", { class: "mono", text: f.name }),
+    const c = h("span", { class: "chip has-tip" }, h("span", { class: "mono" }, wrapName(f.name)),
       h("span", { class: "muted", text: f.role === "fixed" ? (f.note || "").replace("one value in every row: ", "= ") : f.role }));
     tip(c, why);
     chips.append(c);
   }
   for (const d of aliasDims) {
-    const c = h("span", { class: "chip has-tip" }, h("span", { class: "mono", text: d.label }), h("span", { class: "muted", text: `= ${d.aliasOf}` }));
+    const c = h("span", { class: "chip has-tip" }, h("span", { class: "mono" }, wrapName(d.label)), h("span", { class: "muted", text: `= ${d.aliasOf}` }));
     tip(c, d.note);
     chips.append(c);
   }
