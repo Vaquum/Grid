@@ -62,7 +62,14 @@ only when it shows in both, Trials sets every row's first-half rank
 against its second half, and the Run view gives the halves' rank
 agreement as the run's reliability. From Limen 5.20, which records the
 market's return on each bar too, each round's timing: its gross return
-beyond its deployed notional times the market's.
+beyond its deployed notional times the market's. From Limen 5.23,
+whether each round recorded a convergence warning is a fit diagnostic,
+and the Run view gives the report Limen writes at the run's end. A
+walk-forward run (Limen 5.21, `split_walk_forward`) reads a row a trial,
+its means over its folds, with its selection report in the Run view (the
+deflated Sharpe probability, the probability of backtest overfitting and
+the declared thresholds' verdicts, Limen 5.22); Limen replays none of its
+trials and makes no sensor of one, so Grid offers neither.
 
 ```sh
 python3 -m grid serve --limen ~/dev/Limen/results/dev/lightgbm_binary_full_20261009_091248 --open

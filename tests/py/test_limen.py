@@ -3,7 +3,11 @@ lines, the manifest, the round log, and the CLI on a real run's first 40
 rounds (tests/fixtures/limen_run, from lightgbm_binary_full on 1h
 BTCUSDT; its round_data.jsonl keeps each round's id, index and
 parameters, without the 5,000 predictions and the alignment a round's
-line also holds)."""
+line also holds), and the reports Limen writes at a run's end
+(tests/fixtures/limen_walk_forward: a walk-forward run of Limen 5.24.0,
+four logistic-regression trials over two folds of Limen's recorded 1h
+BTCUSDT fixture, with acceptance thresholds; its data source is written as
+Limen's docs write it, relative to a Limen checkout)."""
 
 from __future__ import annotations
 
@@ -13,8 +17,12 @@ import gzip
 import io
 import json
 import os
+import shutil
 import tempfile
+import threading
 import unittest
+import urllib.error
+import urllib.request
 from typing import Any
 
 from grid.__main__ import Wiring, main
@@ -26,8 +34,11 @@ from grid.limen import (
     manifest_copy,
     model_outputs,
     read_experiment,
+    read_reports,
     round_record,
+    walk_forward,
 )
+from grid.server import serve
 from grid.sweep import Json, Run, Sweep
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "..", "fixtures",
@@ -36,6 +47,8 @@ FIXTURE = os.path.join(os.path.dirname(__file__), "..", "fixtures",
 # (docs/examples/logreg_return.yaml), 40 rounds with Limen 5.19.0
 OBJECTIVE = os.path.join(os.path.dirname(__file__), "..", "fixtures",
                          "limen_objective")
+WALK_FORWARD = os.path.join(os.path.dirname(__file__), "..", "fixtures",
+                            "limen_walk_forward")
 
 
 class CsvValue(unittest.TestCase):
@@ -387,6 +400,127 @@ class Objective(unittest.TestCase):
 
     def test_a_run_without_one_has_none(self) -> None:
         self.assertIsNone(self.pack(FIXTURE)["experiment"]["objective"])
+
+
+class Reports(unittest.TestCase):
+    def pack(self, directory: str) -> Json:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "pack.json")
+            self.assertEqual(main(["pack", "--limen", directory, "--out",
+                                   out]), 0)
+            with open(out, encoding="utf-8") as f:
+                return json.load(f)["runs"][0]
+
+    def test_a_report_is_read_as_limen_wrote_it_or_not_at_all(self) -> None:
+        files = {"convergence_report.json": '{"rounds": 4}',
+                 "acceptance_report.json": "[1, 2]", "results.csv": "x"}
+
+        def read(name: str) -> str:
+            return files[name]
+        self.assertEqual(read_reports(files, read),
+                         {"convergence": {"rounds": 4}, "acceptance": None})
+        files["acceptance_report.json"] = '{"pbo": 0.5'
+        self.assertIsNone(read_reports(files, read)["acceptance"])
+
+        def gone(name: str) -> str:
+            raise OSError("removed while read")
+        self.assertEqual(read_reports(files, gone),
+                         {"convergence": None, "acceptance": None})
+        self.assertEqual(read_reports([], read),
+                         {"convergence": None, "acceptance": None})
+
+    def test_a_walk_forward_run_is_its_manifests_declaration(self) -> None:
+        with open(os.path.join(WALK_FORWARD, "metadata.json"),
+                  encoding="utf-8") as f:
+            manifest = json.load(f)["yaml_reference"]
+        self.assertEqual(walk_forward(manifest), {
+            "n_folds": 2, "test_bars": 49, "purge_bars": 4,
+            "embargo_bars": 3, "anchored": True})
+        with open(os.path.join(FIXTURE, "metadata.json"),
+                  encoding="utf-8") as f:
+            self.assertIsNone(walk_forward(json.load(f)["yaml_reference"]))
+        for junk in (None, [], {"sfd": []}, {"sfd": {"manifest": 1}}):
+            self.assertIsNone(walk_forward(junk))
+
+    def test_a_walk_forward_runs_trials_and_reports_reach_the_page(
+            self) -> None:
+        run = self.pack(WALK_FORWARD)
+        # a row a trial: its means over its folds
+        self.assertEqual(run["rows"], 4)
+        kinds = {c["name"]: c["kind"] for c in run["columns"]}
+        self.assertEqual(kinds["_convergence_warning"], "bool")
+        (reports,) = run["experiment"]["reports"]
+        self.assertIsNone(reports["label"])
+        self.assertEqual((reports["convergence"]["observed_rounds"],
+                          reports["convergence"]["convergence_warning_rounds"]),
+                         (4, 2))
+        a = reports["acceptance"]
+        self.assertEqual((a["n_trials"], a["n_bars"], a["n_blocks"],
+                          a["pbo"], a["verdicts"]),
+                         (4, 96, 2, 1.0,
+                          {"min_deflated_sharpe_probability": False,
+                           "max_pbo": False}))
+
+    def test_a_run_without_reports_has_none(self) -> None:
+        self.assertEqual(self.pack(FIXTURE)["experiment"]["reports"],
+                         [{"label": None, "convergence": None,
+                           "acceptance": None}])
+
+
+class ReportsRoute(unittest.TestCase):
+    """The reports read afresh by a live server (Limen writes them at the
+    run's end), and a walk-forward run's trials refused a cohort."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="grid-reports-")
+        self.dir = os.path.join(self.tmp, "wf")
+        shutil.copytree(WALK_FORWARD, self.dir)
+        os.remove(os.path.join(self.dir, "convergence_report.json"))
+        args = argparse.Namespace(limen=[self.dir], results=None, name=None,
+                                  ssh=None, as_=None, log=None, run=None,
+                                  label=None, project=None)
+        w = Wiring(args, follow=False)
+        self.sweep = w.build()
+        w.read_once()
+        self.httpd = serve(self.sweep, lambda: b"page", "127.0.0.1", 0)
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        host, port = self.httpd.server_address[:2]
+        self.base = "http://%s:%d" % (host, port)
+
+    def tearDown(self) -> None:
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        shutil.rmtree(self.tmp)
+
+    def get(self, path: str) -> tuple[int, Any]:
+        try:
+            with urllib.request.urlopen(self.base + path) as res:
+                return res.status, json.loads(res.read())
+        except urllib.error.HTTPError as err:
+            with err:
+                return err.code, json.loads(err.read())
+
+    def test_a_report_written_after_the_run_opened_is_read(self) -> None:
+        run = self.sweep.runs[0]
+        assert run.experiment is not None
+        self.assertIsNone(run.experiment["reports"][0]["convergence"])
+        code, out = self.get("/api/reports?run=%s" % run.id)
+        self.assertEqual(code, 200, out)
+        self.assertIsNone(out["reports"][0]["convergence"])
+        self.assertEqual(out["reports"][0]["acceptance"]["n_trials"], 4)
+        shutil.copyfile(os.path.join(WALK_FORWARD, "convergence_report.json"),
+                        os.path.join(self.dir, "convergence_report.json"))
+        code, out = self.get("/api/reports?run=%s" % run.id)
+        self.assertEqual(out["reports"][0]["convergence"]["rounds"], 4)
+        code, out = self.get("/api/reports?run=nope")
+        self.assertEqual((code, out["error"]), (400, "no run 'nope'"))
+
+    def test_a_walk_forward_runs_trials_make_no_cohort(self) -> None:
+        run = self.sweep.runs[0]
+        code, out = self.get("/api/cohort?run=%s&rows=0,1" % run.id)
+        self.assertEqual(code, 400)
+        self.assertIn("a walk-forward run's trials make no cohort",
+                      out["error"])
 
 
 class Experiment(unittest.TestCase):

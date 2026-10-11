@@ -1,0 +1,44 @@
+{
+  "rounds": 4,
+  "observed_rounds": 4,
+  "unavailable_rounds": 0,
+  "convergence_warning_rounds": 2,
+  "convergence_warning_pct": 50.0,
+  "parameter_patterns": [
+    {
+      "parameter": "C",
+      "value": "0.01",
+      "observed_rounds": 2,
+      "convergence_warning_rounds": 1,
+      "convergence_warning_pct": 50.0
+    },
+    {
+      "parameter": "C",
+      "value": "1.0",
+      "observed_rounds": 2,
+      "convergence_warning_rounds": 1,
+      "convergence_warning_pct": 50.0
+    },
+    {
+      "parameter": "solver",
+      "value": "'lbfgs'",
+      "observed_rounds": 4,
+      "convergence_warning_rounds": 2,
+      "convergence_warning_pct": 50.0
+    },
+    {
+      "parameter": "random_state",
+      "value": "42",
+      "observed_rounds": 4,
+      "convergence_warning_rounds": 2,
+      "convergence_warning_pct": 50.0
+    },
+    {
+      "parameter": "max_iter",
+      "value": "2",
+      "observed_rounds": 2,
+      "convergence_warning_rounds": 2,
+      "convergence_warning_pct": 100.0
+    }
+  ]
+}

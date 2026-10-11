@@ -12,7 +12,7 @@ import { gunzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { decodePack } from "../../web/js/pack.js";
 import { buildSchema } from "../../web/js/schema.js";
-import { limenProfile } from "../../web/js/profiles.js";
+import { limenProfile, walkForwardOf } from "../../web/js/profiles.js";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 let ds, schema, manifest;
@@ -106,4 +106,25 @@ test("what a score rests on: activity, risk, model skill and the time it took", 
   assert.deepEqual(ids("risk"), ["backtest_avg_loss_bps", "backtest_cvar_95_pnl_bps", "backtest_drawdown_bps_p5"]);
   assert.deepEqual(ids("skill"), ["auc", "precision", "recall"]);
   assert.deepEqual(schema.targets.filter(t => t.cost).map(t => t.id), ["execution_time"]);
+});
+
+test("a walk-forward run: its trials replay none, and whether a round converged is a fit diagnostic", () => {
+  // a walk-forward run of Limen 5.24.0 (tests/fixtures/limen_walk_forward)
+  const out = join(mkdtempSync(join(tmpdir(), "grid-limen-wf-")), "pack.json.gz");
+  execFileSync("python3", ["-m", "grid", "pack", "--limen", "tests/fixtures/limen_walk_forward", "--out", out], { cwd: ROOT });
+  const wfDs = decodePack(JSON.parse(gunzipSync(readFileSync(out)).toString("utf8"))).runs[0];
+  const exp = wfDs.meta.experiment;
+  assert.deepEqual(walkForwardOf(exp), { n_folds: 2, test_bars: 49, purge_bars: 4, embargo_bars: 3, anchored: true });
+  const prof = limenProfile(exp);
+  assert.equal(prof.replay.python({ id: "x" }), null);
+  assert.match(prof.replay.refused, /^Limen replays no walk-forward trial/);
+  const wf = buildSchema(wfDs, { profile: prof });
+  // a round's convergence warning: a needle of the fit, the share of rows that recorded one, fewer better
+  const c = wf.targetById.get("_convergence_warning");
+  assert.deepEqual([c.label, c.kind, c.better, c.diagnostic], ["Convergence warning", "binary", -1, true]);
+  assert.deepEqual(Array.from(c.values), [1, 1, 0, 0]);
+  assert.ok(!wf.dims.some(d => d.id === "_convergence_warning"));
+  // a run of one test window has none, and replays from its directory
+  assert.equal(walkForwardOf(ds.meta.experiment), null);
+  assert.equal(limenProfile(ds.meta.experiment).replay.refused, undefined);
 });

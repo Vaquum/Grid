@@ -17,6 +17,7 @@ import { h, tip, fmtInt, fmtNum, fmtPct, fmtRowValue, fmtClock } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { rowsIn } from "./engine.js";
 import { OPS, gateLabel } from "./gates.js";
+import { walkForwardOf } from "./profiles.js";
 
 export const COHORT_DEFAULT = 5;
 const JUDGE_MS = 300;
@@ -138,6 +139,11 @@ export function renderCohort(view, m, A) {
   if (!exp || exp.kind !== "limen") {
     view.append(h("div", { class: "empty" }, h("b", { text: "A cohort is made of a Limen run's rounds. " }),
       "This run is not a Limen run."));
+    return;
+  }
+  if (walkForwardOf(exp)) {
+    view.append(h("div", { class: "empty" }, h("b", { text: "A walk-forward run's trials make no cohort. " }),
+      "Limen replays none of them and makes no sensor of one: each trial's model is fitted afresh in every fold, and its row holds its means over them."));
     return;
   }
   if (pick.run !== m.ds.id) reset(m.ds.id);

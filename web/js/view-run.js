@@ -5,15 +5,16 @@
 // as toggles; each outcome's distribution, for every row, for the
 // clusters chosen against every row, or for two clusters against each
 // other; what sets the chosen rows apart (the parameters that put rows
-// there); the best row against luck; and the run's health: its pace and
-// segments, its problems and warnings, and the sampler.
+// there); the best row against luck; Limen's reports (its convergence
+// warnings, a walk-forward run's selection); and the run's health: its
+// pace and segments, its problems and warnings, and the sampler.
 
 import { h, wrapName, icon, tip, keyTip, fmtT, fmtRowValue, fmtInt, fmtPct, fmtP, fmtNum, fmtPace, fmtDuration, fmtAgo, fmtClock, inText, rangeText, spanText, codeBlock, runName } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { lineChart, distChart } from "./charts.js";
 import { invariantBreaks, recordCurve, uniformity, summarize, rowsIn, gTest, MIN_N } from "./engine.js";
 import { buildSchema } from "./schema.js";
-import { limenProfile } from "./profiles.js";
+import { limenProfile, walkForwardOf } from "./profiles.js";
 import { independence, moderatorParents, boardDims, background, setName, TOGETHER, together, togetherWhy } from "./model.js";
 import { clusterJob, clusterOutcomes, mannWhitney, composition, MIN_SILHOUETTE } from "./clusters.js";
 import { bhQ, rankAt } from "./stats.js";
@@ -113,6 +114,8 @@ export function renderRun(view, m, A) {
   const never = neverIsland(m);
   if (never) view.append(never);
   view.append(h("div", { class: "rn-pair" }, recordIsland(m), paceIsland(m, health)));
+  const reports = reportsIsland(m, A);
+  if (reports) view.append(reports);
   if (m.sweep.runs.length > 1) view.append(runsIsland(m, A));
   view.append(h("div", { class: "rn-pair" }, problemsIsland(m, A, health), samplerIsland(m)));
   const told = eventsIsland(A);
@@ -786,6 +789,172 @@ function paceIsland(m, health) {
   }
   if (!isl.querySelector(".stat-row, .timeline")) isl.append(h("p", { class: "isl-note", text: "No progress lines and no arrival times to read a pace from." }));
   return isl;
+}
+
+// ---------------------------------------------------------------------------
+// Limen's reports, which it writes in a result directory at the run's end:
+// the rounds that recorded a convergence warning (Limen 5.23,
+// convergence_report.json), and a walk-forward run's selection (Limen
+// 5.22, acceptance_report.json): the deflated Sharpe probability of the
+// trial it would select and the probability of backtest overfitting,
+// against the thresholds its manifest declares. A live server reads them
+// afresh, as a run writes them when it ends.
+
+const REPORTS_MS = 15000;
+const reportsRead = { run: null, at: 0, loading: false, got: null, timer: 0 };
+
+function reportsOf(m, A) {
+  const exp = m.ds.meta.experiment || {};
+  // only a Limen run has Limen's reports to read
+  if (exp.kind !== "limen") return [];
+  const known = Array.isArray(exp.reports) ? exp.reports : [];
+  if (!A.isLive()) return known;
+  if (reportsRead.run !== m.ds.id) {
+    clearTimeout(reportsRead.timer);
+    Object.assign(reportsRead, { run: m.ds.id, at: 0, got: null, timer: 0 });
+  }
+  if (!reportsRead.loading && Date.now() - reportsRead.at > REPORTS_MS) {
+    const run = m.ds.id;
+    reportsRead.loading = true;
+    fetch(`api/reports?run=${encodeURIComponent(run)}`, { cache: "no-store" })
+      .then(res => (res.ok ? res.json() : null)).catch(() => null)
+      .then(out => {
+        reportsRead.loading = false;
+        reportsRead.at = Date.now();
+        if (reportsRead.run !== run || !out || !Array.isArray(out.reports)) return;
+        const changed = JSON.stringify(out.reports) !== JSON.stringify(reportsRead.got || known);
+        reportsRead.got = out.reports;
+        if (changed && A.view() === "run") A.rerender();
+        // Limen 5.23 or later writes a convergence report as a run ends:
+        // look again while a directory has none and the view is shown
+        if (writesReports(exp) && out.reports.some(r => !r.convergence)) {
+          clearTimeout(reportsRead.timer);
+          reportsRead.timer = setTimeout(() => { reportsRead.timer = 0; if (reportsRead.run === run && A.view() === "run") A.rerender(); }, REPORTS_MS);
+        }
+      });
+  }
+  return reportsRead.got || known;
+}
+
+function writesReports(exp) {
+  const v = /^(\d+)\.(\d+)/.exec(String(exp.limenVersion || ""));
+  return !!v && (Number(v[1]) > 5 || (Number(v[1]) === 5 && Number(v[2]) >= 23));
+}
+
+// A run's convergence reports together: its rounds, those with the
+// diagnostics to say (observed), those that recorded a warning, and its
+// share. With one result directory, the values of the parameters that
+// vary that Limen found the warnings with, a value's share of the rounds
+// that had it, most first. Of several, none: each directory lists only the
+// values it saw a warning with, so their sums would be of some rounds.
+export function convergenceOf(reports) {
+  const parts = reports.map(r => r && r.convergence).filter(c => c && typeof c === "object");
+  if (!parts.length) return null;
+  const sum = (k) => parts.reduce((a, c) => a + (Number.isFinite(c[k]) ? c[k] : 0), 0);
+  const observed = sum("observed_rounds"), warned = sum("convergence_warning_rounds");
+  const patterns = parts.length > 1 ? null : (parts[0].parameter_patterns || [])
+    .filter(p => p && Number.isFinite(p.observed_rounds) && p.observed_rounds > 0 && p.observed_rounds < observed)
+    .map(p => ({ parameter: String(p.parameter), value: String(p.value).replace(/^'(.*)'$/, "$1"),
+      observed: p.observed_rounds, warned: p.convergence_warning_rounds || 0 }))
+    .map(p => ({ ...p, share: p.warned / p.observed }))
+    .sort((a, b) => b.share - a.share || b.warned - a.warned || a.parameter.localeCompare(b.parameter) || a.value.localeCompare(b.value));
+  return { rounds: sum("rounds"), observed, unavailable: sum("unavailable_rounds"), warned, share: observed ? warned / observed : NaN, patterns };
+}
+
+// A walk-forward selection's verdicts, as Limen gave them for the
+// thresholds the manifest declares (sfd.manifest.acceptance): pass, fail,
+// or unavailable (a statistic it could not compute, with its reason).
+const THRESHOLDS = {
+  min_deflated_sharpe_probability: ["Deflated Sharpe probability", "≥", "deflated_sharpe_probability"],
+  max_pbo: ["Probability of backtest overfitting", "≤", "pbo"],
+};
+export function verdictsOf(report) {
+  const t = report.thresholds || {}, v = report.verdicts || {}, errors = report.errors || {};
+  return Object.keys(THRESHOLDS).filter(k => Number.isFinite(t[k])).map(k => {
+    const [label, op, stat] = THRESHOLDS[k];
+    return { key: k, label, op, threshold: t[k], verdict: v[k] === true ? "pass" : v[k] === false ? "fail" : "unavailable", why: errors[stat] || null };
+  });
+}
+
+// The row of a round id (of the result directory `label`, on a run read
+// from several), or -1.
+function rowOfId(ds, id, label) {
+  const col = ds.cols.get("id"), shard = label ? ds.cols.get("shard") : null;
+  if (!col || col.kind !== "str" || typeof id !== "string") return -1;
+  for (let i = 0; i < ds.n; i++) {
+    if (col.codes[i] < 0 || col.levels[col.codes[i]] !== id) continue;
+    if (shard && !(shard.kind === "str" && shard.codes[i] >= 0 && shard.levels[shard.codes[i]] === label)) continue;
+    return i;
+  }
+  return -1;
+}
+
+function reportsIsland(m, A) {
+  const exp = m.ds.meta.experiment || {};
+  const wf = walkForwardOf(exp);
+  const reports = reportsOf(m, A);
+  const conv = convergenceOf(reports);
+  const picks = reports.filter(r => r && r.acceptance && typeof r.acceptance === "object");
+  if (!wf && !conv && !picks.length) return null;
+  const isl = h("section", { class: "island", "aria-labelledby": "rn-reports" },
+    h("header", { class: "isl-head" }, h("h2", { class: "isl-title", id: "rn-reports", text: "Limen's reports" }),
+      h("span", { class: "isl-count", text: "written at the run's end" })));
+  if (wf) {
+    isl.append(h("p", { class: "isl-note", text: `Walk-forward: each row is a trial's means over its ${fmtInt(wf.n_folds)} folds of ${fmtInt(wf.test_bars)} test bars (${wf.anchored ? "anchored" : "rolling"}; ${fmtInt(wf.purge_bars)} purged and ${fmtInt(wf.embargo_bars)} embargoed between them). Limen replays no trial and makes no sensor of one.` }));
+  }
+  if (conv) isl.append(convergencePart(m, A, conv));
+  for (const r of picks) isl.append(selectionPart(m, A, r.acceptance, r.label));
+  return isl;
+}
+
+// What the convergence counts say: some rounds warned, none did (which
+// is not to say they converged: Limen observed no warning, no more), or
+// nothing is known (no round had the diagnostics).
+export function convergenceState(c) {
+  return !c.observed ? "unknown" : c.warned === 0 ? "none" : "warned";
+}
+
+function convergencePart(m, A, c) {
+  const state = convergenceState(c);
+  const top = (c.patterns || []).filter(p => p.warned > 0).slice(0, 3);
+  const board = m.schema.targetById.has("_convergence_warning") && state === "warned";
+  return h("div", { class: "rn-report" }, h("div", { class: "issue" },
+    h("span", { class: "sev " + (state === "none" ? "ok" : state === "warned" ? "warn" : "off") },
+      state === "unknown" ? null : icon(state === "none" ? "check" : "alert"),
+      state === "none" ? "no warning" : state === "warned" ? "convergence" : "unknown"),
+    h("div", null,
+      h("div", { text: state === "unknown" ? "No round had the diagnostics to say whether it recorded a convergence warning."
+        : state === "none" ? `None of the ${fmtInt(c.observed)} rounds observed recorded a convergence warning.`
+        : `${fmtInt(c.warned)} of ${fmtInt(c.observed)} rounds observed (${fmtPct(c.share, 0)}) recorded a convergence warning.` }),
+      c.unavailable ? h("div", { class: "muted", text: `${fmtInt(c.unavailable)} more had none to say, and are left out.` }) : null,
+      top.length ? h("div", { class: "muted" }, "Most with ", ...top.flatMap((p, k) => [k ? "; " : null,
+        h("span", { class: "mono" }, wrapName(p.parameter), ` = ${p.value}`), ` (${fmtInt(p.warned)} of ${fmtInt(p.observed)})`]),
+      ". Limen's counts: how often, not why.") : null,
+      board ? h("div", { class: "actions" }, h("button", { class: "btn small", type: "button",
+        onclick: () => A.set({ target: "_convergence_warning", view: "board" }) }, "What moves it, on the Board")) : null)));
+}
+
+function selectionPart(m, A, a, label) {
+  const errors = a.errors && typeof a.errors === "object" ? a.errors : {};
+  const stat = (x, key, d) => (Number.isFinite(x) ? fmtNum(x, d) : `unavailable${errors[key] ? `: ${errors[key]}` : ""}`);
+  const at = rowOfId(m.ds, a.winner_trial, label);
+  const verdicts = verdictsOf(a);
+  return h("div", { class: "rn-report" },
+    h("h3", { class: "part-title", text: label ? `The selection, ${label}` : "The selection" }),
+    h("dl", { class: "facts" },
+      h("dt", { text: "Trials" }), h("dd", { class: "num", text: `${fmtInt(a.n_trials)}, over ${fmtInt(a.n_bars)} bars in ${fmtInt(a.n_blocks)} blocks` }),
+      h("dt", { text: "The best" }), h("dd", null,
+        at >= 0 ? h("button", { class: "btn small", type: "button", onclick: () => A.select({ kind: "row", i: at }) }, `row ${fmtInt(at)}`)
+          : h("span", { class: "mono", text: String(a.winner_trial || "–").slice(0, 12) }),
+        Number.isFinite(a.winner_sharpe) ? `, per-bar Sharpe ${fmtNum(a.winner_sharpe, 3)}` : ""),
+      h("dt", { text: "Deflated Sharpe probability" }), h("dd", { class: "num", text: stat(a.deflated_sharpe_probability, "deflated_sharpe_probability", 3) }),
+      h("dt", { text: "Probability of backtest overfitting" }), h("dd", { class: "num", text: stat(a.pbo, "pbo", 2) })),
+    verdicts.length ? verdicts.map(v => h("div", { class: "issue" },
+      h("span", { class: "sev " + (v.verdict === "pass" ? "ok" : v.verdict === "fail" ? "warn" : "off") }, icon(v.verdict === "pass" ? "check" : "alert"),
+        v.verdict === "pass" ? "passes" : v.verdict === "fail" ? "fails" : "unavailable"),
+      h("span", { text: `${v.label} ${v.op} ${fmtNum(v.threshold, 2)}${v.verdict === "unavailable" && v.why ? `: ${v.why}` : ""}` })))
+      : h("p", { class: "isl-note", text: "No threshold declared (sfd.manifest.acceptance), so no verdict." }),
+    h("p", { class: "isl-note", text: "As Limen reports them: of the recorded sweep, the trial with the highest per-bar Sharpe, that Sharpe deflated for the number of trials, and the probability that choosing the best overfits (over two blocks, so of limited resolution). They promise nothing of future loss." }));
 }
 
 function problemsIsland(m, A, health) {

@@ -88,6 +88,24 @@ the market's returns (Limen 5.20), timing per bar; and each half of the
 test window for the per-bar figures and these needles. Grid's gates stand
 on them: entries at least 30 and per-trade t at least 2.
 
+From Limen 5.23 each round says whether it recorded a convergence warning
+(`_convergence_warning`): a fit diagnostic, the share of rows with one,
+fewer better, so the Board says which parameters it follows. Limen's own
+report of them (`convergence_report.json`, written at the run's end) is
+in the Run view: the rounds with the diagnostics to say, those that
+warned and, of one result directory, the parameter values it found them
+with; of several, only the counts add up, as each directory lists only
+the values it saw a warning with. A walk-forward run
+(`split_walk_forward`, Limen 5.21) fits each trial afresh on successive
+test windows: its row holds the means over them, Limen replays no trial
+and makes no sensor of one, so it has no replay and no cohort. Its
+selection report (`acceptance_report.json`, Limen 5.22) is in the Run
+view as Limen wrote it: the best trial by per-bar Sharpe, its deflated
+Sharpe probability, the CSCV probability of backtest overfitting over two
+blocks, and the declared thresholds' verdicts, an unavailable statistic
+with Limen's reason. A live server reads the reports afresh
+(`/api/reports`), as a run writes them when it ends.
+
 ## Statistics
 
 All statistics are computed on the rows in the current **context** (a

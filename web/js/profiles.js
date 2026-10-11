@@ -177,7 +177,20 @@ export const LIMEN_METRICS = {
   optimal_threshold: { label: "Chosen threshold", unit: "", better: 0, digits: 3 },
   // LightGBM's and XGBoost's, with uel.record_model_outputs (Limen 5.17)
   best_iteration: { label: "Boosting iterations used", unit: "", better: 0, digits: 0 },
+  // whether the round recorded a ConvergenceWarning, of a walk-forward
+  // trial in any fold (Limen 5.23; its report is convergence_report.json)
+  _convergence_warning: { label: "Convergence warning", unit: "share of rows", kind: "binary", better: -1, digits: 2 },
 };
+
+// A walk-forward run's declaration (sfd.manifest.split_walk_forward, Limen
+// 5.21: its folds, each a test window of its own, and the bars purged and
+// embargoed between them), or null for a run of one test window. A trial's
+// row holds its means over the folds; Limen replays no walk-forward trial
+// and makes no sensor of one.
+export function walkForwardOf(experiment) {
+  const wf = ((((experiment || {}).manifest || {}).sfd || {}).manifest || {}).split_walk_forward;
+  return wf && typeof wf === "object" ? wf : null;
+}
 
 // What a round's test probabilities say of its threshold, joined to its row
 // from the round log (uel.record_model_outputs, Limen 5.17; the server
@@ -244,7 +257,9 @@ export const LIMEN_DERIVED = [
 // the manifest (shards) has each row's directory as a parameter too, so
 // the checks on how parameters were drawn say whether the shards drew
 // alike, and each round replays from its own directory. A run that
-// recorded its execution has the needles and gates of LIMEN_EXECUTION.
+// recorded its execution has the needles and gates of LIMEN_EXECUTION. A
+// walk-forward run's rows are its trials' means over their folds, and
+// replay none.
 export function limenProfile(experiment) {
   const m = experiment.manifest || {};
   const sfd = m.sfd || {};
@@ -258,6 +273,7 @@ export function limenProfile(experiment) {
   const valId = declared ? `val_${declared.metric}` : null;
   const metrics = declared ? { ...LIMEN_METRICS, [valId]: { ...(LIMEN_METRICS[valId] || { label: `Validation ${declared.metric}`, unit: "", digits: 3 }), better: -way } } : LIMEN_METRICS;
   const dirOf = row => (shards ? shards.get(row.shard) : experiment.dir);
+  const walkForward = walkForwardOf(experiment);
   return {
     id: "limen",
     name: meta.name || "Limen experiment",
@@ -270,7 +286,7 @@ export function limenProfile(experiment) {
     // its ids, warnings and search strategy, and whether it was injected
     // rather than drawn (only an intervention injects one)
     ids: ["_round_index", "_generation_index"],
-    diagnostic: ["execution_time", "optimal_threshold", "best_iteration"],
+    diagnostic: ["execution_time", "optimal_threshold", "best_iteration", "_convergence_warning"],
     text: ["id", "_id", "_warnings", "_search_strategy", "_injected", "strict_mode_error", "_dropped_features"],
     metrics,
     derived: LIMEN_DERIVED, roundTargets: LIMEN_ROUND, execution: LIMEN_EXECUTION, gates: [], gatesPrefix: null, invariants: [],
@@ -285,8 +301,12 @@ export function limenProfile(experiment) {
     // A round is replayed from its result directory by Limen's Trainer,
     // which rebuilds it from the manifest and checks its metrics against
     // results.csv (docs/Trainer.md); a pack made before the page knew the
-    // directory has no command.
-    replay: typeof experiment.dir === "string" || shards ? {
+    // directory has no command, and a walk-forward trial none at all.
+    walkForward,
+    replay: walkForward ? {
+      refused: "Limen replays no walk-forward trial: its model is fitted afresh in each fold, and Limen's Trainer rebuilds a round of one test window.",
+      python: () => null,
+    } : typeof experiment.dir === "string" || shards ? {
       title: `Replay it exactly (with Limen${experiment.host ? `, on ${experiment.host}` : ""}; it checks the round's metrics)`,
       python: (row) => (typeof row.id === "string" && typeof dirOf(row) === "string"
         ? `from limen.inference import Trainer\n\ntrainer = Trainer(${JSON.stringify(dirOf(row))})\nsensor, = trainer.train([${JSON.stringify(row.id)}])`

@@ -8,6 +8,9 @@ Routes:
 - ``/api/stream``   server-sent events that bring a page holding the cursor
                     up to date, as rows and log lines arrive;
 - ``/api/row``      one row rebuilt from its columns (``?run=ID&i=N``);
+- ``/api/reports``  a Limen run's reports (convergence, a walk-forward
+                    run's selection), read afresh: Limen writes them at
+                    the run's end;
 - ``/api/cohort``   a cohort of a Limen run's rounds judged on what the run
                     recorded (``?run=ID&rows=I,J,...[&fee=BPS&slip=BPS]``,
                     grid/cohort.py);
@@ -50,6 +53,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .cohort import RoundLines, bar_step, costs_of, judge
 from .experiment import Project
+from .limen import dir_reports, walk_forward
 from .sweep import SHARD, Cursor, Json, Sweep
 
 CURSOR_TTL = 600.0
@@ -123,6 +127,11 @@ class Server:
             exp = run.experiment
             if not exp or exp.get("kind") != "limen":
                 raise ValueError("a cohort is made of a Limen run's rounds")
+            if walk_forward(exp.get("manifest")):
+                raise ValueError("a walk-forward run's trials make no "
+                                 "cohort: Limen replays none of them and "
+                                 "makes no sensor of one (each is fitted "
+                                 "afresh in every fold)")
             if exp.get("host"):
                 raise ValueError("a run read over SSH has its rounds' "
                                  "records on its host")
@@ -179,6 +188,37 @@ class Server:
         out["dirs"] = sorted({labels.get(d, "") for d in where}) \
             if labels else []
         return out
+
+    def reports(self, q: dict[str, str]) -> Json:
+        """A Limen run's reports, read afresh (Limen writes them at the
+        run's end): each of its result directories', under its label when
+        there are several (as experiment.reports has them); for a run read
+        over SSH, as they were read when it opened."""
+        s = self.sweep
+        with s.lock:
+            run = next((r for r in s.runs if r.id == q.get("run")), None)
+            if run is None:
+                raise ValueError("no run %r" % (q.get("run"),))
+            exp = run.experiment
+            if not exp or exp.get("kind") != "limen":
+                raise ValueError("only a Limen run has Limen's reports")
+            known: Any = exp.get("reports")
+            single: Any = exp.get("dir")
+            shards: Any = exp.get("shards")
+            host: Any = exp.get("host")
+        if host:
+            return {"reports": known if isinstance(known, list) else []}
+        dirs: list[tuple[str | None, str]] = (
+            [(None, single)] if isinstance(single, str)
+            else [(str(p[0]), str(p[1]))
+                  for p in cast(list[list[Any]], shards)]
+            if isinstance(shards, list) else [])
+        out: list[Json] = []
+        for label, d in dirs:
+            entry: Json = {"label": label}
+            entry.update(dir_reports(d))
+            out.append(entry)
+        return {"reports": out}
 
     def make_cohort(self, project: Project, body: dict[str, Any]) -> Json:
         """Make a predictor of a run's rows in the project: their rounds,
@@ -283,6 +323,11 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
                 try:
                     return self.send_json(server.cohort(q))
                 except (ValueError, OSError) as exc:
+                    return self.fail(400, str(exc))
+            if url.path == "/api/reports":
+                try:
+                    return self.send_json(server.reports(q))
+                except ValueError as exc:
                     return self.fail(400, str(exc))
             if url.path == "/api/experiment" and server.project:
                 return self.send_json(server.project.state())

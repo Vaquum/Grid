@@ -68,9 +68,11 @@ from .follow import (
 )
 from .limen import (
     ROUND_LOG,
+    dir_reports,
     experiment_name,
     manifest_copy,
     read_experiment,
+    read_reports,
     shard_labels,
     shards_problem,
 )
@@ -160,6 +162,8 @@ class Wiring:
                     [label, d] for label, d in zip(self.shards, full,
                                                    strict=True)]
             self.experiment["host"] = args.ssh or None
+            self.experiment["reports"] = self.reports_of(self.dirs,
+                                                         self.shards)
             name = name or experiment_name(self.experiment)
         self.sweep = Sweep(name or default_name(self.results_path()))
         self.followers: list[FileFollower | SSHFollower] = []
@@ -235,6 +239,31 @@ class Wiring:
                 return read_experiment(meta_text, meta, name, f.read())
         except ValueError as err:
             raise SystemExit(str(err)) from err
+
+    def reports_of(self, dirs: list[str],
+                   labels: list[str] | None) -> list[Json]:
+        """Each result directory's reports, as Limen wrote them at its
+        run's end (grid/limen.py read_reports), under its label when there
+        are several."""
+        out: list[Json] = []
+        for k, d in enumerate(dirs):
+            entry: Json = {"label": labels[k] if labels else None}
+            entry.update(self.read_reports(d))
+            out.append(entry)
+        return out
+
+    def read_reports(self, directory: str) -> Json:
+        """A result directory's reports, on the run's host for one read
+        over SSH."""
+        host: str | None = self.args.ssh
+        if host is None:
+            return dir_reports(directory)
+        try:
+            names = list_remote(host, directory)
+        except RuntimeError:
+            names = []
+        return read_reports(names, lambda name: read_remote(
+            host, posixpath.join(directory, name)))
 
     def shown(self, path: str) -> str:
         """The path as the page names it (``--as`` rewrites a prefix, for
@@ -396,6 +425,7 @@ class Wiring:
                 experiment["shards"] = [[lb, os.path.abspath(d)]
                                         for lb, d in zip(labels, dirs,
                                                          strict=True)]
+                experiment["reports"] = self.reports_of(dirs, labels)
                 run = Run(run_id, label, ", ".join(
                     self.shown(self.results_path(d)) for d in dirs), None,
                     True, None, "csv", experiment, labels)
@@ -407,6 +437,7 @@ class Wiring:
                 self.opened += 1
                 run_id = "p%d" % self.opened
                 experiment["dir"] = os.path.abspath(dirs[0])
+                experiment["reports"] = self.reports_of(dirs, None)
                 run = self.add_run(run_id, label, self.results_path(dirs[0]),
                                    None, True, None, "csv", experiment)
                 self.add_round_log(run, dirs[0])
