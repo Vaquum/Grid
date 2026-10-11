@@ -208,12 +208,17 @@ the browser tests when `GRID_PLAYWRIGHT` is set. The same checks run on
 every pull request and every push to main
 ([.github/workflows/checks.yml](.github/workflows/checks.yml)), on Python
 3.11 and Node 24 with pyright, ruff and Playwright at the versions pinned
-there. The reference values need numpy, pandas and scipy: `python
-tools/golden_engine.py --out tests/golden/engine.json`.
+there. Every hour, the limen-updates workflow
+([.github/workflows/limen-updates.yml](.github/workflows/limen-updates.yml))
+opens an issue for each new Limen release, titled with its version and
+the pull request it merged and linking to it (`tools/limen_updates.py`,
+with the workflow's own token). The reference values need numpy, pandas
+and scipy: `python tools/golden_engine.py --out tests/golden/engine.json`.
 
 - `grid/`: columnar store, log parser, followers (file, SSH), server, CLI
 - `web/js/`: stats, pack decoding, schema and profiles, the engine, the views
-- `tools/`: build, synthetic sweeps, simulator, live demo, reference values
+- `tools/`: build, synthetic sweeps, simulator, live demo, reference values,
+  Limen's releases as issues
 - `tests/`: Python, JavaScript (against scipy references) and browser tests
 
 ## License
