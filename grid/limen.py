@@ -138,11 +138,12 @@ def walk_forward(manifest: Any) -> Json | None:
     """A manifest's walk-forward declaration (``sfd.manifest.
     split_walk_forward``, Limen 5.21), or None for a run of one test
     window."""
-    sfd: Any = manifest.get("sfd") if isinstance(manifest, dict) else None
-    inner: Any = sfd.get("manifest") if isinstance(sfd, dict) else None
-    wf: Any = inner.get("split_walk_forward") \
-        if isinstance(inner, dict) else None
-    return cast(Json, wf) if isinstance(wf, dict) else None
+    node: Any = manifest
+    for key in ("sfd", "manifest", "split_walk_forward"):
+        if not isinstance(node, dict):
+            return None
+        node = cast(Json, node).get(key)
+    return cast(Json, node) if isinstance(node, dict) else None
 
 
 def shard_labels(dirs: list[str]) -> list[str]:

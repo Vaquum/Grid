@@ -5,7 +5,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cardOutcomes, convergenceOf, verdictsOf } from "../../web/js/view-run.js";
+import { cardOutcomes, convergenceOf, convergenceState, verdictsOf } from "../../web/js/view-run.js";
 
 const target = (id, n, extra = {}) => ({ id, label: id, kind: "cont", values: Float64Array.from({ length: n }, (_, i) => i), ...extra });
 
@@ -40,6 +40,10 @@ test("the convergence reports: counts summed across directories, the values Lime
   const two = convergenceOf([{ convergence: CONVERGENCE }, { convergence: { ...CONVERGENCE, observed_rounds: 6, convergence_warning_rounds: 0, unavailable_rounds: 1 } }, { convergence: null }]);
   assert.deepEqual([two.observed, two.warned, two.unavailable, two.share, two.patterns], [10, 2, 1, 0.2, null]);
   assert.equal(convergenceOf([{ convergence: null }, {}]), null);
+  // some warned; none did (not that they converged); nothing observed, nothing known
+  assert.equal(convergenceState(one), "warned");
+  assert.equal(convergenceState({ observed: 4, warned: 0 }), "none");
+  assert.equal(convergenceState({ observed: 0, warned: 0 }), "unknown");
 });
 
 test("a selection's verdicts: pass, fail, or unavailable with Limen's reason, for the thresholds declared", () => {

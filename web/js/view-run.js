@@ -907,15 +907,25 @@ function reportsIsland(m, A) {
   return isl;
 }
 
+// What the convergence counts say: some rounds warned, none did (which
+// is not to say they converged: Limen observed no warning, no more), or
+// nothing is known (no round had the diagnostics).
+export function convergenceState(c) {
+  return !c.observed ? "unknown" : c.warned === 0 ? "none" : "warned";
+}
+
 function convergencePart(m, A, c) {
-  const ok = c.warned === 0;
+  const state = convergenceState(c);
   const top = (c.patterns || []).filter(p => p.warned > 0).slice(0, 3);
-  const board = m.schema.targetById.has("_convergence_warning") && !ok;
+  const board = m.schema.targetById.has("_convergence_warning") && state === "warned";
   return h("div", { class: "rn-report" }, h("div", { class: "issue" },
-    h("span", { class: "sev " + (ok ? "ok" : "warn") }, icon(ok ? "check" : "alert"), ok ? "converged" : "convergence"),
+    h("span", { class: "sev " + (state === "none" ? "ok" : state === "warned" ? "warn" : "off") },
+      state === "unknown" ? null : icon(state === "none" ? "check" : "alert"),
+      state === "none" ? "no warning" : state === "warned" ? "convergence" : "unknown"),
     h("div", null,
-      h("div", { text: c.observed ? `${fmtInt(c.warned)} of ${fmtInt(c.observed)} rounds observed (${fmtPct(c.share, 0)}) recorded a convergence warning.`
-        : "No round had the diagnostics to say whether it converged." }),
+      h("div", { text: state === "unknown" ? "No round had the diagnostics to say whether it recorded a convergence warning."
+        : state === "none" ? `None of the ${fmtInt(c.observed)} rounds observed recorded a convergence warning.`
+        : `${fmtInt(c.warned)} of ${fmtInt(c.observed)} rounds observed (${fmtPct(c.share, 0)}) recorded a convergence warning.` }),
       c.unavailable ? h("div", { class: "muted", text: `${fmtInt(c.unavailable)} more had none to say, and are left out.` }) : null,
       top.length ? h("div", { class: "muted" }, "Most with ", ...top.flatMap((p, k) => [k ? "; " : null,
         h("span", { class: "mono" }, wrapName(p.parameter), ` = ${p.value}`), ` (${fmtInt(p.warned)} of ${fmtInt(p.observed)})`]),
