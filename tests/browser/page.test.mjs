@@ -477,16 +477,21 @@ test("charts are drawn at their box's width, so their text is the small size at 
     for (const c of charts) assert.equal(c.fs, "11px");
   }
   // the cards of a row start their charts at one height, however their tags
-  // wrap: each row's chart tops, by the row's top, once the cards are laid
-  // out in rows at this width (a measure taken while the view is drawn
-  // again after the resize reads every box at 0)
-  await page.waitForFunction(() => new Set([...document.querySelectorAll(".rn-grid .rn-card")].map(c => Math.round(c.getBoundingClientRect().top))).size > 1,
-    null, { timeout: 10000 });
-  const rows = await page.$$eval(".rn-grid .rn-card", cards => {
+  // wrap: each row's chart tops, by the row's top, measured in one frame
+  // once the cards are laid out in rows at this width (a measure taken
+  // while the view is drawn again after the resize reads every box at 0,
+  // so it is taken again until the view has settled, up to 5 s)
+  const measure = () => page.$$eval(".rn-grid .rn-card", cards => {
     const by = {};
     for (const c of cards) (by[Math.round(c.getBoundingClientRect().top)] ||= []).push(Math.round(c.querySelector(".chart").getBoundingClientRect().top));
     return by;
   });
+  const level = (by) => Object.keys(by).length > 1 && Object.values(by).every(tops => new Set(tops).size === 1);
+  let rows = await measure();
+  for (let k = 0; k < 50 && !level(rows); k++) {
+    await page.waitForTimeout(100);
+    rows = await measure();
+  }
   const said = `chart tops by row (900 px wide, ${await page.evaluate(() => document.documentElement.scrollWidth)} px of page): ${JSON.stringify(rows)}`;
   assert.ok(Object.keys(rows).length > 1, said);
   assert.ok(Object.values(rows).every(tops => new Set(tops).size === 1), said);
