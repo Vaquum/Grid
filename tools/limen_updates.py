@@ -60,7 +60,8 @@ def filed(issues: list[Json]) -> set[str]:
     """The versions this repository has an issue for already."""
     out: set[str] = set()
     for issue in issues:
-        if issue.get("pull_request"):
+        # GitHub lists pull requests among the issues, marked so
+        if "pull_request" in issue:
             continue
         m = _FILED.match(str(issue.get("title") or ""))
         if m:
