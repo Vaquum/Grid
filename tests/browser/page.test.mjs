@@ -368,15 +368,17 @@ test("a Limen run: its bookkeeping is no needle, and a long name wraps after an 
   for (const id of bookkeeping) assert.ok(!picked.includes(id), id);
   // a card's name in a box too narrow for it wraps after an underscore,
   // every part whole on its line, and reads and copies as written; after
-  // a word, it moves to the next line whole, as a word does
-  const got = await page.locator('.pcard .pc-name[title="long_threshold_percentile"]').evaluate(el => {
+  // a word, it moves to the next line whole, as a word does. Found and
+  // measured in one task: the Board draws its cards again when its
+  // background analysis ends, and a card found a moment before is gone.
+  const got = await page.evaluate(() => {
+    const el = document.querySelector('.pcard .pc-name[title="long_threshold_percentile"]');
     el.style.width = "16ch";
     const range = document.createRange();
     const tops = n => { range.selectNodeContents(n); return [...new Set([...range.getClientRects()].map(r => Math.round(r.top)))]; };
     const texts = () => { const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), out = []; while (w.nextNode()) out.push(w.currentNode); return out; };
-    // the lines a name takes, read off its text: its box (.nm) has a rect of
-    // its own; and what a copy takes, the rendered text (a selection of the
-    // card's name read empty in headless Chromium on macOS, not on Linux)
+    // the lines a name takes, read off its text (its box, .nm, has a rect
+    // of its own), and what a copy takes, its text as rendered
     const parts = texts();
     const alone = { text: el.textContent, copied: el.innerText, parts: parts.map(n => n.textContent), lines: parts.map(n => tops(n).length), all: new Set(parts.flatMap(tops)).size };
     el.prepend("xxxxxxxx ");
