@@ -6,9 +6,10 @@ pull request (the release's own, when it names none).
     python3 tools/limen_updates.py --repo Vaquum/Grid [--dry-run]
 
 Limen's releases say what they merged ("Merged pull requests: #912").
-Those published after ``--since`` are read (by default Limen v5.24.0,
-which Grid follows already), and those this repository has an issue for
-already (titled "Limen <version>...") are passed over. GitHub is read and
+Every one published after ``--since`` is read (by default Limen v5.24.0,
+which Grid follows already), a page at a time back to it, and those this
+repository has an issue for already (titled "Limen <version>...", among
+every issue opened since then) are passed over. GitHub is read and
 written with ``GITHUB_TOKEN``, in the workflow its own token, so the
 polling weighs on no one's API quota; without one, Limen is read as
 anyone may read it and nothing is opened, as with ``--dry-run``: the
@@ -33,6 +34,9 @@ UPSTREAM = "Vaquum/Limen"
 SINCE = "2026-10-11T10:18:06Z"
 _MERGED = re.compile(r"Merged pull requests:\s*([^\n]*)")
 _FILED = re.compile(r"Limen (\S+?)(?::|$)")
+
+# a listing is read 100 at a time, at most this many pages
+PAGES = 50
 
 Get = Callable[[str], Any]
 Post = Callable[[str, Json], Any]
@@ -83,18 +87,35 @@ def issue_for(release: Json, titles: dict[int, str],
                       for n in prs))
 
 
+def pages(get: Get, path: str, older: Callable[[Json], bool]) -> list[Json]:
+    """A listing's items, newest first, read a page of 100 at a time up to
+    the page that reaches back past what is wanted (an item ``older``), or
+    its last."""
+    out: list[Json] = []
+    join = "&" if "?" in path else "?"
+    for page in range(1, PAGES + 1):
+        items = cast(list[Json], get("%s%sper_page=100&page=%d"
+                                     % (path, join, page)))
+        out.extend(items)
+        if len(items) < 100 or any(older(i) for i in items):
+            break
+    return out
+
+
 def run(repo: str, get: Get, post: Post | None, since: str = SINCE,
         upstream: str = UPSTREAM) -> list[str]:
     """Open an issue for each new release (none when ``post`` is None);
     what was done, a line each."""
-    releases = cast(list[Json], get("/repos/%s/releases?per_page=30"
-                                    % upstream))
+    releases = pages(get, "/repos/%s/releases" % upstream, lambda r: bool(
+        r.get("published_at")) and str(r.get("published_at")) <= since)
     new = fresh(releases, since)
     if not new:
         return ["no Limen release since %s" % since]
-    have = filed(cast(list[Json], get(
-        "/repos/%s/issues?state=all&per_page=100&sort=created"
-        "&direction=desc" % repo)))
+    # an issue for a release is opened after it: those opened since the
+    # first are every one there can be
+    have = filed(pages(
+        get, "/repos/%s/issues?state=all&sort=created&direction=desc" % repo,
+        lambda i: str(i.get("created_at") or "") < since))
     said: list[str] = []
     for release in new:
         tag = str(release.get("tag_name"))

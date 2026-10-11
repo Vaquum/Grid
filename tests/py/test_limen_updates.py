@@ -10,7 +10,15 @@ from __future__ import annotations
 import unittest
 from typing import Any
 
-from tools.limen_updates import SINCE, filed, fresh, issue_for, merged, run
+from tools.limen_updates import (
+    SINCE,
+    filed,
+    fresh,
+    issue_for,
+    merged,
+    pages,
+    run,
+)
 
 Json = dict[str, Any]
 
@@ -37,19 +45,32 @@ PRS = {915: "feat(experiment): run rounds in parallel within one limen run",
        916: "docs: parallel rounds"}
 
 
+def page(items: list[Json], path: str) -> list[Json]:
+    """The page of 100 a listing's path asks for."""
+    n = int(path.rsplit("page=", 1)[1])
+    return items[(n - 1) * 100:n * 100]
+
+
 class GitHub:
     """GitHub's API as the script reads and writes it: Limen's releases
-    and pull requests, this repository's issues, and the issues opened."""
+    and pull requests, this repository's issues (newest first, as asked
+    for), each listing a page of 100 at a time; what was read, and the
+    issues opened."""
 
-    def __init__(self, issues: list[Json]) -> None:
+    def __init__(self, issues: list[Json],
+                 releases: list[Json] | None = None) -> None:
         self.issues = issues
+        self.releases = RELEASES if releases is None else releases
+        self.reads: list[str] = []
         self.opened: list[tuple[str, Json]] = []
 
     def get(self, path: str) -> Any:
-        if path == "/repos/Vaquum/Limen/releases?per_page=30":
-            return RELEASES
-        if path.startswith("/repos/Vaquum/Grid/issues?state=all"):
-            return self.issues
+        self.reads.append(path)
+        if path.startswith("/repos/Vaquum/Limen/releases?per_page=100&"):
+            return page(self.releases, path)
+        if path.startswith("/repos/Vaquum/Grid/issues?state=all&sort=created"
+                           "&direction=desc&per_page=100&"):
+            return page(self.issues, path)
         if path.startswith("/repos/Vaquum/Limen/pulls/"):
             return {"title": PRS[int(path.rsplit("/", 1)[1])]}
         raise AssertionError("not read: %s" % path)
@@ -131,6 +152,59 @@ class Run(unittest.TestCase):
                              since="2026-10-12T08:00:00Z"),
                          ["no Limen release since 2026-10-12T08:00:00Z"])
         self.assertEqual(gh.opened, [])
+        self.assertEqual(gh.reads, [
+            "/repos/Vaquum/Limen/releases?per_page=100&page=1"])
+
+    def test_every_release_since_is_read_however_many(self) -> None:
+        # 130 releases since the last followed, none naming a pull
+        # request: two pages of them, back to the first older one
+        many = [release("v6.%d.0" % k,
+                        "2026-10-%02dT00:00:00Z" % (31 - k // 10), "")
+                for k in range(130)] + RELEASES[3:]
+        gh = GitHub([], many)
+        said = run("Vaquum/Grid", gh.get, None)
+        self.assertEqual(len(said), 130)
+        self.assertEqual([r for r in gh.reads if "/releases?" in r], [
+            "/repos/Vaquum/Limen/releases?per_page=100&page=1",
+            "/repos/Vaquum/Limen/releases?per_page=100&page=2"])
+
+    def test_a_release_filed_long_ago_is_found_among_many_issues(
+            self) -> None:
+        # 150 issues opened since v5.25.0's, all after the last release
+        # followed: its issue is on the second page, and it is not filed
+        # again
+        newer = [{"title": "issue %d" % k,
+                  "created_at": "2026-10-12T%02d:00:00Z" % (k % 24)}
+                 for k in range(150)]
+        gh = GitHub(newer + [
+            {"title": "Limen v5.25.0: feat(experiment): run rounds in "
+                      "parallel within one limen run (and 1 more)",
+             "created_at": "2026-10-11T20:00:00Z"},
+            {"title": "Limen v5.25.1",
+             "created_at": "2026-10-12T08:30:00Z"},
+            {"title": "before", "created_at": "2026-10-10T00:00:00Z"}])
+        self.assertEqual(run("Vaquum/Grid", gh.get, gh.post), [
+            "filed already: Limen v5.25.0", "filed already: Limen v5.25.1"])
+        self.assertEqual(gh.opened, [])
+
+
+class Pages(unittest.TestCase):
+    def test_a_listing_is_read_back_to_what_is_wanted(self) -> None:
+        items = [{"n": k} for k in range(250)]
+        reads: list[str] = []
+
+        def get(path: str) -> Any:
+            reads.append(path)
+            return page(items, path)
+        # what is wanted ends at item 180: two pages are read
+        self.assertEqual(len(pages(get, "/x?a=1", lambda i: i["n"] >= 180)),
+                         200)
+        self.assertEqual(reads, ["/x?a=1&per_page=100&page=1",
+                                 "/x?a=1&per_page=100&page=2"])
+        # all of it is wanted: every page, to the short last one
+        reads.clear()
+        self.assertEqual(len(pages(get, "/x", lambda i: False)), 250)
+        self.assertEqual(reads[-1], "/x?per_page=100&page=3")
 
 
 if __name__ == "__main__":
