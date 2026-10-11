@@ -15,8 +15,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request cancels its older run. Each push to main
+# is a group of its own: one group for main would drop a waiting run when
+# a newer one is queued, and a commit in between would go unchecked.
 concurrency:
-  group: checks-${{ github.event.pull_request.number || github.ref }}
+  group: checks-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
