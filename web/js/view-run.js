@@ -18,7 +18,7 @@ import { independence, moderatorParents, boardDims, background, setName, TOGETHE
 import { clusterJob, clusterOutcomes, mannWhitney, composition, MIN_SILHOUETTE } from "./clusters.js";
 import { bhQ, rankAt } from "./stats.js";
 import { heldBack } from "./outputs.js";
-import { rankAgreement, HALF_NAMES } from "./halves.js";
+import { rankAgreement, HALF_NAMES, firstHalfOnly } from "./halves.js";
 import { rowRounds } from "./pack.js";
 
 // The log a run's runner writes.
@@ -895,25 +895,32 @@ function runsIsland(m, A) {
   const t = m.target;
   const keys = (m.schema.objective || []).map(([id, dir]) => ({ id, dir, t: m.schema.targetById.get(id) })).filter(k => k.t);
   const cache = m.cache.runSchemas || (m.cache.runSchemas = new Map());
+  // the other runs read as this one is: with First half on, their needles'
+  // first halves, and none of a needle they do not measure on each half
+  const half = !!m.schema.firstHalf;
+  const read = (x) => (x && (!half || x.base) ? x : null);
   const tbl = h("table", { class: "vals" }, h("thead", null, h("tr", null,
     h("th", { text: "Run" }), h("th", { class: "r", text: "Rows" }), h("th", { class: "r", text: t.label }),
     h("th", { class: "r", text: "95% interval" }), keys.map(k => h("th", { class: "r", text: `Best ${inText(k.t.label)}` })))));
   const tb = h("tbody");
   for (const ds of m.sweep.runs) {
-    let entry = cache.get(ds.id);
-    if (!entry || entry.version !== ds.version) {
-      const exp = ds.meta.experiment;
-      const sc = ds === m.ds ? m.schema : buildSchema(ds, exp && exp.kind === "limen" ? { profile: limenProfile(exp) } : {});
-      entry = { version: ds.version, schema: sc };
-      cache.set(ds.id, entry);
+    let sc = m.schema;
+    if (ds !== m.ds) {
+      let entry = cache.get(ds.id);
+      if (!entry || entry.version !== ds.version || entry.half !== half) {
+        const exp = ds.meta.experiment;
+        const built = buildSchema(ds, exp && exp.kind === "limen" ? { profile: limenProfile(exp) } : {});
+        entry = { version: ds.version, half, schema: half ? firstHalfOnly(built) : built };
+        cache.set(ds.id, entry);
+      }
+      sc = entry.schema;
     }
-    const sc = entry.schema;
-    const tt = sc.targetById.get(t.id);
+    const tt = read(sc.targetById.get(t.id));
     const rows = rowsIn(sc, [], ds.n);
     const s = tt ? summarize(tt, rows) : null;
     // the best a run reached on one of the objective's keys, that key's way
     const best = (k) => {
-      const x = sc.targetById.get(k.id);
+      const x = read(sc.targetById.get(k.id));
       if (!x) return "–";
       const up = k.dir < 0;
       let b = up ? -Infinity : Infinity;
@@ -925,7 +932,7 @@ function runsIsland(m, A) {
       onclick: () => A.set({ run: ds.id, sel: null, context: [], pocket: [], edge: null, clusters: [], clusterK: null }) },
     h("td", null, h("b", { text: runName(ds.meta) }), ds.meta.live ? h("span", { class: "muted", text: " · being written" }) : null),
     h("td", { class: "r num", text: fmtInt(ds.n) }),
-    h("td", { class: "r num", text: s ? fmtT(t, s.mean) : "no such needle" }),
+    h("td", { class: "r num", text: s ? fmtT(t, s.mean) : sc.targetById.get(t.id) ? "not on each half" : "no such needle" }),
     h("td", { class: "r num", text: s ? rangeText(t, s.lo, s.hi) : "–" }),
     keys.map(k => h("td", { class: "r num", text: best(k) }))));
   }

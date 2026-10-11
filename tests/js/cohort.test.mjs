@@ -106,7 +106,7 @@ test("the members' mean leaves out what a member did not have", () => {
 
 test("a predictor keeps how its members were chosen, said as the page says it", () => {
   const net = { label: "Net PnL per bar", halves: [new Float64Array(6), new Float64Array(6)] };
-  const m = { target: net, schema, state: { firstHalf: false } };
+  const m = { target: net, schema, state: { firstHalf: false, found: "whole", pocket: [{ dim: "shard", keys: ["s2"] }] } };
   const pocket = [{ dim: "gone", keys: ["x"] }, { dim: "shard", keys: ["s2"] }];
   const g = { label: "Net PnL per bar ≥ 0", def: { op: ">=", value: 0 }, target: net, pass: new Float64Array(6) };
   const how = howChosen(m, pocket, gateReads({ ...schema, gates: [g, standing] }), [5, 1, 3], [5, 1, 3]);
@@ -115,13 +115,20 @@ test("a predictor keeps how its members were chosen, said as the page says it", 
     pocket: ["shard = s2"], gates: ["Net PnL per bar ≥ 0 (on the first half)"], analysis: "the whole window", untouched: true });
   assert.deepEqual(chosenText(how), ["The best 5 by Net PnL per bar on the first half; in the pocket shard = s2; passing Net PnL per bar ≥ 0 (on the first half).",
     "Its pocket and gates were found with the other views reading the whole window, the second half too."]);
-  // with First half on, the other views read the first half only: nothing
-  // to say of them; and the needle in view, its first half, is read from
-  // the one measured on both
-  const blind = howChosen({ target: { ...net, label: "Net PnL per bar, first half", halves: null, base: net }, schema, state: { firstHalf: true } },
-    pocket, gateReads({ ...schema, gates: [g, standing] }), [5, 1, 3], [5, 1, 3]);
+  // a pocket found with First half on: nothing to say of the other views;
+  // and the needle in view, its first half, is read from the one measured
+  // on both
+  const blind = howChosen({ target: { ...net, label: "Net PnL per bar, first half", halves: null, base: net }, schema,
+    state: { firstHalf: true, found: "first", pocket: [{ dim: "shard", keys: ["s2"] }] } }, pocket, gateReads({ ...schema, gates: [g, standing] }), [5, 1, 3], [5, 1, 3]);
   assert.deepEqual([blind.needle, blind.on, blind.analysis], ["Net PnL per bar", "the first half", "the first half"]);
   assert.equal(chosenText(blind).length, 1);
+  // First half on now does not make a pocket found with the whole window
+  // one found without it
+  const late = howChosen({ target: net, schema, state: { firstHalf: true, found: "whole", pocket: [{ dim: "shard", keys: ["s2"] }] } },
+    pocket, gateReads({ ...schema, gates: [g, standing] }), [5, 1, 3], [5, 1, 3]);
+  assert.equal(late.analysis, "the whole window");
+  // nothing chosen: nothing to say
+  assert.equal(howChosen({ target: net, schema, state: { firstHalf: false, found: null } }, [], [], [5], [5]).analysis, null);
   // a gate read over the whole window: kept, and said
   const whole = howChosen(m, [], gateReads(schema), [5, 1, 3], [5, 1, 3]);
   assert.deepEqual([whole.gates, whole.untouched], [["Entries ≥ 10 (over the whole window)"], false]);

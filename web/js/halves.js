@@ -39,6 +39,21 @@ export function wholeWindow(schema, t) {
   return true;
 }
 
+// How the choice in view (the pocket, the gates set, the context) was
+// found, from the state before a change and after it: "first" while every
+// change to it was made with First half on; "whole" once one was made, or
+// First half was off, while it stood, or when nothing is known of how it
+// was made (an address from before this was kept); null with nothing
+// chosen. A choice found reading the first half only has never seen the
+// second, which the Cohort view judges a cohort on.
+export function choiceFound(prev, next) {
+  const chosen = (s) => !!s && ["pocket", "gates", "context"].some(k => (s[k] || []).length > 0);
+  if (!chosen(next)) return null;
+  if (!next.firstHalf) return "whole";
+  if (prev && (prev.found === "first" || prev.found === "whole") && chosen(prev)) return prev.found;
+  return chosen(prev) ? "whole" : "first";
+}
+
 // A needle's halves as needles of their own, or null when it has none.
 export function halfTargets(t) {
   if (!t || !t.halves) return null;

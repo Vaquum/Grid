@@ -13,7 +13,7 @@ import { h, clear, icon, installTips, hideTip, syncInfo, fmtInt, fmtRowValue, ru
 import { runStatus, rowsSince, lastRowAt } from "./status.js";
 import { manifestSection, figureLine } from "./manifest.js";
 import { applyGates } from "./gates.js";
-import { halfTargets, twice, firstHalfOnly, wholeWindow } from "./halves.js";
+import { halfTargets, twice, firstHalfOnly, wholeWindow, choiceFound } from "./halves.js";
 import { renderBoard } from "./view-board.js";
 import { renderInspector } from "./inspector.js";
 import { renderPocket } from "./view-pocket.js";
@@ -52,7 +52,7 @@ function views(run) {
 const DEFAULT_STATE = {
   run: null, view: "board", target: null, context: [], pocket: [], pocketB: null,
   sel: null, edge: null, show: { flat: true }, pair: null, order: 2, featSort: "effect",
-  trialCols: ["movers", "halves"], gates: [], clusters: [], compare: false, clusterK: null, firstHalf: false,
+  trialCols: ["movers", "halves"], gates: [], clusters: [], compare: false, clusterK: null, firstHalf: false, found: null,
 };
 
 const app = {
@@ -71,7 +71,7 @@ const app = {
 
 function encodeState(st) {
   const o = { v: st.view, r: st.run, t: st.target, c: st.context, p: st.pocket, pb: st.pocketB, s: st.sel, e: st.edge, pr: st.pair, po: st.order, sh: st.show, fs: st.featSort, tc: st.trialCols, g: st.gates,
-    cl: st.clusters, cm: st.compare, ck: st.clusterK, fh: st.firstHalf ? 1 : undefined };
+    cl: st.clusters, cm: st.compare, ck: st.clusterK, fh: st.firstHalf ? 1 : undefined, fo: st.found || undefined };
   const json = JSON.stringify(o);
   const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(json)));
   return "s1." + b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -87,7 +87,8 @@ function decodeState(hash) {
     return { ...DEFAULT_STATE, view: o.v, run: o.r, target: o.t, context: o.c || [], pocket: o.p || [], pocketB: Array.isArray(o.pb) ? o.pb : null, sel: o.s || null,
       edge: o.e ?? null, pair: o.pr || null, order: o.po || 2, show: o.sh || DEFAULT_STATE.show, featSort: o.fs || "effect",
       trialCols: Array.isArray(o.tc) ? o.tc : DEFAULT_STATE.trialCols, gates: Array.isArray(o.g) ? o.g : [],
-      clusters: Array.isArray(o.cl) ? o.cl : [], compare: !!o.cm, clusterK: Number.isInteger(o.ck) ? o.ck : null, firstHalf: o.fh === 1 };
+      clusters: Array.isArray(o.cl) ? o.cl : [], compare: !!o.cm, clusterK: Number.isInteger(o.ck) ? o.ck : null, firstHalf: o.fh === 1,
+      found: o.fo === "first" || o.fo === "whole" ? o.fo : null };
   } catch (err) {
     console.warn("ignoring an address that is not a Grid view", err);
     return null;
@@ -95,6 +96,9 @@ function decodeState(hash) {
 }
 
 function pushState(next, replace = false) {
+  // how the pocket, the gates and the context were found: on the first half
+  // only, or not
+  next = { ...next, found: choiceFound(app.state, next) };
   app.state = next;
   const token = "#" + encodeState(next);
   try {

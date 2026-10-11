@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { board } from "../../web/js/engine.js";
-import { halfTargets, agreement, twice, twiceDiff, showsIn, rankAgreement, firstHalfRanks, keptLead, persistence, firstHalfOnly, wholeWindow }
+import { halfTargets, agreement, twice, twiceDiff, showsIn, rankAgreement, firstHalfRanks, keptLead, persistence, firstHalfOnly, wholeWindow, choiceFound }
   from "../../web/js/halves.js";
 import { applyGates } from "../../web/js/gates.js";
 
@@ -72,6 +72,30 @@ test("read on the first half only: a needle measured on each half reads its firs
   // a run without halves is read as it is
   const flat = { ...schema, targets: [auc], targetById: new Map([["auc", auc]]) };
   assert.equal(firstHalfOnly(flat), flat);
+});
+
+test("how a pocket was found: on the first half only while every change to it was made with First half on", () => {
+  const p = [{ dim: "a", keys: ["1"] }];
+  const none = { pocket: [], gates: [], context: [], firstHalf: true, found: null };
+  // nothing chosen: nothing to say
+  assert.equal(choiceFound(none, none), null);
+  // set with First half on, and changed with it on: found on the first half
+  const first = { ...none, pocket: p, found: choiceFound(none, { ...none, pocket: p }) };
+  assert.equal(first.found, "first");
+  assert.equal(choiceFound(first, { ...first, gates: [{ id: "g1" }] }), "first");
+  // First half turned off while it stands, or a change made with it off:
+  // the whole window, and turning it on again does not undo that
+  const off = { ...first, firstHalf: false, found: choiceFound(first, { ...first, firstHalf: false }) };
+  assert.equal(off.found, "whole");
+  assert.equal(choiceFound(off, { ...off, firstHalf: true }), "whole");
+  assert.equal(choiceFound({ ...none, firstHalf: false }, { ...none, firstHalf: false, context: p }), "whole");
+  // cleared, and set again with First half on: the first half again
+  const cleared = { ...off, pocket: [], firstHalf: true, found: choiceFound(off, { ...off, pocket: [], firstHalf: true }) };
+  assert.equal(cleared.found, null);
+  assert.equal(choiceFound(cleared, { ...cleared, pocket: p }), "first");
+  // a pocket from an address that kept no account: the whole window
+  assert.equal(choiceFound({ ...none, pocket: p, found: null }, { ...none, pocket: p, found: null }), "whole");
+  assert.equal(choiceFound(undefined, { ...none, pocket: p }), "first");
 });
 
 test("an effect counts only when it shows in both halves, its values ordered alike", () => {

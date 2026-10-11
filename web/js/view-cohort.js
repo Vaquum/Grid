@@ -267,13 +267,19 @@ function poolIsland(m, A, pocket, reads, pool) {
     h("button", { class: "btn small", type: "button", onclick: () => A.set({ view: "pocket" }) }, "Pocket ", h("kbd", { text: "2" })),
     h("button", { class: "btn small", type: "button", onclick: () => A.set({ view: "gates" }) }, "Gates ", h("kbd", { text: "6" }))));
   if (!pool.length) isl.append(h("p", { class: "isl-note", text: "No row in view is in the pocket and passes every gate: widen the pocket or loosen a gate." }));
-  // the pocket is found with the other views: with First half on they
-  // never show the second half
+  // the pocket is found with the other views: how it was found, as the
+  // address kept it (app.js, halves.js choiceFound)
   if (m.cache.schema.targets.some(x => x.halves)) {
-    isl.append(h("p", { class: "isl-note co-half" }, m.state.firstHalf
-      ? "First half is on: the other views read the first half of the test window only, so the pocket and the gates were found without the second half."
-      : ["The other views read the whole test window, the second half too: turn on ", h("button", { class: "btn small", type: "button",
-        onclick: () => A.set({ firstHalf: true }) }, "First half ", h("kbd", { text: "H" })), " before finding the pocket, and the second half stays unseen until the cohort is judged on it."]));
+    const st = m.state;
+    const chosen = ["pocket", "gates", "context"].some(k => (st[k] || []).length > 0);
+    const on = (label) => h("button", { class: "btn small", type: "button", onclick: () => A.set({ firstHalf: true }) }, label, " ", h("kbd", { text: "H" }));
+    isl.append(h("p", { class: "isl-note co-half" }, !chosen
+      ? (st.firstHalf ? "First half is on: find the pocket and set the gates, and the second half stays unseen until the cohort is judged on it."
+        : ["The other views read the whole test window, the second half too: turn on ", on("First half"), " before finding the pocket, and the second half stays unseen until the cohort is judged on it."])
+      : st.found === "first" ? "Set with First half on: the pocket, the gates and the context were found without the second half."
+        : ["The pocket, the gates or the context were set while the other views read the whole window, the second half too, so it helped choose them. To keep it unseen, ",
+          h("button", { class: "btn small", type: "button", onclick: () => A.set({ pocket: [], gates: [], context: [], firstHalf: true }) }, "clear them and turn on First half"),
+          ", then find them again."]));
   }
   return isl;
 }
@@ -499,8 +505,10 @@ export function howChosen(m, pocket, reads, mine, members) {
   const out = { needle: t.label, on: t.halves ? "the first half" : "the whole window", best: pick.n,
     byHand: { out: [...top].filter(i => !chosen.has(i)).length, in: members.filter(i => !top.has(i)).length },
     pocket: said, gates: reads.map(r => `${r.label} (${r.firstHalf ? "on the first half" : "over the whole window"})`),
-    // whether the other views read the first half only while the pocket was found
-    analysis: m.state.firstHalf ? "the first half" : "the whole window",
+    // what the other views read while the pocket, the gates and the context
+    // were found (none chosen: nothing to say)
+    analysis: m.state.found === "first" ? "the first half"
+      : ["pocket", "gates", "context"].some(k => (m.state[k] || []).length > 0) ? "the whole window" : null,
     untouched: !touchedBy(t, reads) };
   if (j) {
     const half = (p) => p ? { pnl: p.pnl, trades: p.trades } : null;
