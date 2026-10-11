@@ -57,9 +57,10 @@ export function choiceFound(prev, next, whole = false) {
 
 // Whether the needle a state shows (`schema`: the run's, as measured)
 // reads the whole window with First half on: one the run does not measure
-// on each half, a gate on one, or every gate set when one of them is.
+// on each half, a gate on one, or every gate set when one of them is; on
+// a run measured on no half, every needle.
 export function needleReadsWhole(schema, st) {
-  if (!schema.targets.some(t => t.halves)) return false;
+  if (!schema.targets.some(t => t.halves)) return true;
   const halved = (id) => { const t = schema.targetById.get(id); return !!(t && t.halves); };
   const defs = [...(schema.standingGates || []), ...(st.gates || [])].filter(d => d && typeof d === "object");
   const id = typeof st.target === "string" && st.target ? st.target : schema.defaultTarget;

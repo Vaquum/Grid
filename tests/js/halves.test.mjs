@@ -111,8 +111,11 @@ test("the needle a state shows reads the whole window with First half on when th
   const gates = [{ id: "g1", target: "pnl" }, { id: "g2", target: "auc" }];
   assert.deepEqual([on({ target: "gate:g1", gates }), on({ target: "gate:g2", gates }), on({ target: "gate:pnl_up", gates }),
     on({ target: "gates:all", gates }), on({ target: "gates:all", gates: gates.slice(0, 1) })], [false, true, false, true, false]);
-  // a run without halves: nothing reads otherwise
-  assert.equal(needleReadsWhole({ ...schema, targets: [auc] }, { target: "auc" }), false);
+  // a run without halves: every needle reads the whole window, so a choice
+  // made there with First half on is found on the whole window
+  assert.equal(needleReadsWhole({ ...schema, targets: [auc] }, { target: "auc" }), true);
+  const p = [{ dim: "a", keys: ["1"] }];
+  assert.equal(choiceFound({ firstHalf: true }, { firstHalf: true, gates: p }, needleReadsWhole({ ...schema, targets: [auc] }, { target: "auc" })), "whole");
 });
 
 test("an effect counts only when it shows in both halves, its values ordered alike", () => {
