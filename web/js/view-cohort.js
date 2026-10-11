@@ -497,14 +497,17 @@ function makeIsland(m, A, pocket, reads, mine, members) {
 export function howChosen(m, pocket, reads, mine, members) {
   const t = m.target.base || m.target;
   const j = pick.judging ? null : pick.judged;
-  const said = pocketOf(m.schema, pocket).map(c => {
+  const say = (conds) => pocketOf(m.schema, conds).map(c => {
     const d = m.schema.dimById.get(c.dim);
     return `${d.label} = ${c.keys.map(k => (d.levels.find(l => l.key === k) || { label: k }).label).join(" or ")}`;
   });
+  const said = say(pocket);
+  const context = say(m.state.context || []);
   const top = new Set(mine.slice(0, pick.n)), chosen = new Set(members);
   const out = { needle: t.label, on: t.halves ? "the first half" : "the whole window", best: pick.n,
     byHand: { out: [...top].filter(i => !chosen.has(i)).length, in: members.filter(i => !top.has(i)).length },
     pocket: said, gates: reads.map(r => `${r.label} (${r.firstHalf ? "on the first half" : "over the whole window"})`),
+    ...(context.length ? { context } : {}),
     // what the other views read while the pocket, the gates and the context
     // were found (none chosen: nothing to say)
     analysis: m.state.found === "first" ? "the first half"
@@ -526,10 +529,11 @@ export function chosenText(how) {
     how.byHand.in ? `${fmtInt(how.byHand.in)} put in` : null].filter(Boolean) : [];
   const pocket = how.pocket && how.pocket.length ? `in the pocket ${how.pocket.join("; ")}` : "no pocket";
   const gates = how.gates && how.gates.length ? `passing ${how.gates.join("; ")}` : "no gate";
-  const lines = [`The best ${fmtInt(how.best)} by ${how.needle} on ${how.on}${hand.length ? `, ${hand.join(" and ")} by hand` : ""}; ${pocket}; ${gates}.`];
+  const context = how.context && how.context.length ? `; of the rows in the context ${how.context.join("; ")}` : "";
+  const lines = [`The best ${fmtInt(how.best)} by ${how.needle} on ${how.on}${hand.length ? `, ${hand.join(" and ")} by hand` : ""}; ${pocket}; ${gates}${context}.`];
   if (how.untouched === false) lines.push("The second half helped choose them, so it does not judge them untouched.");
-  else if (how.analysis === "the whole window" && ((how.pocket || []).length || (how.gates || []).length)) {
-    lines.push("Its pocket and gates were found with the other views reading the whole window, the second half too.");
+  else if (how.analysis === "the whole window") {
+    lines.push("Its pocket, gates or context were found with the other views reading the whole window, the second half too.");
   }
   const j = how.judged;
   if (j && j.cohort) {

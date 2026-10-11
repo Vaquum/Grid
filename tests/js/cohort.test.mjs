@@ -114,7 +114,7 @@ test("a predictor keeps how its members were chosen, said as the page says it", 
   assert.deepEqual(how, { needle: "Net PnL per bar", on: "the first half", best: 5, byHand: { out: 0, in: 0 },
     pocket: ["shard = s2"], gates: ["Net PnL per bar ≥ 0 (on the first half)"], analysis: "the whole window", untouched: true });
   assert.deepEqual(chosenText(how), ["The best 5 by Net PnL per bar on the first half; in the pocket shard = s2; passing Net PnL per bar ≥ 0 (on the first half).",
-    "Its pocket and gates were found with the other views reading the whole window, the second half too."]);
+    "Its pocket, gates or context were found with the other views reading the whole window, the second half too."]);
   // a pocket found with First half on: nothing to say of the other views;
   // and the needle in view, its first half, is read from the one measured
   // on both
@@ -129,6 +129,12 @@ test("a predictor keeps how its members were chosen, said as the page says it", 
   assert.equal(late.analysis, "the whole window");
   // nothing chosen: nothing to say
   assert.equal(howChosen({ target: net, schema, state: { firstHalf: false, found: null } }, [], [], [5], [5]).analysis, null);
+  // a cohort narrowed by the context alone, found reading the whole window,
+  // keeps the context and says so
+  const ctx = howChosen({ target: net, schema, state: { firstHalf: false, found: "whole", context: [{ dim: "shard", keys: ["s1"] }] } }, [], [], [5], [5]);
+  assert.deepEqual([ctx.context, ctx.analysis], [["shard = s1"], "the whole window"]);
+  assert.deepEqual(chosenText(ctx), ["The best 5 by Net PnL per bar on the first half; no pocket; no gate; of the rows in the context shard = s1.",
+    "Its pocket, gates or context were found with the other views reading the whole window, the second half too."]);
   // a gate read over the whole window: kept, and said
   const whole = howChosen(m, [], gateReads(schema), [5, 1, 3], [5, 1, 3]);
   assert.deepEqual([whole.gates, whole.untouched], [["Entries ≥ 10 (over the whole window)"], false]);

@@ -895,10 +895,11 @@ function runsIsland(m, A) {
   const t = m.target;
   const keys = (m.schema.objective || []).map(([id, dir]) => ({ id, dir, t: m.schema.targetById.get(id) })).filter(k => k.t);
   const cache = m.cache.runSchemas || (m.cache.runSchemas = new Map());
-  // the other runs read as this one is: with First half on, their needles'
-  // first halves, and none of a needle they do not measure on each half
+  // the other runs read as this one is: with First half on, a needle's
+  // first half where this run reads its first half, its whole window where
+  // this run reads that, and none where a run reads it otherwise
   const half = !!m.schema.firstHalf;
-  const read = (x) => (x && (!half || x.base) ? x : null);
+  const read = (x, as) => (x && (!half || !!x.base === !!as.base) ? x : null);
   const tbl = h("table", { class: "vals" }, h("thead", null, h("tr", null,
     h("th", { text: "Run" }), h("th", { class: "r", text: "Rows" }), h("th", { class: "r", text: t.label }),
     h("th", { class: "r", text: "95% interval" }), keys.map(k => h("th", { class: "r", text: `Best ${inText(k.t.label)}` })))));
@@ -915,12 +916,12 @@ function runsIsland(m, A) {
       }
       sc = entry.schema;
     }
-    const tt = read(sc.targetById.get(t.id));
+    const tt = read(sc.targetById.get(t.id), t);
     const rows = rowsIn(sc, [], ds.n);
     const s = tt ? summarize(tt, rows) : null;
     // the best a run reached on one of the objective's keys, that key's way
     const best = (k) => {
-      const x = read(sc.targetById.get(k.id));
+      const x = read(sc.targetById.get(k.id), k.t);
       if (!x) return "–";
       const up = k.dir < 0;
       let b = up ? -Infinity : Infinity;

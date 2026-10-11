@@ -6,7 +6,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { board } from "../../web/js/engine.js";
-import { halfTargets, agreement, twice, twiceDiff, showsIn, rankAgreement, firstHalfRanks, keptLead, persistence, firstHalfOnly, wholeWindow, choiceFound }
+import { halfTargets, agreement, twice, twiceDiff, showsIn, rankAgreement, firstHalfRanks, keptLead, persistence, firstHalfOnly, wholeWindow, choiceFound,
+  needleReadsWhole }
   from "../../web/js/halves.js";
 import { applyGates } from "../../web/js/gates.js";
 
@@ -96,6 +97,22 @@ test("how a pocket was found: on the first half only while every change to it wa
   // a pocket from an address that kept no account: the whole window
   assert.equal(choiceFound({ ...none, pocket: p, found: null }, { ...none, pocket: p, found: null }), "whole");
   assert.equal(choiceFound(undefined, { ...none, pocket: p }), "first");
+  // chosen with First half on but a needle in view that reads the whole
+  // window anyway: the whole window
+  assert.equal(choiceFound(none, { ...none, pocket: p }, true), "whole");
+});
+
+test("the needle a state shows reads the whole window with First half on when the run does not measure it on each half", () => {
+  const auc = { id: "auc", label: "AUC", values: new Float64Array(N) };
+  const schema = { targets: [target, auc], targetById: new Map([["pnl", target], ["auc", auc]]), defaultTarget: "pnl",
+    standingGates: [{ id: "pnl_up", target: "pnl", op: ">=", value: 0 }] };
+  const on = (patch) => needleReadsWhole(schema, { gates: [], ...patch });
+  assert.deepEqual([on({ target: "pnl" }), on({ target: null }), on({ target: "auc" })], [false, false, true]);
+  const gates = [{ id: "g1", target: "pnl" }, { id: "g2", target: "auc" }];
+  assert.deepEqual([on({ target: "gate:g1", gates }), on({ target: "gate:g2", gates }), on({ target: "gate:pnl_up", gates }),
+    on({ target: "gates:all", gates }), on({ target: "gates:all", gates: gates.slice(0, 1) })], [false, true, false, true, false]);
+  // a run without halves: nothing reads otherwise
+  assert.equal(needleReadsWhole({ ...schema, targets: [auc] }, { target: "auc" }), false);
 });
 
 test("an effect counts only when it shows in both halves, its values ordered alike", () => {

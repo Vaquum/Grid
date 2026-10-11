@@ -13,7 +13,7 @@ import { h, clear, icon, installTips, hideTip, syncInfo, fmtInt, fmtRowValue, ru
 import { runStatus, rowsSince, lastRowAt } from "./status.js";
 import { manifestSection, figureLine } from "./manifest.js";
 import { applyGates } from "./gates.js";
-import { halfTargets, twice, firstHalfOnly, wholeWindow, choiceFound } from "./halves.js";
+import { halfTargets, twice, firstHalfOnly, wholeWindow, choiceFound, needleReadsWhole } from "./halves.js";
 import { renderBoard } from "./view-board.js";
 import { renderInspector } from "./inspector.js";
 import { renderPocket } from "./view-pocket.js";
@@ -98,7 +98,7 @@ function decodeState(hash) {
 function pushState(next, replace = false) {
   // how the pocket, the gates and the context were found: on the first half
   // only, or not
-  next = { ...next, found: choiceFound(app.state, next) };
+  next = { ...next, found: choiceFound(app.state, next, !!app.cache.schema && needleReadsWhole(app.cache.schema, next)) };
   app.state = next;
   const token = "#" + encodeState(next);
   try {

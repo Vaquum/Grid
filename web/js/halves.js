@@ -46,12 +46,29 @@ export function wholeWindow(schema, t) {
 // was made (an address from before this was kept); null with nothing
 // chosen. A choice found reading the first half only has never seen the
 // second, which the Cohort view judges a cohort on.
-export function choiceFound(prev, next) {
+export function choiceFound(prev, next, whole = false) {
   const chosen = (s) => !!s && ["pocket", "gates", "context"].some(k => (s[k] || []).length > 0);
   if (!chosen(next)) return null;
-  if (!next.firstHalf) return "whole";
+  // First half off, or a needle in view that reads the whole window anyway
+  if (!next.firstHalf || whole) return "whole";
   if (prev && (prev.found === "first" || prev.found === "whole") && chosen(prev)) return prev.found;
   return chosen(prev) ? "whole" : "first";
+}
+
+// Whether the needle a state shows (`schema`: the run's, as measured)
+// reads the whole window with First half on: one the run does not measure
+// on each half, a gate on one, or every gate set when one of them is.
+export function needleReadsWhole(schema, st) {
+  if (!schema.targets.some(t => t.halves)) return false;
+  const halved = (id) => { const t = schema.targetById.get(id); return !!(t && t.halves); };
+  const defs = [...(schema.standingGates || []), ...(st.gates || [])].filter(d => d && typeof d === "object");
+  const id = typeof st.target === "string" && st.target ? st.target : schema.defaultTarget;
+  if (id === "gates:all" || id === "gates:count") return !(st.gates || []).every(d => d && halved(d.target));
+  if (typeof id === "string" && id.startsWith("gate:")) {
+    const d = defs.find(x => x.id === id.slice(5));
+    return !d || !halved(d.target);
+  }
+  return !halved(id);
 }
 
 // A needle's halves as needles of their own, or null when it has none.
