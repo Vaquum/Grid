@@ -88,6 +88,9 @@ test("a run read from several result directories has its directory as a paramete
   assert.match(p.replay.python({ id: "abc", shard: "s2" }), /^from limen\.inference import Trainer\n\ntrainer = Trainer\("\/runs\/s2"\)/);
   assert.equal(p.replay.python({ id: "abc", shard: "s3" }), null);
   // one directory: no such parameter
+  // a run read without a shard that wrote nothing plans the whole run's
+  // rows, as the server gives them, not its read directory's
+  assert.equal(limenProfile({ ...exp, dir: "/runs/s1", shards: undefined, planned: 1000 }).planned, 1000);
   const one = limenProfile({ ...exp, dir: "/runs/s1", shards: undefined });
   assert.deepEqual(Object.keys(one.params), ["a"]);
   assert.equal(one.planned, 500);

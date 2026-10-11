@@ -273,7 +273,11 @@ export function limenProfile(experiment) {
     defaultTarget: declared ? declared.metric : "backtest_pnl_per_bar_bps",
     objective: declared ? [[valId, way]] : [["backtest_pnl_per_bar_bps", -1]],
     objectiveLabel: declared ? metrics[valId].label.toLowerCase() : "net PnL per bar",
-    planned: Number.isInteger(uel.n_permutations) ? uel.n_permutations * (shards ? shards.size : 1) : null,
+    // the rows the run plans: the whole run's, as the server knows it (a
+    // run Grid started, read without a shard that wrote nothing), else its
+    // manifest's rounds in each directory read
+    planned: Number.isInteger(experiment.planned) && experiment.planned > 0 ? experiment.planned
+      : Number.isInteger(uel.n_permutations) ? uel.n_permutations * (shards ? shards.size : 1) : null,
     // A round is replayed from its result directory by Limen's Trainer,
     // which rebuilds it from the manifest and checks its metrics against
     // results.csv (docs/Trainer.md); a pack made before the page knew the

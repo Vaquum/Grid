@@ -43,6 +43,21 @@ test("a run that has just started over is not quiet for the time before it", () 
   assert.deepEqual(said(st({ lastRow: NaN, since: rowsSince(now - 3600, meta) })), ["live", "Live", "no new row yet"]);
 });
 
+test("a run that has written every row it planned is finished, though its log has no closing summary", () => {
+  // a Limen run: no log, its plan from the manifest
+  assert.deepEqual(said(st({ planned: 100, lastRow: now - 3600 })), ["finished", "Finished", "last row 60 min ago"]);
+  assert.match(st({ planned: 100 }).tip, /all 100 rows it planned/);
+  assert.equal(st({ planned: 80 }).label, "Finished");
+  // short of its plan, or without one: live, then quiet, as before
+  assert.deepEqual(said(st({ planned: 200, lastRow: now - 700 })), ["quiet", "Quiet", "last row 12 min ago"]);
+  assert.equal(st({ planned: 200 }).label, "Live");
+  assert.equal(st({ planned: null, lastRow: now - 700 }).label, "Quiet");
+  // a crash, the replay edge and the link to the server still come first
+  assert.equal(st({ planned: 100, seg: { status: "crashed", crash: { line: 40 }, progress: [] } }).label, "Crashed");
+  assert.equal(st({ planned: 100, edge: 40 }).label, "Replay");
+  assert.equal(st({ planned: 100, connected: false }).label, "Reconnecting");
+});
+
 test("a crash in the run's latest segment says so, until a progress line says it went on", () => {
   const seg = { status: "crashed", crash: { line: 40 }, progress: [[30, 100, 14]] };
   assert.equal(st({ seg }).label, "Crashed");
