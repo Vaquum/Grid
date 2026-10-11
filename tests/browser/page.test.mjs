@@ -380,8 +380,9 @@ test("a Limen run: its bookkeeping is no needle, and a long name wraps after an 
     sel.addRange(range);
     const copied = sel.toString();
     sel.removeAllRanges();
+    // the lines a name takes, read off its text: its box (.nm) has a rect of its own
     const parts = texts();
-    const alone = { text: el.textContent, copied, parts: parts.map(n => n.textContent), lines: parts.map(n => tops(n).length), all: tops(el).length };
+    const alone = { text: el.textContent, copied, parts: parts.map(n => n.textContent), lines: parts.map(n => tops(n).length), all: new Set(parts.flatMap(tops)).size };
     el.prepend("xxxxxxxx ");
     const [word, ...after] = texts();
     return { ...alone, moved: tops(after[0])[0] > tops(word)[0], afterLines: after.map(n => tops(n).length) };
@@ -393,6 +394,12 @@ test("a Limen run: its bookkeeping is no needle, and a long name wraps after an 
   assert.equal(got.all, 2, "the name did not wrap");
   assert.ok(got.moved, "the name's first part stayed behind on the word's line");
   assert.deepEqual(got.afterLines, [1, 1, 1]);
+  // a name in a table's cell is a box of its own too
+  await page.keyboard.press("2");
+  await page.waitForSelector("table.suggest td.v");
+  const cells = await page.$$eval("table.suggest td.v", tds => tds.map(td => ({ name: td.textContent.split(" ")[0], boxed: !!td.firstElementChild && td.firstChild === td.firstElementChild && td.firstElementChild.matches(".nm") })));
+  assert.ok(cells.some(c => c.boxed), "no suggestion names a parameter of more than one part");
+  for (const c of cells) assert.equal(c.boxed, /[^_]_[^_]/.test(c.name), c.name);
   await page.keyboard.press("6");
   await page.waitForSelector(".gt-maker");
   const made = await page.$$eval(".gt-maker .gt-needle option", os => os.map(o => o.value));

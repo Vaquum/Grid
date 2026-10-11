@@ -491,7 +491,7 @@ function combinations(ctx, dims, r) {
       const what = c.at.map((x, i) => `${dims[i].label} = ${dims[i].levels[x].label}`).join(" · ");
       const look = () => ctx.A.set({ context: [...ctx.m.context.filter(x => !conds.some(k => k.dim === x.dim)), ...conds], view: "board" });
       tb.append(h("tr", { class: "clickable", tabindex: "0", onclick: look, onkeydown: (e) => { if (e.key === "Enter") look(); } },
-        h("td", { class: "v", text: what }), h("td", { class: "r num", text: fmtInt(c.n) }), h("td", { class: "r num", text: fmtT(t, c.mean) }),
+        h("td", { class: "v" }, wrapName(what)), h("td", { class: "r num", text: fmtInt(c.n) }), h("td", { class: "r num", text: fmtT(t, c.mean) }),
         h("td", { class: "iv" }, intervalBar(c.mean, c.lo, c.hi, base.mean, domain))));
     }
     tbl.append(tb);
