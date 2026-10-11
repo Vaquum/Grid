@@ -884,10 +884,18 @@ test("nothing covers what it should not: the reference opens beside the rail, th
   const { page, errors } = await open(1100, 800);
   await page.locator(".pcard .pc-name").first().click();
   await page.waitForSelector("#inspector .part");
-  // the strip's tools are in reach with the inspector open
+  // the strip's tools are in reach with the inspector open: measured with
+  // the strip in view (the view scrolls below the top bar), and a failure
+  // names what is at the point and how far the view had scrolled
+  await page.$eval(".strip", el => el.scrollIntoView({ block: "nearest" }));
   for (const sel of [".strip [data-info]", ".strip-copy"]) {
-    const hit = await page.$eval(sel, el => { const r = el.getBoundingClientRect(); const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!at && el.contains(at); });
-    assert.ok(hit, `${sel} is covered`);
+    const found = await page.$eval(sel, el => {
+      const r = el.getBoundingClientRect();
+      const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return at && el.contains(at) ? null
+        : `${at ? at.outerHTML.slice(0, 160) : "nothing"}, the view scrolled ${document.querySelector(".view").scrollTop}px`;
+    });
+    assert.equal(found, null, `${sel} is covered by ${found}`);
   }
   // and the rail with the reference open
   await page.keyboard.press("i");
