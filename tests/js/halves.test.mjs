@@ -6,7 +6,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { board } from "../../web/js/engine.js";
-import { halfTargets, agreement, twice, twiceDiff, showsIn, rankAgreement, firstHalfRanks, keptLead, persistence } from "../../web/js/halves.js";
+import { halfTargets, agreement, twice, twiceDiff, showsIn, rankAgreement, firstHalfRanks, keptLead, persistence, firstHalfOnly, wholeWindow }
+  from "../../web/js/halves.js";
+import { applyGates } from "../../web/js/gates.js";
 
 // A deterministic noise source (an LCG), uniform on [-1, 1).
 function noise(seed) {
@@ -37,6 +39,39 @@ test("a needle's halves are needles of their own", () => {
   assert.equal(a.values, h1);
   assert.equal(b.halves, null);
   assert.equal(halfTargets({ ...target, halves: undefined }), null);
+});
+
+test("read on the first half only: a needle measured on each half reads its first, named so, with no second; gates read it so", () => {
+  const auc = { id: "auc", label: "AUC", unit: "", kind: "cont", better: 1, digits: 3, values: new Float64Array(N).fill(0.6) };
+  const schema = { n: N, targets: [target, auc], targetById: new Map([["pnl", target], ["auc", auc]]), gates: [],
+    standingGates: [{ id: "pnl_up", target: "pnl", op: ">=", value: 0 }] };
+  const read = firstHalfOnly(schema);
+  const pnl = read.targetById.get("pnl");
+  assert.deepEqual([pnl.id, pnl.label, pnl.values, pnl.halves, pnl.base], ["pnl", "Net PnL per bar, first half", h1, null, target]);
+  assert.equal(read.targets[0], pnl);
+  // nothing of the second half is left to show
+  assert.equal(halfTargets(pnl), null);
+  assert.ok(!read.targets.some(t => t.halves));
+  // a needle not measured on each half reads the whole window, as it was
+  assert.equal(read.targetById.get("auc"), auc);
+  // the gates set on the needle, and the profile's own, read its first half
+  const gated = applyGates(read, [{ id: "g1", target: "pnl", op: ">", value: 0 }, { id: "g2", target: "auc", op: ">=", value: 0.5 }]);
+  const pass = (id) => [...gated.gates.find(g => g.id === id).pass];
+  assert.deepEqual(pass("g1"), [...h1].map(v => (v > 0 ? 1 : 0)));
+  assert.deepEqual(pass("pnl_up"), [...h1].map(v => (v >= 0 ? 1 : 0)));
+  assert.notDeepEqual(pass("g1"), [...values].map(v => (v > 0 ? 1 : 0)));
+  // which needles still read the whole window: one without halves, a gate
+  // on it, and every gate together when one of them does
+  const whole = (id) => wholeWindow(gated, gated.targetById.get(id));
+  assert.deepEqual(["pnl", "auc", "gate:g1", "gate:g2", "gate:pnl_up", "gates:all", "gates:count"].map(whole),
+    [false, true, false, true, false, true, true]);
+  const halvedOnly = applyGates(read, [{ id: "g1", target: "pnl", op: ">", value: 0 }]);
+  assert.equal(wholeWindow(halvedOnly, halvedOnly.targetById.get("gates:all")), false);
+  // the whole window read as it is: nothing is said to read it
+  assert.equal(wholeWindow(applyGates(schema, []), auc), false);
+  // a run without halves is read as it is
+  const flat = { ...schema, targets: [auc], targetById: new Map([["auc", auc]]) };
+  assert.equal(firstHalfOnly(flat), flat);
 });
 
 test("an effect counts only when it shows in both halves, its values ordered alike", () => {

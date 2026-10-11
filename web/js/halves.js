@@ -13,6 +13,32 @@ import { normInv } from "./stats.js";
 
 export const HALF_NAMES = ["first half", "second half"];
 
+// The schema read on the first half of the test window only (the First
+// half setting): each needle measured on each half reads its first half,
+// under a name that says so, and has no second half to show, so no view
+// sees the bars a cohort is judged on. A needle without halves reads the
+// whole window as before. Each needle read so keeps the one it was read
+// from (`base`), for the Cohort view, which ranks on one half and judges
+// on the other. A run without halves is read as it is.
+export function firstHalfOnly(schema) {
+  if (!schema.targets.some(t => t.halves)) return schema;
+  const targets = schema.targets.map(t => (t.halves
+    ? { ...t, label: `${t.label}, ${HALF_NAMES[0]}`, values: t.halves[0], halves: null, base: t }
+    : t));
+  return { ...schema, targets, targetById: new Map(targets.map(t => [t.id, t])), firstHalf: true };
+}
+
+// Whether a needle, on a schema read on the first half only, still reads
+// the whole window: one not measured on each half, or a gate's pass resting
+// on one (a gate reads as its needle does; every gate set, as its gates).
+export function wholeWindow(schema, t) {
+  if (!schema.firstHalf || !t || t.base) return false;
+  const halved = (g) => !!(g && g.target && g.target.base);
+  if (t.gate === "all" || t.gate === "count") return !(schema.gatesSet || []).every(halved);
+  if (t.gate) return !halved((schema.gates || []).find(g => g.id === t.gate));
+  return true;
+}
+
 // A needle's halves as needles of their own, or null when it has none.
 export function halfTargets(t) {
   if (!t || !t.halves) return null;

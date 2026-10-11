@@ -249,7 +249,7 @@ select {
   border: 1px solid var(--border); border-radius: var(--r-m); background: var(--surface);
 }
 .picker .label { color: var(--muted); font-size: var(--fs-m); }
-.picker select { border: 0; background-color: transparent; font-weight: 600; max-width: 22ch; min-height: calc(var(--h-l) - 2px); }
+.picker select { border: 0; background-color: transparent; font-weight: 600; max-width: 28ch; min-height: calc(var(--h-l) - 2px); }
 .chips { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center; }
 .chip {
   display: inline-flex; align-items: center; gap: var(--sp-1); min-height: var(--h-s); padding: 0 var(--sp-1) 0 var(--sp-2);
@@ -258,6 +258,9 @@ select {
 .chip button { border: 0; background: transparent; padding: 0 4px; color: var(--muted); border-radius: 4px; }
 .chip button:hover { color: var(--ink); background: var(--hover); }
 .chip.ghost { border-style: dashed; color: var(--muted); padding-right: var(--sp-2); }
+/* First half, beside the needle; a needle that reads the whole window all the same */
+.half-pick { white-space: nowrap; }
+.chip.warn-chip { border-color: var(--warning); padding-right: var(--sp-2); }
 /* a chip that is itself a button or a link: even sides, no underline */
 :is(button, a).chip { padding-right: var(--sp-2); color: inherit; text-decoration: none; }
 

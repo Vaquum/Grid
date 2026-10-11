@@ -148,7 +148,12 @@ python3 tools/live_demo.py --out /tmp/grid-live --port 8765
 
 The needle (T) is the outcome every view measures: Tradeable (gates ≥ 6
 and total ≥ $3,000, the definition Pocket A was mined with), any metric,
-or any gate's pass. The context narrows every view to rows that hold
+or any gate's pass. On a run whose needles are measured on each half of
+the test window, First half (H) reads every one of them on the first half
+only, gates set on them too, and no view shows the second: the half the
+Cohort view judges a cohort on stays unseen while its pocket is found. A
+needle not measured on each half reads the whole window and says so. The
+context narrows every view to rows that hold
 chosen values (C on a value; Shift C clears). The replay edge hides every
 row after it (Home, [, ], Space, End). The address holds the view, so a
 link reopens it. I opens the reference: every surface and every number,
