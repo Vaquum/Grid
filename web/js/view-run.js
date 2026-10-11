@@ -805,6 +805,8 @@ const reportsRead = { run: null, at: 0, loading: false, got: null, timer: 0 };
 
 function reportsOf(m, A) {
   const exp = m.ds.meta.experiment || {};
+  // only a Limen run has Limen's reports to read
+  if (exp.kind !== "limen") return [];
   const known = Array.isArray(exp.reports) ? exp.reports : [];
   if (!A.isLive()) return known;
   if (reportsRead.run !== m.ds.id) {
