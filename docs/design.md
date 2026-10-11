@@ -383,7 +383,8 @@ the status pill reads the run's own state (Live; Quiet after ten minutes
 without a row, counted for a run read when the server starts from when
 its files were last written, so a run that stopped long ago is not Live;
 Crashed when its latest log segment ends in a crash;
-Finished at the log's closing summary; Archived, Earlier run, Recorded,
+Finished at the log's closing summary, or once every row the run planned
+is written, as a Limen run's manifest plans them; Archived, Earlier run, Recorded,
 Replay, Reconnecting), the tab's title names the sweep and the view, or
 the trouble in the view's place, and its icon carries a dot for a run
 live, quiet or down. Times are the reader's: a clock time, or in full with
