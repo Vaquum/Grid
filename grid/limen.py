@@ -20,6 +20,16 @@ CSV carries no types. Limen writes ``None`` as an empty field and Python
 booleans as ``True``/``False``; numbers and JSON lists (``_warnings``) are
 read back as such, and every other field stays text.
 
+At the run's end Limen writes its reports beside them: from Limen 5.23,
+``convergence_report.json``, the rounds that recorded a convergence warning
+(and from then on results.csv says it of each round,
+``_convergence_warning``); on a walk-forward run (Limen 5.21,
+``split_walk_forward``: each trial fitted afresh and tested on successive
+windows, its row the means over them), ``acceptance_report.json``, the
+selection's deflated Sharpe probability and probability of backtest
+overfitting (Limen 5.22). Limen replays no walk-forward trial and makes no
+sensor of one.
+
 Several result directories of one manifest, run side by side with
 different search seeds (``uel.search_strategy.seed``), read as one run:
 their manifests must be the same but for the seed and where each wrote
@@ -34,12 +44,15 @@ import json
 import math
 import os
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any, cast
 
 Json = dict[str, Any]
 _INT = re.compile(r"[+-]?\d+\Z")
 ROUND_LOG = "round_data.jsonl"
+# the reports Limen writes in a result directory at its run's end
+REPORTS = {"convergence": "convergence_report.json",
+           "acceptance": "acceptance_report.json"}
 # How near its threshold a bar's probability must come to count as within
 # reach: 0.05 in probability, a threshold that much lower would let it pass.
 REACH = 0.05
@@ -88,6 +101,49 @@ def read_experiment(text: str, path: str, manifest_file: str,
             # the objective the run selects by, when its manifest declares
             # one (Limen 5.18): {metric, direction}
             "objective": objective if isinstance(objective, dict) else None}
+
+
+def read_reports(names: Iterable[str], read: Callable[[str], str]) -> Json:
+    """A result directory's reports, from the names of its files and a
+    way to read one: each (``convergence``, ``acceptance``) as Limen wrote
+    it, or None where it has none or one that cannot be read (being
+    written, or not a JSON object)."""
+    have = set(names)
+    out: Json = {}
+    for key, name in REPORTS.items():
+        got: Any = None
+        if name in have:
+            try:
+                got = json.loads(read(name))
+            except (OSError, RuntimeError, ValueError):
+                got = None
+        out[key] = cast(Json, got) if isinstance(got, dict) else None
+    return out
+
+
+def dir_reports(directory: str) -> Json:
+    """A local result directory's reports (read_reports)."""
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        names = []
+
+    def read(name: str) -> str:
+        with open(os.path.join(directory, name), encoding="utf-8") as f:
+            return f.read()
+    return read_reports(names, read)
+
+
+def walk_forward(manifest: Any) -> Json | None:
+    """A manifest's walk-forward declaration (``sfd.manifest.
+    split_walk_forward``, Limen 5.21), or None for a run of one test
+    window."""
+    node: Any = manifest
+    for key in ("sfd", "manifest", "split_walk_forward"):
+        if not isinstance(node, dict):
+            return None
+        node = cast(Json, node).get(key)
+    return cast(Json, node) if isinstance(node, dict) else None
 
 
 def shard_labels(dirs: list[str]) -> list[str]:

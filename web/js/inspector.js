@@ -257,6 +257,7 @@ function rowDetail(box, m, A, i) {
   const out = [];
   const replay = prof && prof.replay ? prof.replay.python(obj) : null;
   if (replay) out.push(...codeBlock(prof.replay.title, replay, A.toast, "Replay copied."));
+  else if (prof && prof.replay && prof.replay.refused) out.push(h("p", { class: "note", text: prof.replay.refused }));
   // with First half on, the whole window's figures of the needles read on
   // the first half are not shown
   const hidden = sc.firstHalf ? sc.targets.filter(t => t.base && Object.hasOwn(obj, t.id)).map(t => t.id) : [];

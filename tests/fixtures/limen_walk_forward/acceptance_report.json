@@ -1,0 +1,19 @@
+{
+  "n_trials": 4,
+  "n_bars": 96,
+  "n_blocks": 2,
+  "winner_trial": "1babaef04fd29dd4cbd61e7cff3cba27161fafbac04fd6641512d66c9e91f213",
+  "winner_sharpe": -0.16338258142502265,
+  "trial_sharpe_variance": 3.893747716250834e-05,
+  "deflated_sharpe_probability": 0.032860478364943935,
+  "pbo": 1.0,
+  "thresholds": {
+    "min_deflated_sharpe_probability": 0.95,
+    "max_pbo": 0.2
+  },
+  "verdicts": {
+    "min_deflated_sharpe_probability": false,
+    "max_pbo": false
+  },
+  "errors": {}
+}

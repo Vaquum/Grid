@@ -886,6 +886,7 @@ tr.sel td { background: var(--on); }
    distribution, what makes each cluster, then two islands a row */
 .view > .island + .island, .view > .island + .rn-pair, .view > .rn-pair + .island, .view > .rn-pair + .rn-pair { margin-top: var(--sp-4); }
 .rn-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: var(--sp-4); align-items: start; }
+.rn-report + .rn-report { margin-top: var(--sp-4); }
 .rn-pick .isl-head .rn-k { margin-left: auto; }
 .rn-k button { min-width: 28px; padding: 0 8px; }
 .rn-chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
