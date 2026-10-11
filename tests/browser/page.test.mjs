@@ -37,9 +37,13 @@ before(async () => {
   // the first 200 rounds of a longer run: enough rounds to fall into groups
   execFileSync("python3", ["-m", "grid", "pack", "--limen", "tests/fixtures/limen_run_200", "--out", join(dir, "limen200.pack.json.gz")], { cwd: ROOT });
   execFileSync("python3", ["tools/build.py", "--pack", join(dir, "limen200.pack.json.gz"), "--out", join(dir, "limen200.html")], { cwd: ROOT, stdio: "ignore" });
+  // a walk-forward run of Limen 5.24, with the reports it writes at the end
+  execFileSync("python3", ["-m", "grid", "pack", "--limen", "tests/fixtures/limen_walk_forward", "--out", join(dir, "limenwf.pack.json.gz")], { cwd: ROOT });
+  execFileSync("python3", ["tools/build.py", "--pack", join(dir, "limenwf.pack.json.gz"), "--out", join(dir, "limenwf.html")], { cwd: ROOT, stdio: "ignore" });
   server = createServer(async (req, res) => {
     try {
-      const page = req.url.startsWith("/limen200") ? "limen200.html" : req.url.startsWith("/limen") ? "limen.html" : "demo.html";
+      const page = req.url.startsWith("/limen200") ? "limen200.html" : req.url.startsWith("/limenwf") ? "limenwf.html"
+        : req.url.startsWith("/limen") ? "limen.html" : "demo.html";
       const body = await readFile(join(dir, page));
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       res.end(body);
@@ -404,6 +408,41 @@ test("a Limen run: its bookkeeping is no needle, and a long name wraps after an 
   const made = await page.$$eval(".gt-maker .gt-needle option", os => os.map(o => o.value));
   assert.ok(made.includes("execution_time"));
   for (const id of bookkeeping) assert.ok(!made.includes(id), id);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("a walk-forward Limen run: Limen's reports in the Run view, no replay and no cohort", async () => {
+  const { page, errors } = await limenPage();
+  await page.goto(base + "limenwf");
+  await page.waitForSelector(".pcard");
+  // whether a round converged is a needle of the fit, not a parameter
+  assert.ok((await page.$$eval("#target-pick option", os => os.map(o => o.value))).includes("_convergence_warning"));
+  assert.equal(await page.locator('.board-sec [title="_convergence_warning"], .board-sec .chip', { hasText: "_convergence_warning" }).count(), 0);
+  await page.keyboard.press("7");
+  const reports = page.locator("section[aria-labelledby=rn-reports]");
+  await reports.waitFor();
+  const text = await reports.innerText();
+  assert.match(text, /Walk-forward: each row is a trial's means over its 2 folds of 49 test bars \(anchored; 4 purged and 3 embargoed between them\)/);
+  assert.match(text, /2 of 4 rounds observed \(50%\) recorded a convergence warning\./);
+  assert.match(text, /Most with max_iter = 2 \(2 of 2\); C = 0\.01 \(1 of 2\); C = 1\.0 \(1 of 2\)/);
+  assert.match(text, /Trials\s+4, over 96 bars in 2 blocks/);
+  assert.match(text, /Deflated Sharpe probability\s+0\.033/);
+  assert.match(text, /Probability of backtest overfitting\s+1\.00/);
+  assert.deepEqual(await reports.locator(".issue .sev").allInnerTexts(), ["convergence", "fails", "fails"]);
+  // the best trial opens in the inspector, which replays none
+  await reports.locator("button", { hasText: /^row \d+$/ }).click();
+  await page.waitForSelector("#inspector p.note");
+  assert.match(await page.locator("#inspector").innerText(), /Limen replays no walk-forward trial: its model is fitted afresh in each fold/);
+  assert.equal(await page.locator("#inspector .code-head", { hasText: "Replay it exactly" }).count(), 0);
+  // what moves the warnings, read on the Board
+  await reports.locator("button", { hasText: "What moves it, on the Board" }).click();
+  await page.waitForFunction(() => document.querySelector("#target-pick").value === "_convergence_warning"
+    && document.querySelector(".rail button[aria-current=page]").getAttribute("aria-label") === "Board");
+  // its trials make no cohort
+  await page.keyboard.press("8");
+  await page.waitForSelector(".view .empty");
+  assert.match(await page.locator(".view .empty").innerText(), /^A walk-forward run's trials make no cohort\./);
   assert.deepEqual(errors, []);
   await page.close();
 });
