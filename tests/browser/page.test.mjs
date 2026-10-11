@@ -359,7 +359,8 @@ async function limenPage() {
 
 test("a Limen run: its bookkeeping is no needle, and a long name wraps after an underscore", async () => {
   const { page, errors } = await limenPage();
-  await page.goto(base + "limen");
+  // 200 rounds: values that reach the 30 rows a suggestion needs
+  await page.goto(base + "limen200");
   await page.waitForSelector(".pcard");
   // neither the needle picker nor the gates' maker offers the round's bookkeeping
   const bookkeeping = ["_round_index", "_generation_index", "_injected"];
