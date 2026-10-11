@@ -3,7 +3,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fmtFixed, fmtNum, fmtInt, fmtPct, fmtT, fmtDelta, fmtPace, rangeText, pctRange, deltaRange, spanText, tickText, unitSuffix } from "../../web/js/ui.js";
+import { fmtFixed, fmtNum, fmtInt, fmtPct, fmtT, fmtDelta, fmtPace, rangeText, pctRange, deltaRange, spanText, tickText, unitSuffix, nameParts } from "../../web/js/ui.js";
 
 const bps = { kind: "cont", unit: "bps", digits: 3 };
 const pct = { kind: "cont", unit: "%", digits: 2 };
@@ -70,4 +70,13 @@ test("a missing figure is a dash", () => {
 test("the pace is written one way wherever it shows", () => {
   assert.equal(fmtPace(4.837), "4.84 rows/s");
   assert.equal(fmtPace(14.12), "14.1 rows/s");
+});
+
+test("a name wraps after an underscore that joins two words, never inside a word", () => {
+  assert.deepEqual(nameParts("long_threshold_percentile"), ["long_", "threshold_", "percentile"]);
+  assert.deepEqual(nameParts("learning_rate · lgbm_hp"), ["learning_", "rate · lgbm_", "hp"]);
+  // nothing to break between: one word, an underscore at either end, a double one
+  for (const name of ["auc", "_injected", "fee_", "a__b"]) assert.deepEqual(nameParts(name), [name]);
+  // the parts are the name as written
+  for (const name of ["confusion_tp_mean_return_pct", "tp × sl", "Net PnL per bar"]) assert.equal(nameParts(name).join(""), name);
 });

@@ -49,6 +49,27 @@ export function clear(el) {
   return el;
 }
 
+// A name wraps after an underscore (long_threshold_ / percentile), not
+// inside a word: the parts it may break between, each underscore that
+// joins two words ending the part before it.
+export function nameParts(name) {
+  return String(name).split(/(?<=[^_]_)(?=[^_])/);
+}
+
+// Text that names things (a name, or names joined: a × b) as nodes. A name
+// of more than one part is a box of its own (.nm), so it moves to the next
+// line whole, as a word does, and wraps at its parts only when it alone is
+// wider than the line: <wbr> between them, which adds nothing to copied or
+// searched text. A part wider than the line breaks where overflow-wrap lets.
+export function wrapName(text) {
+  const s = String(text);
+  if (nameParts(s).length < 2) return [s];
+  return s.split(/( +)/).filter(Boolean).map(word => {
+    const parts = nameParts(word);
+    return parts.length < 2 ? word : h("span", { class: "nm" }, parts.flatMap((part, i) => (i ? [h("wbr"), part] : [part])));
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Numbers. Every number on the page is written one way: a true minus
 // (−0.021), thousands grouped (8,000), a range with an en dash between ends

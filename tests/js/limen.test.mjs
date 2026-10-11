@@ -46,10 +46,13 @@ test("the round's metrics are needles with Limen's names and directions", () => 
 
 test("the round's bookkeeping is neither parameter nor needle", () => {
   const roles = new Map(schema.fields.map(f => [f.name, f.role]));
-  assert.equal(roles.get("_round_index"), "id");
-  for (const name of ["id", "_id", "_warnings", "_search_strategy", "strict_mode_error"]) assert.equal(roles.get(name), "text", name);
+  for (const name of ["_round_index", "_generation_index"]) assert.equal(roles.get(name), "id", name);
+  for (const name of ["id", "_id", "_warnings", "_search_strategy", "_injected", "strict_mode_error"]) assert.equal(roles.get(name), "text", name);
   const dims = new Set(schema.dims.map(d => d.id));
-  for (const name of ["_round_index", "_warnings", "execution_time", "auc"]) assert.ok(!dims.has(name), name);
+  for (const name of ["_round_index", "_generation_index", "_injected", "_warnings", "execution_time", "auc"]) assert.ok(!dims.has(name), name);
+  // no needle either: the fit diagnostics in results.csv are the fit's
+  for (const name of ["_round_index", "_generation_index", "_injected"]) assert.ok(!schema.targetById.has(name), name);
+  assert.deepEqual(schema.targets.filter(t => t.diagnostic && ds.cols.has(t.id)).map(t => t.id).sort(), ["execution_time", "optimal_threshold"]);
 });
 
 test("a disabled exit is a value of its own", () => {

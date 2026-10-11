@@ -5,7 +5,7 @@
 // that never passed, what moves it). The strip reads the gates together,
 // and the foot says what stops the rows that pass the most.
 
-import { h, tip, keyTip, icon, clear, fmtInt, fmtPct, fmtNum, fmtRowValue, inText, pctRange, unitSuffix, runName } from "./ui.js";
+import { h, wrapName, tip, keyTip, icon, clear, fmtInt, fmtPct, fmtNum, fmtRowValue, inText, pctRange, unitSuffix, runName } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { gateStats, coFailure, strongestCorrelate } from "./engine.js";
 import { passHistogram } from "./charts.js";
@@ -268,7 +268,7 @@ function gateValueText(g, v) {
 function gateCard(m, A, g, s) {
   const sc = m.schema;
   const card = h("article", { class: "island gt-card" + (s.never ? " never" : ""), role: "listitem", "aria-label": g.label });
-  card.append(h("header", { class: "gt-head" }, h("h3", { class: "gt-title", text: g.label }),
+  card.append(h("header", { class: "gt-head" }, h("h3", { class: "gt-title" }, wrapName(g.label)),
     h("span", { class: "gt-rate num", text: s.n ? rate(s.rate) : "–" })));
   card.append(h("div", { class: "gt-sub" },
     h("span", { class: "num", text: s.n ? `${fmtInt(s.passed)} of ${fmtInt(s.n)} rows pass · 95% ${pctRange(s.lo, s.hi, s.rate > 0 && s.rate < 0.01 ? 2 : 1)}` : "No row has a value." }),
@@ -359,7 +359,7 @@ function stopsSection(m, tg) {
     list.append(h("div", { class: "gt-stop", role: "listitem" },
       h("span", { class: "num gt-stop-share", text: rate(c.share) }),
       h("span", { class: "gt-stop-bar", "aria-hidden": "true" }, h("i", { style: { width: `${(c.share / top) * 100}%` } })),
-      h("span", { class: "gt-stop-set", text: c.failing.length ? c.failing.map(id => label(sc, id)).join(" + ") : "nothing: they pass every gate" }),
+      h("span", { class: "gt-stop-set" }, c.failing.length ? wrapName(c.failing.map(id => label(sc, id)).join(" + ")) : "nothing: they pass every gate"),
       h("span", { class: "num muted", text: `${fmtInt(c.count)} row${c.count === 1 ? "" : "s"}` })));
   }
   sec.append(list);
