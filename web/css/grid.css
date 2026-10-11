@@ -1037,8 +1037,6 @@ table.vals tr.ex-note-row:hover td { background: transparent; }
   background: var(--surface); color: var(--ink); font-size: var(--fs-m); font-variant-numeric: tabular-nums;
 }
 .co-num[aria-invalid="true"] { border-color: var(--critical); }
-.co-dir { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); margin-bottom: var(--sp-2); }
-.co-dir select { font-size: var(--fs-m); min-height: var(--h-s); }
 table.vals.co-table { width: auto; min-width: min(100%, 560px); }
 table.vals.co-table td:first-child { width: 28px; }
 table.vals.co-table th.r, table.vals.co-table td.r { padding-left: var(--sp-5); }

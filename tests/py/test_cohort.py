@@ -5,8 +5,9 @@ Limen recorded for it; the members' bars are aligned by time; they are
 aggregated as Limen's Cohort aggregates their architecture (probabilities
 averaged, or votes, a regressor's at 0); and the route serves it for a
 run's rows. On a Limen project, a predictor is made of a
-run's rows: cohorts/<name>/ written and Limen's Trainer and Cohort run by
-grid/limen_cohort.py, here with a stand-in limen package
+run's rows, of one result directory or several (a run's shards, each a
+manifest of its own): cohorts/<name>/ written and Limen's Trainer and
+Cohort run by grid/limen_cohort.py, here with a stand-in limen package
 (tests/fixtures/fake_limen_pkg) that trains nothing.
 
 tests/fixtures/limen_cohort_rounds.json.gz holds three rounds of a Limen
@@ -77,6 +78,11 @@ def records_of(directory: str) -> list[Json]:
         return [json.loads(line) for line in f if line.strip()]
 
 
+def of(directory: str, records: list[Json]) -> list[tuple[str, Json]]:
+    """Members of a predictor: rounds of one result directory."""
+    return [(directory, rec) for rec in records]
+
+
 class LimenProject(unittest.TestCase):
     """A Limen project whose predictors are made with the stand-in limen
     package."""
@@ -89,9 +95,12 @@ class LimenProject(unittest.TestCase):
             f.write("[store]\n")
         self.p = Project(self.root, FAKE_CLI)
         self.p.python = sys.executable
-        self.saved = {k: os.environ.get(k) for k in ("PYTHONPATH",
-                                                     "FAKE_TRAIN_FAIL")}
+        self.saved = {k: os.environ.get(k) for k in (
+            "PYTHONPATH", "FAKE_TRAIN_FAIL", "FAKE_LIMEN_OLD",
+            "FAKE_FETCH_LOG")}
         os.environ["PYTHONPATH"] = FAKE_PKG
+        self.fetches = os.path.join(self.tmp, "fetches")
+        os.environ["FAKE_FETCH_LOG"] = self.fetches
 
     def tearDown(self) -> None:
         # each predictor's worker has ended and been read before its folder
@@ -469,7 +478,7 @@ class Make(LimenProject):
         src = os.path.join(RUN, "s1")
         records = records_of(src)
         ids = sorted(r["round_id"] for r in records)
-        self.assertEqual(self.p.make_cohort("pair", src, records,
+        self.assertEqual(self.p.make_cohort("pair", of(src, records),
                                             {"rows": [0, 1]}), "pair")
         c = self.made("pair")
         self.assertEqual((c["state"], c["members"]), ("made", 2))
@@ -486,8 +495,13 @@ class Make(LimenProject):
                          (spec["started_at"], spec["made_at"]))
         self.assertLessEqual(c["startedAt"], c["madeAt"])
         self.assertEqual((spec["aggregation_mode"], spec["limen_version"],
-                          spec["chosen"]), ("probability_weighted", "5.20.0",
+                          spec["chosen"]), ("probability_weighted", "5.24.0",
                                             {"rows": [0, 1]}))
+        # of one result directory, bound as Limen always bound them: its
+        # experiment's rounds, so the cohort id is as it was
+        self.assertNotIn("rounds", spec)
+        self.assertEqual(c["source"], src)
+        self.assertIsNone(c["sources"])
         # the slim result directory: the members' metadata, lines, rows
         # and manifest copy, and their sensors in Furnace's layout
         exp = os.path.join(folder, "experiment")
@@ -504,14 +518,79 @@ class Make(LimenProject):
             side = json.load(f)
         self.assertEqual((side["permutation_id"], side["manifest_id"],
                           side["limen_version"]), (ids[0], manifest_id,
-                                                   "5.20.0"))
+                                                   "5.24.0"))
+        with open(self.fetches) as f:
+            self.assertEqual(f.read().split(), ["experiment"])
+
+    def test_members_of_several_result_directories_are_bound_together(
+            self) -> None:
+        # a run's shards, each a manifest of its own (its seed): Limen
+        # 5.24's Cohort binds rounds of several, each source's members
+        # trained by its own Trainer, the data fetched once
+        s1, s2 = os.path.join(RUN, "s1"), os.path.join(RUN, "s2")
+        r1, r2 = records_of(s1), records_of(s2)
+        members = [(s2, r2[0]), (s1, r1[0]), (s1, r1[1])]
+        self.p.make_cohort("both", members, {})
+        c = self.made("both")
+        self.assertEqual((c["state"], c["members"], c["sources"]),
+                         ("made", 3, [s1, s2]))
+        folder = os.path.join(self.root, "cohorts", "both")
+        with open(os.path.join(folder, "cohort.json")) as f:
+            spec = json.load(f)
+        manifest = {}
+        for d, label in ((s1, "s1"), (s2, "s2")):
+            with open(os.path.join(d, "metadata.json")) as f:
+                manifest[label] = json.load(f)["manifest_id"]
+        self.assertNotEqual(manifest["s1"], manifest["s2"])
+        self.assertEqual(spec["rounds"], [["s2", r2[0]["round_id"]],
+                                          ["s1", r1[0]["round_id"]],
+                                          ["s1", r1[1]["round_id"]]])
+        self.assertEqual(spec["sources"], {"s1": s1, "s2": s2})
+        self.assertEqual(spec["member_ids"], [
+            [manifest["s2"], r2[0]["round_id"]],
+            [manifest["s1"], r1[0]["round_id"]],
+            [manifest["s1"], r1[1]["round_id"]]])
+        # a cohort of several manifests has none of its own, and its id
+        # is Limen's of their (manifest, round) pairs
+        self.assertIsNone(spec["manifest_id"])
+        self.assertTrue(spec["cohort_id"].startswith("sha256:"))
+        self.assertEqual(c["cohortId"], spec["cohort_id"])
+        self.assertFalse(os.path.exists(os.path.join(folder, "experiment")))
+        for label, recs in (("s1", r1[:2]), ("s2", r2[:1])):
+            d = os.path.join(folder, "experiments", label)
+            ids = sorted(r["round_id"] for r in recs)
+            self.assertEqual(sorted(r["round_id"] for r in records_of(d)),
+                             ids)
+            self.assertEqual(sorted(os.listdir(os.path.join(d, "sensors"))),
+                             sorted([i + ".json" for i in ids]
+                                    + [i + ".pkl" for i in ids]))
+            with open(os.path.join(d, "sensors", ids[0] + ".json")) as f:
+                self.assertEqual(json.load(f)["manifest_id"],
+                                 manifest[label])
+        # the two shards fetch the same data: the first fetches it
+        with open(self.fetches) as f:
+            self.assertEqual(f.read().split(), ["s2"])
+
+    def test_several_result_directories_need_a_limen_that_binds_them(
+            self) -> None:
+        os.environ["FAKE_LIMEN_OLD"] = "1"
+        s1, s2 = os.path.join(RUN, "s1"), os.path.join(RUN, "s2")
+        self.p.make_cohort("old", [(s1, records_of(s1)[0]),
+                                   (s2, records_of(s2)[0])], {})
+        c = self.made("old")
+        self.assertEqual(c["state"], "failed")
+        self.assertIn("needs Limen 5.24 or later", c["tail"])
+        self.assertIn("this Python has Limen 5.20.0", c["tail"])
+        # one result directory is made on it as before
+        self.p.make_cohort("one", of(s1, records_of(s1)), {})
+        self.assertEqual(self.made("one")["state"], "made")
 
     def test_a_member_that_does_not_train_fails_the_predictor(
             self) -> None:
         src = os.path.join(RUN, "s1")
         records = records_of(src)
         os.environ["FAKE_TRAIN_FAIL"] = records[1]["round_id"][:8]
-        self.p.make_cohort("drift", src, records, {})
+        self.p.make_cohort("drift", of(src, records), {})
         c = self.made("drift")
         self.assertEqual(c["state"], "failed")
         self.assertIn("ReconstructionError", c["tail"])
@@ -527,7 +606,7 @@ class Make(LimenProject):
         os.chmod(script, 0o755)
         self.p.python = script
         src = os.path.join(RUN, "s1")
-        self.p.make_cohort("gone", src, records_of(src), {})
+        self.p.make_cohort("gone", of(src, records_of(src)), {})
         self.p.watchers["gone"].join(20.0)
         self.assertFalse(os.path.exists(os.path.join(
             self.root, "cohorts", "gone", "cohort.json")))
@@ -536,16 +615,18 @@ class Make(LimenProject):
     def test_what_is_not_made(self) -> None:
         src = os.path.join(RUN, "s1")
         records = records_of(src)
-        self.p.make_cohort("once", src, records, {})
+        self.p.make_cohort("once", of(src, records), {})
         with self.assertRaisesRegex(ValueError, "cohorts/once exists"):
-            self.p.make_cohort("once", src, records, {})
+            self.p.make_cohort("once", of(src, records), {})
         with self.assertRaisesRegex(ValueError, "letters, digits"):
-            self.p.make_cohort("../up", src, records, {})
+            self.p.make_cohort("../up", of(src, records), {})
         with self.assertRaisesRegex(ValueError, "members, each once"):
-            self.p.make_cohort("twice", src, records + records[:1], {})
+            self.p.make_cohort("twice", of(src, records + records[:1]), {})
+        with self.assertRaisesRegex(ValueError, "members, each once"):
+            self.p.make_cohort("none", [], {})
         self.p.python = None
         with self.assertRaisesRegex(ValueError, "limen-python"):
-            self.p.make_cohort("none", src, records, {})
+            self.p.make_cohort("none", of(src, records), {})
         self.made("once")
 
 
@@ -582,7 +663,7 @@ class MakeRoute(LimenProject):
             with err:
                 return err.code, json.loads(err.read())
 
-    def test_a_runs_rows_are_made_a_predictor_from_one_directory(
+    def test_a_runs_rows_are_made_a_predictor_from_its_directories(
             self) -> None:
         run = self.sweep.runs[0]
         shard = [run.store.row_object(i).get("shard")
@@ -606,12 +687,15 @@ class MakeRoute(LimenProject):
         self.assertIn("too long to keep", out["error"])
         self.assertFalse(os.path.exists(os.path.join(self.root, "cohorts",
                                                      "long")))
-        code, out = self.post({"run": run.id, "rows": [0, 1, 2, 3],
-                               "name": "both"})
-        self.assertEqual(code, 400)
-        self.assertIn("one result directory", out["error"])
+        # rows of both shards: a predictor across them (Limen 5.24)
+        both = s1[:1] + [i for i, d in enumerate(shard) if d == "s2"][:1]
+        code, out = self.post({"run": run.id, "rows": both, "name": "both"})
+        self.assertEqual((code, out), (200, {"cohort": "both"}), out)
+        made = self.made("both")
+        self.assertEqual((made["state"], made["members"],
+                          len(made["sources"])), ("made", 2, 2))
         code, out = self.post({"run": run.id, "rows": "0", "name": "x"})
         self.assertEqual((code, out["error"]), (400, "rows are row numbers"))
         with urllib.request.urlopen(self.base + "/api/experiment") as res:
             listed = json.loads(res.read())["cohorts"]
-        self.assertEqual([c["name"] for c in listed], ["s1pair"])
+        self.assertEqual([c["name"] for c in listed], ["both", "s1pair"])

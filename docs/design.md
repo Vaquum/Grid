@@ -444,9 +444,11 @@ chose it. The pool is the rows in view that are in the pocket and pass
 every gate set in Gates (Grid's standing gates only when set there, as
 they cannot be taken off), each gate read on the first half of the test
 window where its needle is measured on each half. Its members are the
-pool's best by the needle on the first half, from one result directory: a
-Limen `Cohort` binds one experiment's rounds, and each shard's manifest
-differs by its seed. The second half judges them. A needle or a gate read
+pool's best by the needle on the first half, from any of the run's result
+directories: each shard's manifest differs by its seed, and Limen's
+`Cohort` (5.24 or later) binds the rounds of several manifests, keyed by
+manifest and round, each member weighing the same. The second half
+judges them. A needle or a gate read
 over the whole window lets the second half help choose, and the view
 says so in its verdict; so does a pocket found by reading the whole
 window, which the view cannot know.
@@ -477,13 +479,19 @@ history, as live, can predict otherwise than its round recorded.
 
 Make predictor writes `cohorts/<name>/` in the project: `experiment/`, a
 result directory of the members' metadata, round lines, results rows and
-manifest copy (so Limen reads only them), and `cohort.json`, the members
-and how the page chose and judged them. A script run in Limen's own
-Python (`grid/limen_cohort.py`) has Limen's `Trainer` train each member
-again on the data its round used, checked against what the round
-recorded, and Limen's `Cohort` bind them, which gives the cohort its id;
-each sensor is pickled beside a sidecar of the versions it was made with,
-the layout Furnace reads. Grid's server never imports the script, and the
+manifest copy (so Limen reads only them), or of members from several
+result directories, `experiments/<label>/`, one for each; and
+`cohort.json`, the members (by source, when there are several) and how
+the page chose and judged them. A script run in Limen's own Python
+(`grid/limen_cohort.py`) has each source's `Trainer` train its members
+again on the data their rounds used, checked against what the rounds
+recorded (the data fetched once for sources that fetch the same), and
+Limen's `Cohort` bind them, which gives the cohort its id: of one result
+directory by its experiment and round ids, as before; of several by
+`Cohort(rounds=...)`, which needs Limen 5.24 or later and keys each member
+by its manifest and round. Each sensor is pickled beside a sidecar of the
+versions it was made with, in its source's directory, the layout Furnace
+reads. Grid's server never imports the script, and the
 script imports nothing of Grid.
 
 ## Non-goals
