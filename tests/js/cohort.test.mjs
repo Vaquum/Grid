@@ -146,7 +146,7 @@ test("a predictor keeps how its members were chosen, said as the page says it", 
   assert.deepEqual(howChosen(m, [], [], mine, [9, 7, 6, 5, 3]).byHand, { out: 1, in: 1 });
   assert.deepEqual(howChosen(m, [], [], mine, [9, 8, 7, 6, 5]).byHand, { out: 0, in: 0 });
   assert.deepEqual(howChosen(m, [], [], mine, [8]).byHand, { out: 4, in: 0 });
-  const judged = { ...how, pocket: [], gates: [], byHand: { out: 1, in: 2 },
+  const judged = { ...how, pocket: [], gates: [], analysis: null, byHand: { out: 1, in: 2 },
     judged: { on: "the second half", bars: 696, fee: 5, slip: 2.5, cohort: { pnl: 0.12, trades: 34 },
       bestMember: { pnl: -0.07, trades: 76 }, membersMean: null, notes: [] } };
   assert.deepEqual(chosenText(judged), [
