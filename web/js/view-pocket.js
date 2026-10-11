@@ -304,7 +304,7 @@ function suggestedPart(m, A, pocket, sug, raw) {
     const what = d.kind === "member" ? `${s.dimLabel} included` : `${d.label} = ${s.label}`;
     const tr = h("tr", { class: "clickable", tabindex: "0", "aria-label": `Add ${what}`, onclick: () => A.addPocket(s.dim, s.key),
       onkeydown: (e) => { if (e.key === "Enter") A.addPocket(s.dim, s.key); } },
-      h("td", { class: "v", text: what }), h("td", { class: "r num", text: fmtInt(s.n) }), h("td", { class: "r num", text: fmtT(t, s.mean) }),
+      h("td", { class: "v" }, wrapName(what)), h("td", { class: "r num", text: fmtInt(s.n) }), h("td", { class: "r num", text: fmtT(t, s.mean) }),
       h("td", { class: "iv has-tip" }, intervalBar(s.mean, s.lo, s.hi, m.base.mean, domain)));
     tip(tr.lastChild, `95% ${rangeText(t, s.lo, s.hi)}; the dashed line is the base, ${fmtT(t, m.base.mean)}.`);
     tb.append(tr);

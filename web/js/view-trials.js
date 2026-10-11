@@ -8,7 +8,7 @@
 // its execution), every row's rank on the first half is set against its
 // second: the luck line measured, not modelled.
 
-import { h, tip, keyTip, icon, fmtT, fmtInt, fmtP, fmtPct, fmtDelta, fmtRowValue, inText, rangeText, runName } from "./ui.js";
+import { h, wrapName, tip, keyTip, icon, fmtT, fmtInt, fmtP, fmtPct, fmtDelta, fmtRowValue, inText, rangeText, runName } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { summarize, MIN_N } from "./engine.js";
 import { expectedMaxZ } from "./stats.js";
@@ -334,7 +334,7 @@ const unitOf = (c) => (c.unit && !c.label.toLowerCase().split(/\s+/).includes(c.
 
 function headCell(c, cls) {
   const th = h("th", { class: [c.num ? "r" : "", c.cls || "", cls || ""].join(" ").trim() || null, scope: "col" },
-    h("span", { class: "lbl" + (c.mono ? " mono" : "") }, c.label, unitOf(c) ? [" ", h("span", { class: "u", text: `(${unitOf(c)})` })] : null));
+    h("span", { class: "lbl" + (c.mono ? " mono" : "") }, wrapName(c.label), unitOf(c) ? [" ", h("span", { class: "u", text: `(${unitOf(c)})` })] : null));
   if (c.head) tip(th, c.head);
   return th;
 }
