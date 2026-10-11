@@ -182,7 +182,8 @@ class Server:
 
     def make_cohort(self, project: Project, body: dict[str, Any]) -> Json:
         """Make a predictor of a run's rows in the project: their rounds,
-        from one result directory, trained again and bound by Limen."""
+        from one result directory or several (a run's shards, which Limen
+        5.24's Cohort binds together), trained again and bound by Limen."""
         raw: Any = body.get("rows")
         if not isinstance(raw, list) or not all(
                 isinstance(i, int) and not isinstance(i, bool)
@@ -193,10 +194,6 @@ class Server:
         if not isinstance(name, str):
             raise ValueError("a predictor has a name")
         _, records, where = self.members(body.get("run"), rows)
-        if len(set(where)) != 1:
-            raise ValueError("a predictor's members come from one result "
-                             "directory (a Limen Cohort takes one); these "
-                             "come from %d" % len(set(where)))
         # how the page chose and judged them, as it says it: kept with the
         # predictor (row numbers and run ids are the page's own, so it is
         # not asked for them)
@@ -205,8 +202,8 @@ class Server:
         if len(json.dumps(chosen)) > CHOSEN_MAX:
             raise ValueError("how the members were chosen is too long to "
                              "keep")
-        return {"cohort": project.make_cohort(name, where[0], records,
-                                              chosen)}
+        return {"cohort": project.make_cohort(
+            name, list(zip(where, records, strict=True)), chosen)}
 
 
 def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:

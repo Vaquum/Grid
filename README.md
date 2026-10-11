@@ -94,7 +94,9 @@ On a Limen run that recorded its model outputs and execution, the Cohort
 view (8) takes the pocket found with the other views to a cohort. The
 pool is the rows in view that are in the pocket and pass every gate set
 in Gates; its members are the pool's best by the needle on the first half
-of the test window, from one result directory (a Limen Cohort takes one).
+of the test window, from any of the run's result directories (each shard
+is a manifest of its own, and Limen 5.24's `Cohort` binds the rounds of
+several).
 The cohort is judged on the second half, which chose nothing: rebuilt
 from what the run recorded (the members aggregated as Limen's Cohort
 aggregates their architecture, by their probabilities averaged or by
@@ -103,8 +105,10 @@ member alone and its members' mean. On a
 project, Make predictor has Limen's `Trainer` train each member again on
 the data its round used and Limen's `Cohort` bind them, into
 `cohorts/<name>/`: Limen's cohort id, each member's sensor beside a
-sidecar of the versions it was made with (the layout Furnace reads), and
-how its members were chosen.
+sidecar of the versions it was made with (the layout Furnace reads), in a
+result directory of them for each one they come from, and how its members
+were chosen. Members from several result directories need Limen 5.24 or
+later.
 
 Grid reaches Limen through its command line (`--limen-cli`, by default
 the project's own `.venv/bin/limen`, else the one on the PATH) and, to

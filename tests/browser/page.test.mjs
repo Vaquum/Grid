@@ -1483,18 +1483,21 @@ test("cohort: a Limen run's pool chosen on the first half, judged on the second,
     errors.splice(logged);
     // the pool: no pocket and no gate set (Grid's own gates are not the pool's)
     assert.match(await page.locator(".strip").innerText(), /Pool\s+4\s+of 4 in view/);
-    // the members, the best on the first half, from one result directory
-    assert.equal(await page.locator(".co-dir select option").count(), 2);
-    assert.equal(await page.locator(".co-table tbody input:checked").count(), 2);
+    // the members, the best on the first half, from both of the run's
+    // result directories (each shard a manifest of its own), each row's said
+    assert.deepEqual(await page.locator(".co-table thead th").allInnerTexts(), ["Member", "Rank", "Row", "From", "First half", "Second half"]);
+    assert.deepEqual([...new Set(await page.locator(".co-table tbody td:nth-child(4)").allInnerTexts())].sort(), ["s1", "s2"]);
+    assert.equal(await page.locator(".co-table tbody input:checked").count(), 4);
+    assert.match(await page.locator(".strip").innerText(), /Members\s+4\s+from 2 result directories/);
     // judged on the second half, from what the run recorded
     await page.waitForSelector(".co-verdict", { timeout: 20000 });
     assert.match(await page.locator(".co-verdict").innerText(), /^Chosen on the first half, the cohort makes 0\.00 bps a bar on the second/);
     assert.match(await page.locator(".co-costs").innerText(), /696 bars they share/);
     // a member taken out: judged again on the one left
     await page.locator(".co-table tbody input").nth(1).uncheck();
-    await page.waitForFunction(() => /Members\s+1\s/.test(document.querySelector(".strip").innerText), null, { timeout: 20000 });
+    await page.waitForFunction(() => /Members\s+3\s/.test(document.querySelector(".strip").innerText), null, { timeout: 20000 });
     await page.locator(".co-table tbody input").nth(1).check();
-    await page.waitForFunction(() => /Members\s+2\s/.test(document.querySelector(".strip").innerText), null, { timeout: 20000 });
+    await page.waitForFunction(() => /Members\s+4\s/.test(document.querySelector(".strip").innerText), null, { timeout: 20000 });
     // a needle not measured on each half: the members are chosen on the
     // whole window, one value a row, and the second half chose them too
     const needle = await page.locator("#target-pick").inputValue();
@@ -1502,8 +1505,8 @@ test("cohort: a Limen run's pool chosen on the first half, judged on the second,
     await page.waitForFunction(() => /^Chosen with the second half too \(.+ is not measured on each half\), the cohort makes .+ a bar on the second half, which chose it too;/
       .test((document.querySelector(".co-verdict") || {}).textContent || ""), null, { timeout: 20000 });
     assert.equal(await page.locator(".co-table").getAttribute("aria-label"), "The pool, best first");
-    assert.equal(await page.locator(".co-table thead th").count(), 4);
-    assert.equal(await page.locator(".co-table tbody tr").first().locator("td").count(), 4);
+    assert.equal(await page.locator(".co-table thead th").count(), 5);
+    assert.equal(await page.locator(".co-table tbody tr").first().locator("td").count(), 5);
     assert.deepEqual(await page.locator(".co-judge th.co-half").allInnerTexts(), ["First half", "Second half (chose it too)"]);
     await page.selectOption("#target-pick", needle);
     await page.waitForFunction(() => /^Chosen on the first half,/.test((document.querySelector(".co-verdict") || {}).textContent || ""), null, { timeout: 20000 });
@@ -1521,20 +1524,25 @@ test("cohort: a Limen run's pool chosen on the first half, judged on the second,
     await page.locator("input[aria-label=Fee]").fill(own);
     await page.locator("input[aria-label=Fee]").press("Enter");
     await page.waitForFunction(own => document.querySelector("input[aria-label=Fee]").value === own && !document.querySelector(".co-judged[aria-busy]"), own, { timeout: 20000 });
-    // made a predictor in the project: Limen's Trainer and Cohort (the stand-in)
+    // made a predictor in the project: Limen's Trainer and Cohort (the
+    // stand-in), across the two result directories
+    assert.match(await page.locator("section[aria-labelledby=co-make] .isl-note").first().innerText(),
+      /^4 members from 2 result directories, which Limen 5\.24 or later binds into one cohort\./);
     await page.locator(".co-form input").fill("lgbm_pair");
     await page.locator(".co-form .btn.primary").click();
     await page.waitForSelector(".co-made tbody tr .tag", { timeout: 20000 });
     await page.waitForFunction(() => document.querySelector(".co-made tbody tr .tag").textContent === "Made", null, { timeout: 30000 });
     const row = await page.locator(".co-made tbody tr").first().innerText();
-    const dir = /results\/dev\/lgbm\/20261010_220749\/(s[12])/.exec(row);
-    assert.ok(dir, row);
     const spec = JSON.parse(readFileSync(join(project, "cohorts", "lgbm_pair", "cohort.json"), "utf8"));
     assert.equal(spec.state, "made");
-    assert.equal(spec.source, `results/dev/lgbm/20261010_220749/${dir[1]}`);
-    assert.equal(spec.permutation_ids.length, 2);
+    // its members by source, bound across the shards' manifests: a cohort
+    // of several manifests has none of its own
+    assert.deepEqual(spec.sources, { s1: "results/dev/lgbm/20261010_220749/s1", s2: "results/dev/lgbm/20261010_220749/s2" });
+    assert.equal(spec.rounds.length, 4);
+    assert.equal(spec.member_ids.length, 4);
+    assert.equal(spec.manifest_id, null);
     // the row names it by Limen's cohort id, made when Limen bound it
-    assert.match(row, new RegExp(`^lgbm_pair\\s+2\\s+${spec.source}\\s+Made\\s+${spec.cohort_id.slice(7, 19)}\\s+\\d\\d:\\d\\d`));
+    assert.match(row, new RegExp(`^lgbm_pair\\s+4\\s+2 result directories\\s+Made\\s+${spec.cohort_id.slice(7, 19)}\\s+\\d\\d:\\d\\d`));
     assert.deepEqual(errors, []);
     await page.close();
   } finally {

@@ -379,6 +379,27 @@ def _progress(log: str) -> Json | None:
     return None
 
 
+def _slim(source: str, dst: str, records: list[Json]) -> None:
+    """A slim result directory of ``records``, rounds of the result
+    directory ``source``: its metadata and manifest copy, their lines of
+    round_data.jsonl and their rows of results.csv, so Limen does not parse
+    a whole run's rounds."""
+    os.mkdir(dst)
+    shutil.copyfile(os.path.join(source, "metadata.json"),
+                    os.path.join(dst, "metadata.json"))
+    for entry in _listdir(source):
+        if entry.endswith((".yaml", ".yml")):
+            shutil.copyfile(os.path.join(source, entry),
+                            os.path.join(dst, entry))
+    with open(os.path.join(dst, "round_data.jsonl"), "w",
+              encoding="utf-8") as f:
+        for rec in records:
+            f.write(json.dumps(rec) + "\n")
+    _rows_of(os.path.join(source, "results.csv"),
+             os.path.join(dst, "results.csv"),
+             {str(r.get("round_id")) for r in records})
+
+
 def _rows_of(src: str, dst: str, ids: set[str]) -> None:
     """results.csv's header and the rows of ``ids`` (its ``id`` column), as
     written; none when the directory has no results.csv."""
@@ -809,9 +830,9 @@ class Project:
     # -- predictors -----------------------------------------------------------
     def cohorts(self) -> list[Json]:
         """The project's predictors, each cohorts/<name>/: its members, the
-        result directory they came from, how they were chosen, how its
-        making stands (training with its progress, made with its cohort id,
-        or failed with the end of its log)."""
+        result directory or directories they came from, how they were
+        chosen, how its making stands (training with its progress, made
+        with its cohort id, or failed with the end of its log)."""
         top = os.path.join(self.root, COHORTS)
         out: list[Json] = []
         for name in sorted(_listdir(top)):
@@ -820,13 +841,20 @@ class Project:
             if spec is None:
                 continue
             ids: Any = spec.get("permutation_ids")
+            rounds: Any = spec.get("rounds")
+            sources: Any = spec.get("sources")
             log = os.path.join(folder, "train.log")
             state = spec.get("state")
             entry: Json = {
                 "name": name, "state": state,
-                "members": len(cast(list[Any], ids))
+                "members": len(cast(list[Any], rounds))
+                if isinstance(rounds, list) else len(cast(list[Any], ids))
                 if isinstance(ids, list) else 0,
                 "source": spec.get("source"),
+                # of several result directories: each, as its label orders
+                "sources": [str(v) for _, v in sorted(
+                    cast(dict[str, Any], sources).items())]
+                if isinstance(sources, dict) else None,
                 "cohortId": spec.get("cohort_id"),
                 "startedAt": spec.get("started_at"),
                 "madeAt": spec.get("made_at"), "chosen": spec.get("chosen"),
@@ -838,22 +866,29 @@ class Project:
             out.append(entry)
         return out
 
-    def make_cohort(self, name: str, source: str, records: list[Json],
+    def make_cohort(self, name: str, members: list[tuple[str, Json]],
                     chosen: Json) -> str:
-        """A predictor of the rounds ``records`` of the result directory
-        ``source``: cohorts/<name>/ with ``experiment/``, a slim result
-        directory of their metadata, lines and rows, and ``cohort.json``;
-        then Limen's Trainer and Cohort in Limen's Python
-        (grid/limen_cohort.py), watched until they end."""
+        """A predictor of rounds of a run, ``members`` (each a result
+        directory and its round's line): cohorts/<name>/ with
+        ``cohort.json`` and, of one result directory, ``experiment/``, a
+        slim result directory of their metadata, lines and rows; of
+        several (a run's shards, each a manifest of its own),
+        ``experiments/<label>/``, one for each. Then Limen's Trainer and
+        Cohort in Limen's Python (grid/limen_cohort.py), watched until they
+        end."""
         if not NAME.match(name):
             raise ValueError("a predictor's name is letters, digits, _ and "
                              "-, at most 64; got %r" % name)
         if self.python is None:
             raise ValueError("this server has no Python with Limen in it "
                              "(serve --limen-python)")
-        ids = [str(r.get("round_id")) for r in records]
-        if not ids or len(set(ids)) != len(ids):
+        keys = [(src, str(rec.get("round_id"))) for src, rec in members]
+        if not keys or len(set(keys)) != len(keys):
             raise ValueError("a predictor has members, each once")
+        # the sources, in the order their first members come
+        sources: dict[str, list[Json]] = {}
+        for src, rec in members:
+            sources.setdefault(src, []).append(rec)
         top = os.path.join(self.root, COHORTS)
         folder = os.path.join(top, name)
         os.makedirs(top, exist_ok=True)
@@ -861,24 +896,33 @@ class Project:
             os.mkdir(folder)
         except FileExistsError as err:
             raise ValueError("%s exists already" % self._rel(folder)) from err
-        experiment = os.path.join(folder, "experiment")
-        os.mkdir(experiment)
-        shutil.copyfile(os.path.join(source, "metadata.json"),
-                        os.path.join(experiment, "metadata.json"))
-        for entry in _listdir(source):
-            if entry.endswith((".yaml", ".yml")):
-                shutil.copyfile(os.path.join(source, entry),
-                                os.path.join(experiment, entry))
-        with open(os.path.join(experiment, "round_data.jsonl"), "w",
-                  encoding="utf-8") as f:
-            for rec in records:
-                f.write(json.dumps(rec) + "\n")
-        _rows_of(os.path.join(source, "results.csv"),
-                 os.path.join(experiment, "results.csv"), set(ids))
-        _write_json(os.path.join(folder, COHORT), {
-            "name": name, "state": "training", "permutation_ids": ids,
-            "source": self._rel(source) if source.startswith(self.root)
-            else source, "started_at": _now(), "chosen": chosen})
+
+        def rel(src: str) -> str:
+            return self._rel(src) if src.startswith(self.root) else src
+
+        spec: Json = {"name": name, "state": "training",
+                      "permutation_ids": [rid for _, rid in keys]}
+        if len(sources) == 1:
+            src = keys[0][0]
+            _slim(src, os.path.join(folder, "experiment"), sources[src])
+            spec["source"] = rel(src)
+        else:
+            labels: dict[str, str] = {}
+            for src in sources:
+                base = re.sub(r"[^A-Za-z0-9_.-]+", "_", os.path.basename(
+                    os.path.normpath(src))).strip(".") or "source"
+                label, k = base, 2
+                while label in labels.values():
+                    label, k = "%s-%d" % (base, k), k + 1
+                labels[src] = label
+                os.makedirs(os.path.join(folder, "experiments"),
+                            exist_ok=True)
+                _slim(src, os.path.join(folder, "experiments", label),
+                      sources[src])
+            spec["rounds"] = [[labels[src], rid] for src, rid in keys]
+            spec["sources"] = {labels[src]: rel(src) for src in sources}
+        spec.update(started_at=_now(), chosen=chosen)
+        _write_json(os.path.join(folder, COHORT), spec)
         out: IO[bytes] = open(os.path.join(folder, "train.log"), "ab")
         try:
             proc = subprocess.Popen([self.python, WORKER, folder],
@@ -888,7 +932,7 @@ class Project:
                                     start_new_session=True)
         except OSError as err:
             _write_json(os.path.join(folder, COHORT), {
-                "name": name, "state": "failed", "permutation_ids": ids,
+                **spec, "state": "failed",
                 "error": "the worker could not be started: %s" % err})
             raise ValueError("Limen's Python (%s) could not be started: %s"
                              % (self.python, err)) from err
@@ -898,13 +942,13 @@ class Project:
         def wait() -> None:
             code = proc.wait()
             with self.lock:
-                spec = _read_json(os.path.join(folder, COHORT))
+                record = _read_json(os.path.join(folder, COHORT))
                 # a predictor whose record is gone (its folder being
                 # removed) gets none written back
-                if spec is not None and (code != 0
-                                         or spec.get("state") != "made"):
-                    spec.update(state="failed", exit=code)
-                    _write_json(os.path.join(folder, COHORT), spec)
+                if record is not None and (code != 0
+                                           or record.get("state") != "made"):
+                    record.update(state="failed", exit=code)
+                    _write_json(os.path.join(folder, COHORT), record)
         watcher = threading.Thread(target=wait, daemon=True)
         self.watchers[name] = watcher
         watcher.start()

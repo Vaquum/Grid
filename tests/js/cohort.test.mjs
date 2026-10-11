@@ -1,12 +1,12 @@
 // The Cohort view's choosing: the pool (the rows in view in the pocket
 // that pass every gate set, not Grid's standing ones, each read on the
 // first half where it can be), the pool ranked on the first half, the
-// members of one result directory, the members' mean, and what a
-// predictor keeps of how its members were chosen.
+// members from any of the run's result directories, the members' mean,
+// and what a predictor keeps of how its members were chosen.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { poolOf, poolGates, gateReads, touchedBy, pocketOf, rankedOf, dirsOf, membersOf, meanOf, howChosen, chosenText }
+import { poolOf, poolGates, gateReads, touchedBy, pocketOf, rankedOf, dirsOf, dirCount, membersOf, meanOf, howChosen, chosenText }
   from "../../web/js/view-cohort.js";
 
 const NaN_ = Number.NaN;
@@ -75,15 +75,17 @@ test("ranked on the first half, the best first, rows without both halves left ou
 
 const shardColumn = (labels, codes, state = () => 0) => ({ kind: "str", levels: labels, codes: Int32Array.from(codes), stateAt: state });
 
-test("the members: the best of one result directory, less those taken out, with those put in", () => {
+test("the members: the best of the ranked rows from any result directory, less those taken out, with those put in", () => {
   const dirOf = dirsOf({ cols: new Map([["shard", shardColumn(["s1", "s2"], [0, 1, 0, 1, 0, 1])]]) });
   assert.deepEqual([0, 1, 2].map(dirOf), ["s1", "s2", "s1"]);
   const ranked = [1, 3, 0, 5, 2];
-  assert.deepEqual(membersOf(ranked, dirOf, "s2", 2, new Set(), new Set()), { mine: [1, 3, 5], members: [1, 3] });
-  assert.deepEqual(membersOf(ranked, dirOf, "s2", 2, new Set([3]), new Set([5])).members, [1, 5]);
-  assert.deepEqual(membersOf(ranked, dirOf, "s1", 5, new Set(), new Set()).members, [0, 2]);
-  // a run of one directory: every ranked row
-  assert.deepEqual(membersOf(ranked, null, null, 3, new Set(), new Set()).members, [1, 3, 0]);
+  // the best of every directory's rows, in their ranked order
+  assert.deepEqual(membersOf(ranked, 3, new Set(), new Set()), [1, 3, 0]);
+  assert.deepEqual(membersOf(ranked, 3, new Set([3]), new Set([2])), [1, 0, 2]);
+  assert.equal(dirCount(dirOf, [1, 3]), 1);
+  assert.equal(dirCount(dirOf, [1, 3, 0]), 2);
+  // a run of one directory has none to count
+  assert.equal(dirCount(null, [1, 3, 0]), 0);
   assert.equal(dirsOf({ cols: new Map() }), null);
   // each row's directory as the run wrote it: forty directories stay forty
   // (the shard parameter's levels fold those past the first few dozen)
