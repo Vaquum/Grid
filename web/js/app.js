@@ -643,9 +643,11 @@ function btnIcon(name, label, key, fn) {
 // The pill says the run's own state (status.js): its replay edge, the link
 // to the server, and what its rows and its log say about it.
 function statusOf(m) {
-  const ds = m.ds, log = runLog(m);
+  const ds = m.ds, log = runLog(m), seg = segmentOf(m);
+  // the rows planned: the log's start line, or the experiment's manifest
+  const planned = seg && seg.total ? seg.total : (m.schema.profile && m.schema.profile.planned) || null;
   return runStatus({ meta: ds.meta, n: ds.n, edge: app.state.edge, mode: app.config.mode, connected: !!(app.live && app.live.connected),
-    playing: !!app.playback, seg: segmentOf(m), writing: !!(log && log.openTraceback), lastRow: lastRowAt(ds),
+    playing: !!app.playback, seg, writing: !!(log && log.openTraceback), planned, lastRow: lastRowAt(ds),
     since: rowsSince(Number.isFinite(app.sweep.meta.started) ? app.sweep.meta.started : app.started / 1000, ds.meta), now: Date.now() / 1000 });
 }
 

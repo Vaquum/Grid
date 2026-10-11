@@ -94,6 +94,10 @@ class LimenProject(unittest.TestCase):
         os.environ["PYTHONPATH"] = FAKE_PKG
 
     def tearDown(self) -> None:
+        # each predictor's worker has ended and been read before its folder
+        # goes
+        for watcher in self.p.watchers.values():
+            watcher.join(20.0)
         for k, v in self.saved.items():
             if v is None:
                 os.environ.pop(k, None)
@@ -512,6 +516,22 @@ class Make(LimenProject):
         self.assertEqual(c["state"], "failed")
         self.assertIn("ReconstructionError", c["tail"])
         self.assertIsNone(c["madeAt"])
+
+    def test_a_record_removed_while_training_is_not_written_back(
+            self) -> None:
+        # a worker that removes its predictor's record and fails: the
+        # watcher finds no record and writes no failure into the folder
+        script = os.path.join(self.tmp, "worker.sh")
+        with open(script, "w") as f:
+            f.write('#!/bin/sh\nrm -f "$2/cohort.json"\nexit 1\n')
+        os.chmod(script, 0o755)
+        self.p.python = script
+        src = os.path.join(RUN, "s1")
+        self.p.make_cohort("gone", src, records_of(src), {})
+        self.p.watchers["gone"].join(20.0)
+        self.assertFalse(os.path.exists(os.path.join(
+            self.root, "cohorts", "gone", "cohort.json")))
+        self.assertEqual(self.p.cohorts(), [])
 
     def test_what_is_not_made(self) -> None:
         src = os.path.join(RUN, "s1")

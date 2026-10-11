@@ -2,7 +2,8 @@
 // can know it, not only how the page gets its rows. The replay edge comes
 // first, then the link to the server, then the run: kept after its file
 // started over, an earlier run, a recording, crashed or finished in its own
-// log segment, quiet for ten minutes, or live.
+// log segment, finished with every row it planned written, quiet for ten
+// minutes, or live.
 
 import { fmtInt, fmtAgo, fmtClock, fmtDuration } from "./ui.js";
 
@@ -30,8 +31,8 @@ export function lastRowAt(ds) {
 
 // s: { meta, n, edge (null: the latest row), mode ("live" or a recording),
 // connected, playing, seg (the run's log segment, or null), writing (a
-// traceback is being written to the log), lastRow (lastRowAt), since
-// (rowsSince), now }
+// traceback is being written to the log), planned (the rows the run plans,
+// or null), lastRow (lastRowAt), since (rowsSince), now }
 // -> { kind, label, detail, tip }
 export function runStatus(s) {
   const { meta } = s;
@@ -65,6 +66,11 @@ export function runStatus(s) {
   }
   if (seg && seg.status === "finished") {
     return { kind: "finished", label: "Finished", detail: last, tip: "The run's log has its closing summary: the sweep is done." };
+  }
+  // every row it planned written: done, though its log (a Limen run keeps
+  // none) has no closing summary
+  if (Number.isFinite(s.planned) && s.planned > 0 && s.n >= s.planned) {
+    return { kind: "finished", label: "Finished", detail: last, tip: `It has written all ${fmtInt(s.planned)} rows it planned: the run is done.` };
   }
   const quiet = Number.isFinite(ago) ? ago : s.now - s.since;
   if (quiet > QUIET_AFTER) {
