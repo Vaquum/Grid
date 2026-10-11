@@ -1,0 +1,38 @@
+name: limen-updates
+
+# Every hour, an issue in this repository for each Limen release it has
+# none for yet: its title the release's version and the title of the pull
+# request it merged, its body the link to that pull request
+# (tools/limen_updates.py). Polled from here, as a webhook would be set up
+# in Limen's repository, with the workflow's own token, so it weighs on no
+# one's API quota.
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+# one run at a time, so a release is never filed twice
+concurrency:
+  group: limen-updates
+  cancel-in-progress: false
+
+jobs:
+  limen-updates:
+    name: limen-updates
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: An issue for each new Limen release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 tools/limen_updates.py --repo "$GITHUB_REPOSITORY"
