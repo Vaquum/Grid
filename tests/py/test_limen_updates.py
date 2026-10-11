@@ -206,6 +206,16 @@ class Pages(unittest.TestCase):
         self.assertEqual(len(pages(get, "/x", lambda i: False)), 250)
         self.assertEqual(reads[-1], "/x?per_page=100&page=3")
 
+    def test_a_listing_longer_than_its_pages_is_refused_not_cut(
+            self) -> None:
+        # full pages without end: after the last page allowed, nothing is
+        # returned, so no release is filed from part of the issues
+        def get(path: str) -> Any:
+            return [{"n": 0}] * 100
+        with self.assertRaisesRegex(RuntimeError, "more than 50 pages"):
+            pages(get, "/repos/Vaquum/Grid/issues?state=all",
+                  lambda i: False)
+
 
 if __name__ == "__main__":
     unittest.main()

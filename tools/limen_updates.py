@@ -90,7 +90,8 @@ def issue_for(release: Json, titles: dict[int, str],
 def pages(get: Get, path: str, older: Callable[[Json], bool]) -> list[Json]:
     """A listing's items, newest first, read a page of 100 at a time up to
     the page that reaches back past what is wanted (an item ``older``), or
-    its last."""
+    its last. One that reaches further back than PAGES is refused rather
+    than read in part: a part of the issues could file a release again."""
     out: list[Json] = []
     join = "&" if "?" in path else "?"
     for page in range(1, PAGES + 1):
@@ -98,8 +99,9 @@ def pages(get: Get, path: str, older: Callable[[Json], bool]) -> list[Json]:
                                      % (path, join, page)))
         out.extend(items)
         if len(items) < 100 or any(older(i) for i in items):
-            break
-    return out
+            return out
+    raise RuntimeError("%s holds more than %d pages since the cutoff: "
+                       "nothing is opened from a part of it" % (path, PAGES))
 
 
 def run(repo: str, get: Get, post: Post | None, since: str = SINCE,
