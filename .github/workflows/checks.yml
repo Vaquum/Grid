@@ -106,5 +106,9 @@ jobs:
           npm install --prefix "$RUNNER_TEMP/playwright" --no-save --no-audit --no-fund playwright@1.63.0
           "$RUNNER_TEMP/playwright/node_modules/.bin/playwright" install --with-deps chromium
 
+      # The live tests start grid serve, which serves the built page.
+      - name: Build
+        run: npm run build
+
       - name: Browser tests
         run: GRID_PLAYWRIGHT="$RUNNER_TEMP/playwright/node_modules/playwright/index.mjs" npm run test:browser
