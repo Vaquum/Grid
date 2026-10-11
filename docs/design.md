@@ -194,7 +194,14 @@ pocket, see below) and up to the replay edge.
   ordered alike); Trials sets each row's first-half rank against its
   second half and measures the luck line as the share of the best
   tenth's first-half lead the second half keeps; the Run view gives the
-  halves' rank agreement (Spearman) as the run's reliability. Formulas in
+  halves' rank agreement (Spearman) as the run's reliability. First half
+  (H) reads every needle measured on each half on its first half alone,
+  under a name that says so, gates set on it too, and drops the second
+  half from every view (the board's half marks, Trials' halves, the Run
+  view's halves): what finds a pocket then never sees the bars the
+  Cohort view judges it on. A needle not measured on each half reads the
+  whole window, and the top bar says so; the Cohort view reads the needles
+  as measured, ranking on one half and judging on the other. Formulas in
   `docs/statistics.md`.
 - **Recorded precision**: one row's value is printed no finer than the
   decimals its target was written with (Limen writes net PnL per bar to

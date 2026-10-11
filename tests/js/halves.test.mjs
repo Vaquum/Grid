@@ -6,7 +6,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { board } from "../../web/js/engine.js";
-import { halfTargets, agreement, twice, twiceDiff, showsIn, rankAgreement, firstHalfRanks, keptLead, persistence } from "../../web/js/halves.js";
+import { halfTargets, agreement, twice, twiceDiff, showsIn, rankAgreement, firstHalfRanks, keptLead, persistence, firstHalfOnly, wholeWindow, choiceFound,
+  needleReadsWhole }
+  from "../../web/js/halves.js";
+import { applyGates } from "../../web/js/gates.js";
 
 // A deterministic noise source (an LCG), uniform on [-1, 1).
 function noise(seed) {
@@ -37,6 +40,82 @@ test("a needle's halves are needles of their own", () => {
   assert.equal(a.values, h1);
   assert.equal(b.halves, null);
   assert.equal(halfTargets({ ...target, halves: undefined }), null);
+});
+
+test("read on the first half only: a needle measured on each half reads its first, named so, with no second; gates read it so", () => {
+  const auc = { id: "auc", label: "AUC", unit: "", kind: "cont", better: 1, digits: 3, values: new Float64Array(N).fill(0.6) };
+  const schema = { n: N, targets: [target, auc], targetById: new Map([["pnl", target], ["auc", auc]]), gates: [],
+    standingGates: [{ id: "pnl_up", target: "pnl", op: ">=", value: 0 }] };
+  const read = firstHalfOnly(schema);
+  const pnl = read.targetById.get("pnl");
+  assert.deepEqual([pnl.id, pnl.label, pnl.values, pnl.halves, pnl.base], ["pnl", "Net PnL per bar, first half", h1, null, target]);
+  assert.equal(read.targets[0], pnl);
+  // nothing of the second half is left to show
+  assert.equal(halfTargets(pnl), null);
+  assert.ok(!read.targets.some(t => t.halves));
+  // a needle not measured on each half reads the whole window, as it was
+  assert.equal(read.targetById.get("auc"), auc);
+  // the gates set on the needle, and the profile's own, read its first half
+  const gated = applyGates(read, [{ id: "g1", target: "pnl", op: ">", value: 0 }, { id: "g2", target: "auc", op: ">=", value: 0.5 }]);
+  const pass = (id) => [...gated.gates.find(g => g.id === id).pass];
+  assert.deepEqual(pass("g1"), [...h1].map(v => (v > 0 ? 1 : 0)));
+  assert.deepEqual(pass("pnl_up"), [...h1].map(v => (v >= 0 ? 1 : 0)));
+  assert.notDeepEqual(pass("g1"), [...values].map(v => (v > 0 ? 1 : 0)));
+  // which needles still read the whole window: one without halves, a gate
+  // on it, and every gate together when one of them does
+  const whole = (id) => wholeWindow(gated, gated.targetById.get(id));
+  assert.deepEqual(["pnl", "auc", "gate:g1", "gate:g2", "gate:pnl_up", "gates:all", "gates:count"].map(whole),
+    [false, true, false, true, false, true, true]);
+  const halvedOnly = applyGates(read, [{ id: "g1", target: "pnl", op: ">", value: 0 }]);
+  assert.equal(wholeWindow(halvedOnly, halvedOnly.targetById.get("gates:all")), false);
+  // the whole window read as it is: nothing is said to read it
+  assert.equal(wholeWindow(applyGates(schema, []), auc), false);
+  // a run without halves is read as it is
+  const flat = { ...schema, targets: [auc], targetById: new Map([["auc", auc]]) };
+  assert.equal(firstHalfOnly(flat), flat);
+});
+
+test("how a pocket was found: on the first half only while every change to it was made with First half on", () => {
+  const p = [{ dim: "a", keys: ["1"] }];
+  const none = { pocket: [], gates: [], context: [], firstHalf: true, found: null };
+  // nothing chosen: nothing to say
+  assert.equal(choiceFound(none, none), null);
+  // set with First half on, and changed with it on: found on the first half
+  const first = { ...none, pocket: p, found: choiceFound(none, { ...none, pocket: p }) };
+  assert.equal(first.found, "first");
+  assert.equal(choiceFound(first, { ...first, gates: [{ id: "g1" }] }), "first");
+  // First half turned off while it stands, or a change made with it off:
+  // the whole window, and turning it on again does not undo that
+  const off = { ...first, firstHalf: false, found: choiceFound(first, { ...first, firstHalf: false }) };
+  assert.equal(off.found, "whole");
+  assert.equal(choiceFound(off, { ...off, firstHalf: true }), "whole");
+  assert.equal(choiceFound({ ...none, firstHalf: false }, { ...none, firstHalf: false, context: p }), "whole");
+  // cleared, and set again with First half on: the first half again
+  const cleared = { ...off, pocket: [], firstHalf: true, found: choiceFound(off, { ...off, pocket: [], firstHalf: true }) };
+  assert.equal(cleared.found, null);
+  assert.equal(choiceFound(cleared, { ...cleared, pocket: p }), "first");
+  // a pocket from an address that kept no account: the whole window
+  assert.equal(choiceFound({ ...none, pocket: p, found: null }, { ...none, pocket: p, found: null }), "whole");
+  assert.equal(choiceFound(undefined, { ...none, pocket: p }), "first");
+  // chosen with First half on but a needle in view that reads the whole
+  // window anyway: the whole window
+  assert.equal(choiceFound(none, { ...none, pocket: p }, true), "whole");
+});
+
+test("the needle a state shows reads the whole window with First half on when the run does not measure it on each half", () => {
+  const auc = { id: "auc", label: "AUC", values: new Float64Array(N) };
+  const schema = { targets: [target, auc], targetById: new Map([["pnl", target], ["auc", auc]]), defaultTarget: "pnl",
+    standingGates: [{ id: "pnl_up", target: "pnl", op: ">=", value: 0 }] };
+  const on = (patch) => needleReadsWhole(schema, { gates: [], ...patch });
+  assert.deepEqual([on({ target: "pnl" }), on({ target: null }), on({ target: "auc" })], [false, false, true]);
+  const gates = [{ id: "g1", target: "pnl" }, { id: "g2", target: "auc" }];
+  assert.deepEqual([on({ target: "gate:g1", gates }), on({ target: "gate:g2", gates }), on({ target: "gate:pnl_up", gates }),
+    on({ target: "gates:all", gates }), on({ target: "gates:all", gates: gates.slice(0, 1) })], [false, true, false, true, false]);
+  // a run without halves: every needle reads the whole window, so a choice
+  // made there with First half on is found on the whole window
+  assert.equal(needleReadsWhole({ ...schema, targets: [auc] }, { target: "auc" }), true);
+  const p = [{ dim: "a", keys: ["1"] }];
+  assert.equal(choiceFound({ firstHalf: true }, { firstHalf: true, gates: p }, needleReadsWhole({ ...schema, targets: [auc] }, { target: "auc" })), "whole");
 });
 
 test("an effect counts only when it shows in both halves, its values ordered alike", () => {

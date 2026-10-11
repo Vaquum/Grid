@@ -13,7 +13,7 @@ import { h, clear, icon, installTips, hideTip, syncInfo, fmtInt, fmtRowValue, ru
 import { runStatus, rowsSince, lastRowAt } from "./status.js";
 import { manifestSection, figureLine } from "./manifest.js";
 import { applyGates } from "./gates.js";
-import { halfTargets, twice } from "./halves.js";
+import { halfTargets, twice, firstHalfOnly, wholeWindow, choiceFound, needleReadsWhole } from "./halves.js";
 import { renderBoard } from "./view-board.js";
 import { renderInspector } from "./inspector.js";
 import { renderPocket } from "./view-pocket.js";
@@ -52,7 +52,7 @@ function views(run) {
 const DEFAULT_STATE = {
   run: null, view: "board", target: null, context: [], pocket: [], pocketB: null,
   sel: null, edge: null, show: { flat: true }, pair: null, order: 2, featSort: "effect",
-  trialCols: ["movers", "halves"], gates: [], clusters: [], compare: false, clusterK: null,
+  trialCols: ["movers", "halves"], gates: [], clusters: [], compare: false, clusterK: null, firstHalf: false, found: null,
 };
 
 const app = {
@@ -71,7 +71,7 @@ const app = {
 
 function encodeState(st) {
   const o = { v: st.view, r: st.run, t: st.target, c: st.context, p: st.pocket, pb: st.pocketB, s: st.sel, e: st.edge, pr: st.pair, po: st.order, sh: st.show, fs: st.featSort, tc: st.trialCols, g: st.gates,
-    cl: st.clusters, cm: st.compare, ck: st.clusterK };
+    cl: st.clusters, cm: st.compare, ck: st.clusterK, fh: st.firstHalf ? 1 : undefined, fo: st.found || undefined };
   const json = JSON.stringify(o);
   const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(json)));
   return "s1." + b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -87,7 +87,8 @@ function decodeState(hash) {
     return { ...DEFAULT_STATE, view: o.v, run: o.r, target: o.t, context: o.c || [], pocket: o.p || [], pocketB: Array.isArray(o.pb) ? o.pb : null, sel: o.s || null,
       edge: o.e ?? null, pair: o.pr || null, order: o.po || 2, show: o.sh || DEFAULT_STATE.show, featSort: o.fs || "effect",
       trialCols: Array.isArray(o.tc) ? o.tc : DEFAULT_STATE.trialCols, gates: Array.isArray(o.g) ? o.g : [],
-      clusters: Array.isArray(o.cl) ? o.cl : [], compare: !!o.cm, clusterK: Number.isInteger(o.ck) ? o.ck : null };
+      clusters: Array.isArray(o.cl) ? o.cl : [], compare: !!o.cm, clusterK: Number.isInteger(o.ck) ? o.ck : null, firstHalf: o.fh === 1,
+      found: o.fo === "first" || o.fo === "whole" ? o.fo : null };
   } catch (err) {
     console.warn("ignoring an address that is not a Grid view", err);
     return null;
@@ -95,6 +96,9 @@ function decodeState(hash) {
 }
 
 function pushState(next, replace = false) {
+  // how the pocket, the gates and the context were found: on the first half
+  // only, or not
+  next = { ...next, found: choiceFound(app.state, next, !!app.cache.schema && needleReadsWhole(app.cache.schema, next)) };
   app.state = next;
   const token = "#" + encodeState(next);
   try {
@@ -315,9 +319,15 @@ export function model() {
     c.gatedKey = null;
   }
   const st = app.state;
-  // the gates set here, on the schema: gates, and needles of their own
+  // read on the first half of the test window only, when set
+  const half = st.firstHalf ? "first" : "";
+  if (c.halfKey !== half || c.halfOf !== c.schema) {
+    c.read = half ? firstHalfOnly(c.schema) : c.schema;
+    c.halfKey = half; c.halfOf = c.schema; c.gatedKey = null;
+  }
+  // the gates set here, on the schema as read: gates, and needles of their own
   const gatesKey = JSON.stringify(st.gates);
-  if (c.gatedKey !== gatesKey) { c.gated = applyGates(c.schema, st.gates); c.gatedKey = gatesKey; }
+  if (c.gatedKey !== gatesKey) { c.gated = applyGates(c.read, st.gates); c.gatedKey = gatesKey; }
   const schema = c.gated;
   let targetId = st.target && schema.targetById.has(st.target) ? st.target : schema.defaultTarget;
   // a run with no row yet (one that has just started over) has no needle
@@ -327,11 +337,12 @@ export function model() {
   const ctx = (st.context || []).filter(cnd => schema.dimById.has(cnd.dim));
   // a gate's needle changes with its need: its revision is part of the question
   const rev = target.rev || "";
-  const key = `${ds.id}|${ds.version}|${targetId}|${rev}|${edge}|${JSON.stringify(ctx)}`;
+  const key = `${ds.id}|${ds.version}|${targetId}|${rev}|${edge}|${JSON.stringify(ctx)}|${half}`;
   // the same question, whatever rows have arrived since
-  c.akey = `${ds.id}|${ds.meta.generation}|${targetId}|${rev}|${st.edge === null ? "latest" : edge}|${JSON.stringify(ctx)}`;
-  // the same rows, whatever the needle (the clusters do not read it)
-  c.rkey = `${ds.id}|${ds.meta.generation}|${st.edge === null ? "latest" : edge}|${JSON.stringify(ctx)}`;
+  c.akey = `${ds.id}|${ds.meta.generation}|${targetId}|${rev}|${st.edge === null ? "latest" : edge}|${JSON.stringify(ctx)}|${half}`;
+  // the same rows, whatever the needle (the clusters do not read it, but
+  // read their outcomes on the half read)
+  c.rkey = `${ds.id}|${ds.meta.generation}|${st.edge === null ? "latest" : edge}|${JSON.stringify(ctx)}|${half}`;
   if (c.key !== key) {
     c.key = key;
     c.rows = rowsIn(schema, ctx, edge);
@@ -507,8 +518,19 @@ function buildTop() {
       h("div", { text: tg.definition || `${tg.unit || "value"}; ${tg.better > 0 ? "higher is better" : tg.better < 0 ? "lower is better" : "no better direction"}` }),
       h("div", { class: "k" }, "Key ", h("kbd", { text: "T" })));
   });
+  // First half: every needle read on the first half of the test window
+  // only, on a run measured on each half
+  els.half = h("button", { class: "btn half-pick", type: "button", "aria-pressed": "false", hidden: true,
+    onclick: () => setState({ firstHalf: !app.state.firstHalf }) }, "First half");
+  tip(els.half, () => h("div", null,
+    h("b", { text: app.state.firstHalf ? "Every view reads the first half of the test window only" : "Read the first half of the test window only" }),
+    h("div", { text: "Every needle measured on each half reads its first half, and no view shows the second: the half the Cohort view judges a cohort on stays unseen while you find its pocket. A needle not measured on each half reads the whole window, and says so." }),
+    h("div", { class: "k" }, "Key ", h("kbd", { text: "H" }))));
+  els.whole = h("span", { class: "chip warn-chip", hidden: true });
+  tip(els.whole, () => h("div", null, h("b", { text: "Read over the whole window" }),
+    h("div", { text: `${app.top.target ? app.top.target.label : "This needle"} is not measured on each half of the test window, so it reads the whole window, the second half too. Choose a needle of the run's execution (net PnL per bar, trades, …) to read the first half only.` })));
   els.chips = h("div", { class: "chips" });
-  t.append(h("div", { class: "top-mid" }, picker, els.chips));
+  t.append(h("div", { class: "top-mid" }, picker, els.half, els.whole, els.chips));
   els.play = btnIcon("play", "Replay the rows as they arrived", "Space", togglePlay);
   t.append(h("div", { class: "top-right" },
     els.replay = h("div", { class: "group", role: "group", "aria-label": "Replay" },
@@ -583,6 +605,15 @@ function updateTop(m0) {
   }
   if (els.tsel.value !== m.target.id) els.tsel.value = m.target.id;
   top.target = m.target;
+  // First half: offered on a run measured on each half; the needle in view
+  // says when it reads the whole window all the same
+  const halved = m.cache.schema.targets.some(x => x.halves);
+  if (els.half.hidden === halved) els.half.hidden = !halved;
+  const on = String(!!(halved && app.state.firstHalf));
+  if (els.half.getAttribute("aria-pressed") !== on) els.half.setAttribute("aria-pressed", on);
+  const whole = halved && m.target !== NO_NEEDLE && wholeWindow(m.schema, m.target);
+  if (els.whole.hidden === whole) els.whole.hidden = !whole;
+  if (whole) setText(els.whole, "Whole window");
   // the context: chips change with it; the row count in place
   const contextKey = `${ds.id}\n${JSON.stringify(m.context)}`;
   if (contextKey !== top.contextKey) {
@@ -807,6 +838,7 @@ function onKey(e) {
       return;
     }
     case "t": case "T": { const el = document.getElementById("target-pick"); if (el) el.focus(); e.preventDefault(); return; }
+    case "h": case "H": { if (app.top && !app.top.els.half.hidden) setState({ firstHalf: !app.state.firstHalf }); return; }
     case "/": { const el = document.querySelector("[data-search]"); if (el) { el.focus(); e.preventDefault(); } return; }
     case " ": togglePlay(); e.preventDefault(); return;
     case "[": stepEdge(-1); return;

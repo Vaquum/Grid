@@ -257,7 +257,12 @@ function rowDetail(box, m, A, i) {
   const out = [];
   const replay = prof && prof.replay ? prof.replay.python(obj) : null;
   if (replay) out.push(...codeBlock(prof.replay.title, replay, A.toast, "Replay copied."));
-  out.push(...codeBlock("The row, rebuilt from its columns", JSON.stringify(obj, null, 1), A.toast, `Row ${fmtInt(i)} copied.`, "capped"));
+  // with First half on, the whole window's figures of the needles read on
+  // the first half are not shown
+  const hidden = sc.firstHalf ? sc.targets.filter(t => t.base && Object.hasOwn(obj, t.id)).map(t => t.id) : [];
+  for (const k of hidden) delete obj[k];
+  out.push(...codeBlock(hidden.length ? "The row, rebuilt from its columns (First half: less the whole window's figures of the needles read on the first half)"
+    : "The row, rebuilt from its columns", JSON.stringify(obj, null, 1), A.toast, `Row ${fmtInt(i)} copied.`, "capped"));
   box.append(part("Replay", ...out));
 }
 

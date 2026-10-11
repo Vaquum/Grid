@@ -15,7 +15,7 @@
 import { h, tip, fmtInt, fmtNum, fmtPct, fmtRowValue, fmtClock } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { rowsIn } from "./engine.js";
-import { OPS } from "./gates.js";
+import { OPS, gateLabel } from "./gates.js";
 
 export const COHORT_DEFAULT = 5;
 const JUDGE_MS = 300;
@@ -54,22 +54,24 @@ export function pocketOf(schema, pocket) {
   return (pocket || []).filter(c => schema.dimById.has(c.dim));
 }
 
-// Each gate of the pool as the pool reads it. A gate set in Gates on a
-// needle measured on each half is read on the first half of the test
-// window, so the second half chooses no row of the pool; any other (on a
-// needle of the whole window, or the runner's own) is read as it stands,
-// over the whole window.
+// Each gate of the pool as the pool reads it, under its needle's own name.
+// A gate set in Gates on a needle measured on each half is read on the
+// first half of the test window, so the second half chooses no row of the
+// pool; any other (on a needle of the whole window, or the runner's own)
+// is read as it stands, over the whole window. With First half on, a
+// gate's needle is its first half already; its own (`base`) has both.
 export function gateReads(schema) {
   return poolGates(schema).map(g => {
-    const halves = g.def && g.target && g.target.halves;
+    const base = g.target && (g.target.base || g.target);
+    const halves = g.def && base && base.halves;
     const op = halves && OPS[g.def.op];
-    if (!op) return { gate: g, firstHalf: false, pass: g.pass };
+    if (!op) return { gate: g, label: g.label, firstHalf: false, pass: g.pass };
     const first = halves[0], pass = new Float64Array(schema.n);
     for (let i = 0; i < schema.n; i++) {
       const v = first[i];
       pass[i] = v === v ? (op.test(v, g.def.value) ? 1 : 0) : NaN;
     }
-    return { gate: g, firstHalf: true, pass };
+    return { gate: g, label: gateLabel(base, g.def), firstHalf: true, pass };
   });
 }
 
@@ -78,7 +80,7 @@ export function gateReads(schema) {
 // window.
 export function touchedBy(t, reads) {
   if (!t.halves) return `${t.label} is not measured on each half`;
-  const whole = reads.filter(r => !r.firstHalf).map(r => r.gate.label);
+  const whole = reads.filter(r => !r.firstHalf).map(r => r.label);
   if (!whole.length) return null;
   return whole.length === 1 ? `the gate ${whole[0]} is read over the whole window`
     : `the gates ${whole.join("; ")} are read over the whole window`;
@@ -135,7 +137,9 @@ export function renderCohort(view, m, A) {
     return;
   }
   if (pick.run !== m.ds.id) reset(m.ds.id);
-  const t = m.target;
+  // the needle as measured, on each half: with First half on, the needle
+  // in view is its first half, read from this
+  const t = m.target.base || m.target;
   const pocket = pocketOf(m.schema, m.state.pocket);
   const reads = gateReads(m.schema);
   const touched = touchedBy(t, reads);
@@ -256,13 +260,27 @@ function poolIsland(m, A, pocket, reads, pool) {
   }).filter(Boolean) : [];
   isl.append(h("p", { class: "isl-note" },
     said.length ? ["In the pocket: ", h("span", { class: "mono", text: said.join("; ") }), ". "] : "No pocket: every row in view. ",
-    reads.length ? `Passing every gate (${fmtInt(reads.length)}): ${reads.map(r => `${r.gate.label}, ${r.firstHalf ? "on the first half" : "over the whole window"}`).join("; ")}.` : "No gate set.",
+    reads.length ? `Passing every gate (${fmtInt(reads.length)}): ${reads.map(r => `${r.label}, ${r.firstHalf ? "on the first half" : "over the whole window"}`).join("; ")}.` : "No gate set.",
     reads.some(r => !r.firstHalf) ? " A gate read over the whole window lets the second half help choose the pool, so it no longer judges the cohort untouched." : "",
     standing.length ? ` Grid's own gates (${standing.map(g => g.label).join("; ")}) are not applied here; set them in Gates to apply them.` : ""));
   isl.append(h("div", { class: "co-acts" },
     h("button", { class: "btn small", type: "button", onclick: () => A.set({ view: "pocket" }) }, "Pocket ", h("kbd", { text: "2" })),
     h("button", { class: "btn small", type: "button", onclick: () => A.set({ view: "gates" }) }, "Gates ", h("kbd", { text: "6" }))));
   if (!pool.length) isl.append(h("p", { class: "isl-note", text: "No row in view is in the pocket and passes every gate: widen the pocket or loosen a gate." }));
+  // the pocket is found with the other views: how it was found, as the
+  // address kept it (app.js, halves.js choiceFound)
+  if (m.cache.schema.targets.some(x => x.halves)) {
+    const st = m.state;
+    const chosen = ["pocket", "gates", "context"].some(k => (st[k] || []).length > 0);
+    const on = (label) => h("button", { class: "btn small", type: "button", onclick: () => A.set({ firstHalf: true }) }, label, " ", h("kbd", { text: "H" }));
+    isl.append(h("p", { class: "isl-note co-half" }, !chosen
+      ? (st.firstHalf ? "First half is on: find the pocket and set the gates, and the second half stays unseen until the cohort is judged on it."
+        : ["The other views read the whole test window, the second half too: turn on ", on("First half"), " before finding the pocket, and the second half stays unseen until the cohort is judged on it."])
+      : st.found === "first" ? "Set with First half on: the pocket, the gates and the context were found without the second half."
+        : ["The pocket, the gates or the context were set while the other views read the whole window, the second half too, so it helped choose them. To keep it unseen, ",
+          h("button", { class: "btn small", type: "button", onclick: () => A.set({ pocket: [], gates: [], context: [], firstHalf: true }) }, "clear them and turn on First half"),
+          ", then find them again."]));
+  }
   return isl;
 }
 
@@ -477,16 +495,23 @@ function makeIsland(m, A, pocket, reads, mine, members) {
 // or put in by hand are those that made the members differ from the best
 // N of the directory's ranked pool (`mine`) as it stands.
 export function howChosen(m, pocket, reads, mine, members) {
-  const t = m.target;
+  const t = m.target.base || m.target;
   const j = pick.judging ? null : pick.judged;
-  const said = pocketOf(m.schema, pocket).map(c => {
+  const say = (conds) => pocketOf(m.schema, conds).map(c => {
     const d = m.schema.dimById.get(c.dim);
     return `${d.label} = ${c.keys.map(k => (d.levels.find(l => l.key === k) || { label: k }).label).join(" or ")}`;
   });
+  const said = say(pocket);
+  const context = say(m.state.context || []);
   const top = new Set(mine.slice(0, pick.n)), chosen = new Set(members);
   const out = { needle: t.label, on: t.halves ? "the first half" : "the whole window", best: pick.n,
     byHand: { out: [...top].filter(i => !chosen.has(i)).length, in: members.filter(i => !top.has(i)).length },
-    pocket: said, gates: reads.map(r => `${r.gate.label} (${r.firstHalf ? "on the first half" : "over the whole window"})`),
+    pocket: said, gates: reads.map(r => `${r.label} (${r.firstHalf ? "on the first half" : "over the whole window"})`),
+    ...(context.length ? { context } : {}),
+    // what the other views read while the pocket, the gates and the context
+    // were found (none chosen: nothing to say)
+    analysis: m.state.found === "first" ? "the first half"
+      : ["pocket", "gates", "context"].some(k => (m.state[k] || []).length > 0) ? "the whole window" : null,
     untouched: !touchedBy(t, reads) };
   if (j) {
     const half = (p) => p ? { pnl: p.pnl, trades: p.trades } : null;
@@ -504,8 +529,12 @@ export function chosenText(how) {
     how.byHand.in ? `${fmtInt(how.byHand.in)} put in` : null].filter(Boolean) : [];
   const pocket = how.pocket && how.pocket.length ? `in the pocket ${how.pocket.join("; ")}` : "no pocket";
   const gates = how.gates && how.gates.length ? `passing ${how.gates.join("; ")}` : "no gate";
-  const lines = [`The best ${fmtInt(how.best)} by ${how.needle} on ${how.on}${hand.length ? `, ${hand.join(" and ")} by hand` : ""}; ${pocket}; ${gates}.`];
+  const context = how.context && how.context.length ? `; of the rows in the context ${how.context.join("; ")}` : "";
+  const lines = [`The best ${fmtInt(how.best)} by ${how.needle} on ${how.on}${hand.length ? `, ${hand.join(" and ")} by hand` : ""}; ${pocket}; ${gates}${context}.`];
   if (how.untouched === false) lines.push("The second half helped choose them, so it does not judge them untouched.");
+  else if (how.analysis === "the whole window") {
+    lines.push("Its pocket, gates or context were found with the other views reading the whole window, the second half too.");
+  }
   const j = how.judged;
   if (j && j.cohort) {
     const pnl = (p) => bpsText(p ? p.pnl : NaN);
