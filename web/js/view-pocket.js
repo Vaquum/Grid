@@ -7,7 +7,7 @@
 // pocket to compare, when there is one; the blocks to add, suggested and
 // every one; and, at the foot, the manifest (drawn by the app).
 
-import { h, icon, tip, fmtT, fmtInt, fmtNum, fmtPct, fmtDelta, fmtP, inText, rangeText, runName } from "./ui.js";
+import { h, wrapName, icon, tip, fmtT, fmtInt, fmtNum, fmtPct, fmtDelta, fmtP, inText, rangeText, runName } from "./ui.js";
 import { ALPHA, MIN_N, blockTests, pocketStats, rowsIn, suggestions, summarize } from "./engine.js";
 import { boardDims, memberDims } from "./model.js";
 import { intervalBar } from "./charts.js";
@@ -198,7 +198,7 @@ function brick(m, A, pocket, c, k, step, v, domain, ps) {
   const vals = labels(d, c.keys);
   const el = h("div", { class: `brick v-${v.kind}`, draggable: "true", dataset: { dim: c.dim } },
     h("div", { class: "bk-top" },
-      h("span", { class: "bk-what" }, h("span", { class: "bk-name", text: d.label }), h("span", { class: "bk-eq", text: " = " }), h("span", { class: "bk-vals", text: vals.join(" or ") })),
+      h("span", { class: "bk-what" }, h("span", { class: "bk-name" }, wrapName(d.label)), h("span", { class: "bk-eq", text: " = " }), h("span", { class: "bk-vals", text: vals.join(" or ") })),
       h("button", { class: "icon-btn bk-x", type: "button", "aria-label": `Remove ${d.label}`, onclick: () => A.set({ pocket: pocket.filter((_, j) => j !== k) }) }, icon("close"))),
     h("div", { class: "bk-path has-tip" },
       h("span", { class: "bk-fig num" }, h("span", { text: `${fmtInt(step.n)} rows` }), h("b", { text: fmtT(t, step.mean) })),
@@ -335,7 +335,7 @@ function everyPart(m, A, pocket, raw) {
   };
   const item = (name, chips, inPocket) => {
     shown++;
-    list.append(h("div", { class: "pal-item" + (inPocket ? " in" : "") }, h("div", { class: "pal-name", text: name }), h("div", { class: "pal-vals" }, chips)));
+    list.append(h("div", { class: "pal-item" + (inPocket ? " in" : "") }, h("div", { class: "pal-name" }, wrapName(name)), h("div", { class: "pal-vals" }, chips)));
   };
   for (const d of boardDims(m.schema)) {
     const levels = d.levels.filter(l => matches(q, d.label, l.label));

@@ -8,7 +8,7 @@
 // as that grid for each value of the third, more as their strongest and
 // weakest combinations.
 
-import { h, tip, keyTip, fmtT, fmtInt, fmtNum, fmtP, fmtDelta, fmtOmega2, inText, rangeText, runName } from "./ui.js";
+import { h, wrapName, tip, keyTip, fmtT, fmtInt, fmtNum, fmtP, fmtDelta, fmtOmega2, inText, rangeText, runName } from "./ui.js";
 import { pairEffect, cramersV, dimEffect, summarize, comboEffect, ALPHA } from "./engine.js";
 import { bhQ } from "./stats.js";
 import { moderatorParents, background, setName, TOGETHER, together, togetherWhy } from "./model.js";
@@ -284,7 +284,7 @@ function comboList(m, A, chosen, size, plan, combos) {
   const row = (r, strongest, quiet) => {
     const on = !!chosen && sameSet(chosen.dims, r.dims);
     return h("button", { class: "pr-row" + (quiet ? " quiet" : ""), type: "button", role: "listitem", "aria-pressed": on ? "true" : "false", onclick: () => A.set({ pair: r.dims }) },
-      h("span", { class: "pr-name", text: setName(m, r.dims) }),
+      h("span", { class: "pr-name" }, wrapName(setName(m, r.dims))),
       h("span", { class: "pr-meter", "aria-hidden": "true" }, h("i", { style: { width: `${Math.max(4, Math.max(0, r.omega2) / strongest * 100)}%` } })),
       h("span", { class: "pr-fig num", text: `ω² ${omega(r)}` }),
       h("span", { class: "pr-q num", text: fmtP(r.q) }));
@@ -310,7 +310,7 @@ function comboList(m, A, chosen, size, plan, combos) {
 function pairRow(m, A, r, on, share, figure, q, kind) {
   const row = h("button", { class: "pr-row" + (kind ? ` ${kind}` : ""), type: "button", role: "listitem", "aria-pressed": on ? "true" : "false",
     onclick: () => A.set({ pair: [r.a, r.b] }) },
-    h("span", { class: "pr-name", text: pairName(m, r) }),
+    h("span", { class: "pr-name" }, wrapName(pairName(m, r))),
     h("span", { class: "pr-meter", "aria-hidden": "true" }, h("i", { style: { width: `${Math.max(4, share * 100)}%` } })),
     h("span", { class: "pr-fig num", text: figure }),
     q ? h("span", { class: "pr-q num", text: q }) : null);
@@ -468,7 +468,7 @@ function facets(ctx, dims, r) {
       tb.append(tr);
     });
     tbl.append(tb);
-    wrap.append(h("div", { class: "pr-facet" }, h("h3", { class: "facet-title" }, h("span", { class: "mono", text: dims[f].label }), " = ", h("b", { class: "mono", text: lf.label })), h("div", { class: "table-wrap" }, tbl)));
+    wrap.append(h("div", { class: "pr-facet" }, h("h3", { class: "facet-title" }, h("span", { class: "mono" }, wrapName(dims[f].label)), " = ", h("b", { class: "mono", text: lf.label })), h("div", { class: "table-wrap" }, tbl)));
   });
   return wrap;
 }

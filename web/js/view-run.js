@@ -8,7 +8,7 @@
 // there); the best row against luck; and the run's health: its pace and
 // segments, its problems and warnings, and the sampler.
 
-import { h, icon, tip, keyTip, fmtT, fmtRowValue, fmtInt, fmtPct, fmtP, fmtNum, fmtPace, fmtDuration, fmtAgo, fmtClock, inText, rangeText, spanText, codeBlock, runName } from "./ui.js";
+import { h, wrapName, icon, tip, keyTip, fmtT, fmtRowValue, fmtInt, fmtPct, fmtP, fmtNum, fmtPace, fmtDuration, fmtAgo, fmtClock, inText, rangeText, spanText, codeBlock, runName } from "./ui.js";
 import { strip, stripCell, about } from "./strip.js";
 import { lineChart, distChart } from "./charts.js";
 import { invariantBreaks, recordCurve, uniformity, summarize, rowsIn, gTest, MIN_N } from "./engine.js";
@@ -466,7 +466,7 @@ function apartIsland(m, A, res, sel) {
           h("span", { class: "muted num", text: fmtPct(c.share, 0) }), h("span", { class: "rn-chip-what", text: standText(res, c) })),
         det.length ? h("ul", { class: "rn-cl-params" }, det.slice(0, 3).map(x => {
           const v = overValue(x);
-          return h("li", null, h("span", { class: "mono", text: x.dim.label }), " = ", h("b", { class: "mono", text: v.level.label }),
+          return h("li", null, h("span", { class: "mono" }, wrapName(x.dim.label)), " = ", h("b", { class: "mono", text: v.level.label }),
             h("span", { class: "muted num", text: ` ${fmtPct(v.inGroup, 0)} here, ${fmtPct(v.inRef, 0)} in every row` }));
         })) : h("p", { class: "muted", text: "No parameter sets it apart detectably." }));
       tip(b, () => h("div", null, h("b", { text: `Cluster ${c.id}` }), h("div", { class: "k", text: `${det.length} parameter${det.length === 1 ? "" : "s"} detectably more or less common in it (q < 0.05 across the parameters). Choose it to set it against every row.` })));
@@ -487,7 +487,7 @@ function apartIsland(m, A, res, sel) {
   isl.append(list);
   if (rest.length) {
     isl.append(h("details", { class: "rn-rest" }, h("summary", { class: "muted", text: `${fmtInt(rest.length)} parameter${rest.length === 1 ? "" : "s"} with no detectable difference` }),
-      h("p", { class: "mono muted", text: rest.map(x => x.dim.label).join(", ") })));
+      h("p", { class: "mono muted" }, wrapName(rest.map(x => x.dim.label).join(", ")))));
   }
   return isl;
 }
@@ -497,7 +497,7 @@ function apartIsland(m, A, res, sel) {
 function paramRow(x, groups) {
   const top = Math.max(...x.levels.map(l => Math.max(l.inGroup || 0, l.inRef || 0)), 1e-9);
   const row = h("div", { class: "rn-param" },
-    h("div", { class: "rn-pname" }, h("span", { class: "mono", text: x.dim.label }),
+    h("div", { class: "rn-pname" }, h("span", { class: "mono" }, wrapName(x.dim.label)),
       h("span", { class: "muted num", text: ` V ${fmtNum(x.V, 2)} · ${fmtP(x.q)}` })));
   const lv = h("div", { class: "rn-levels" });
   for (const l of x.levels) {
@@ -877,7 +877,7 @@ function samplerIsland(m) {
   if (!uneven.length) isl.append(h("div", { class: "issue" }, h("span", { class: "sev ok" }, icon("check"), "even"), h("span", { text: "Every sampled parameter's values were drawn about equally often." })));
   for (const { d, u } of uneven) {
     isl.append(h("div", { class: "issue" }, h("span", { class: "sev warn" }, icon("alert"), "uneven"),
-      h("div", null, h("span", { class: "mono", text: d.label }),
+      h("div", null, h("span", { class: "mono" }, wrapName(d.label)),
         h("span", { class: "muted num", text: `  ${d.levels.map((l, j) => `${l.label} ${fmtPct(u.shares[j], 1)}`).join(" · ")}` }))));
   }
   if (!dep.length) isl.append(h("div", { class: "issue" }, h("span", { class: "sev ok" }, icon("check"), "independent"), h("span", { text: `No pair of sampled parameters is ${TOGETHER}.` })));

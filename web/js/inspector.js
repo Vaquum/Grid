@@ -1,7 +1,7 @@
 // The inspector: a parameter (what it is, its attributes, where it acts,
 // its values and how their estimates settled), a value, or one row in full.
 
-import { h, icon, tip, clear, fmtT, fmtP, fmtInt, fmtNum, fmtPct, fmtDelta, fmtRowValue, fmtStamp, codeBlock, inText, rangeText } from "./ui.js";
+import { h, wrapName, icon, tip, clear, fmtT, fmtP, fmtInt, fmtNum, fmtPct, fmtDelta, fmtRowValue, fmtStamp, codeBlock, inText, rangeText } from "./ui.js";
 import { miniBar, lineChart, needleDomain } from "./charts.js";
 import { dimEffect, uniformity } from "./engine.js";
 import { rowObject } from "./pack.js";
@@ -46,7 +46,7 @@ function dimDetail(box, m, A, d, levelKey) {
     h("div", { class: "eyebrow" }, `${KIND_TEXT[d.kind] || d.kind} · ${d.levels.length} values`,
       d.scope ? ` · ${scopeText(m, d)}` : "",
       d.role !== "param" ? ` · ${d.role}` : ""),
-    h("h2", { class: "mono", text: d.label }))));
+    h("h2", { class: "mono" }, wrapName(d.label)))));
   // verdict
   box.append(verdict(m, d, e));
 
@@ -75,8 +75,8 @@ function dimDetail(box, m, A, d, levelKey) {
     const o = m.schema.dimById.get(indep.a === d.id ? indep.b : indep.a);
     const bad = together(indep.p, indep.V);
     fact("Independence", bad
-      ? h("span", { class: "sev warn" }, icon("alert"), `${TOGETHER} with `, h("span", { class: "mono", text: o.label }), ` (V ${fmtNum(indep.V, 3)})`)
-      : h("span", null, "drawn independently; the closest is ", h("span", { class: "mono", text: o.label }), ` (V ${fmtNum(indep.V, 3)})`),
+      ? h("span", { class: "sev warn" }, icon("alert"), `${TOGETHER} with `, h("span", { class: "mono" }, wrapName(o.label)), ` (V ${fmtNum(indep.V, 3)})`)
+      : h("span", null, "drawn independently; the closest is ", h("span", { class: "mono" }, wrapName(o.label)), ` (V ${fmtNum(indep.V, 3)})`),
       bad ? `${togetherWhy(indep.V)} Use the context to look inside one of its values.` : "Cramér's V against every other sampled parameter; the largest is shown. Near zero means drawn independently, which is what lets a marginal difference read as an effect.");
   }
   box.append(part("Attributes", facts));
@@ -88,7 +88,7 @@ function dimDetail(box, m, A, d, levelKey) {
       for (const mo of top) {
         list.append(h("div", { class: "issue" },
           h("span", { class: "sev " + (mo.detectable ? "on" : "off"), text: mo.detectable ? "changes it" : "no change" }),
-          h("span", null, h("span", { class: "mono", text: mo.label }), h("span", { class: "muted", text: `  ${fmtP(mo.q)}` }))));
+          h("span", null, h("span", { class: "mono" }, wrapName(mo.label)), h("span", { class: "muted", text: `  ${fmtP(mo.q)}` }))));
       }
       if (md.acts) list.prepend(h("p", { class: "note" }, h("b", { text: (s => s.charAt(0).toUpperCase() + s.slice(1))(actsPhrase(m, md.acts)) }), `. The ${setName(m, [md.acts.parent, d.id])} interaction is detectable (${fmtP(md.acts.q)}, corrected across the board's ${fmtInt(mods.tests)} tests).`));
       else list.prepend(h("p", { class: "note", text: "No other parameter changes its effect detectably." }));
@@ -237,7 +237,7 @@ function rowDetail(box, m, A, i) {
     if (t.halves && t.halves.some(x => Number.isFinite(x[i]))) {
       dd.append(h("span", { class: "muted", text: ` · halves ${t.halves.map(x => (Number.isFinite(x[i]) ? fmtRowValue(t, x[i], { unit: false }) : "–")).join(", ")}` }));
     }
-    outs.append(h("dt", { text: t.label }), dd);
+    outs.append(h("dt", null, wrapName(t.label)), dd);
   }
   box.append(part("Outcomes", outs));
   // its parameters
@@ -245,7 +245,7 @@ function rowDetail(box, m, A, i) {
   for (const d of sc.dims.filter(x => (x.role === "param" || x.role === "effective") && x.kind !== "member")) {
     const c = d.codes[i];
     if (c < 0) continue;
-    const dt = h("dt", { class: "mono", text: d.label });
+    const dt = h("dt", { class: "mono" }, wrapName(d.label));
     const dd = h("dd", { class: "mono" }, h("button", { class: "btn small", onclick: () => A.select({ kind: "level", dim: d.id, key: d.levels[c].key }), text: d.levels[c].label }));
     params.append(dt, dd);
   }

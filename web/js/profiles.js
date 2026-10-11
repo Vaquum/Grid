@@ -265,9 +265,13 @@ export function limenProfile(experiment) {
     families: [],
     params: Object.fromEntries([...Object.keys(sfd.params || {}), ...(shards ? ["shard"] : [])].map(k => [k, null])),
     nested: {}, effective: {}, alias: {}, setSize: {},
-    ids: ["_round_index"],
-    diagnostic: ["execution_time", "optimal_threshold", "best_iteration", "_generation_index", "_injected"],
-    text: ["id", "_id", "_warnings", "_search_strategy", "strict_mode_error", "_dropped_features"],
+    // the round's bookkeeping, never a parameter or a needle: its place in
+    // the run (on a random search, its generation index is its order too),
+    // its ids, warnings and search strategy, and whether it was injected
+    // rather than drawn (only an intervention injects one)
+    ids: ["_round_index", "_generation_index"],
+    diagnostic: ["execution_time", "optimal_threshold", "best_iteration"],
+    text: ["id", "_id", "_warnings", "_search_strategy", "_injected", "strict_mode_error", "_dropped_features"],
     metrics,
     derived: LIMEN_DERIVED, roundTargets: LIMEN_ROUND, execution: LIMEN_EXECUTION, gates: [], gatesPrefix: null, invariants: [],
     defaultTarget: declared ? declared.metric : "backtest_pnl_per_bar_bps",

@@ -357,6 +357,51 @@ async function limenPage() {
   return { page, errors };
 }
 
+test("a Limen run: its bookkeeping is no needle, and a long name wraps after an underscore", async () => {
+  const { page, errors } = await limenPage();
+  await page.goto(base + "limen");
+  await page.waitForSelector(".pcard");
+  // neither the needle picker nor the gates' maker offers the round's bookkeeping
+  const bookkeeping = ["_round_index", "_generation_index", "_injected"];
+  const picked = await page.$$eval("#target-pick option", os => os.map(o => o.value));
+  assert.ok(picked.includes("execution_time"), "the fit diagnostics are still needles");
+  for (const id of bookkeeping) assert.ok(!picked.includes(id), id);
+  // a card's name in a box too narrow for it wraps after an underscore,
+  // every part whole on its line, and reads and copies as written; after
+  // a word, it moves to the next line whole, as a word does
+  const got = await page.locator('.pcard .pc-name[title="long_threshold_percentile"]').evaluate(el => {
+    el.style.width = "16ch";
+    const range = document.createRange();
+    const tops = n => { range.selectNodeContents(n); return [...new Set([...range.getClientRects()].map(r => Math.round(r.top)))]; };
+    const texts = () => { const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), out = []; while (w.nextNode()) out.push(w.currentNode); return out; };
+    const sel = getSelection();
+    sel.removeAllRanges();
+    range.selectNodeContents(el);
+    sel.addRange(range);
+    const copied = sel.toString();
+    sel.removeAllRanges();
+    const parts = texts();
+    const alone = { text: el.textContent, copied, parts: parts.map(n => n.textContent), lines: parts.map(n => tops(n).length), all: tops(el).length };
+    el.prepend("xxxxxxxx ");
+    const [word, ...after] = texts();
+    return { ...alone, moved: tops(after[0])[0] > tops(word)[0], afterLines: after.map(n => tops(n).length) };
+  });
+  assert.equal(got.text, "long_threshold_percentile");
+  assert.equal(got.copied, "long_threshold_percentile");
+  assert.deepEqual(got.parts, ["long_", "threshold_", "percentile"]);
+  assert.deepEqual(got.lines, [1, 1, 1], "a part broken across lines");
+  assert.equal(got.all, 2, "the name did not wrap");
+  assert.ok(got.moved, "the name's first part stayed behind on the word's line");
+  assert.deepEqual(got.afterLines, [1, 1, 1]);
+  await page.keyboard.press("6");
+  await page.waitForSelector(".gt-maker");
+  const made = await page.$$eval(".gt-maker .gt-needle option", os => os.map(o => o.value));
+  assert.ok(made.includes("execution_time"));
+  for (const id of bookkeeping) assert.ok(!made.includes(id), id);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("gates: the factory sets a gate, the view comes alive, and each gate is a needle", async () => {
   const { page, errors } = await limenPage();
   await page.goto(base + "limen");
