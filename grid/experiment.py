@@ -407,7 +407,9 @@ def _and(items: list[str]) -> str:
 
 # opens a run in the sweep: (its folder in the project, the result
 # directories to read) -> the sweep's id for it
-OpenFn = Callable[[str, list[str]], str]
+# opens a run in the sweep: its key, its result directories and the rows
+# the whole run plans (None: as its directories' manifests say)
+OpenFn = Callable[[str, list[str], int | None], str]
 
 
 class Project:
@@ -1142,6 +1144,18 @@ class Project:
             with self.open_lock:
                 self.notes[rid] = str(err)
 
+    def _planned(self, folder: str) -> int | None:
+        """The rows a run Grid started plans: every shard's rounds, the
+        shards read and those left out, so a run read without a shard that
+        wrote nothing is not taken for done when the others are. None for
+        a run made elsewhere (its manifest says)."""
+        shards = self._record_shards(folder)
+        rounds = [s.get("rounds") for s in shards]
+        if not shards or not all(isinstance(r, int) and not isinstance(
+                r, bool) and r > 0 for r in rounds):
+            return None
+        return sum(cast(list[int], rounds))
+
     def _readable(self, folder: str) -> tuple[list[str], list[str]]:
         """A run's result directories that can be read now, and its shards
         that ended without writing a round (read without them). Refused
@@ -1183,7 +1197,7 @@ class Project:
             if self.opener is None:
                 raise ValueError("this server cannot open runs")
             dirs, left = self._readable(folder)
-            sweep_id = self.opener(key, dirs)
+            sweep_id = self.opener(key, dirs, self._planned(folder))
             self.opened[key] = sweep_id
             if left:
                 self.notes[key] = ("%s ended without writing a round, so the "

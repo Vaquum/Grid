@@ -142,11 +142,14 @@ class ProjectRuns(unittest.TestCase):
         self.p = Project(self.root, FAKE)
         self.opened: list[str] = []
         self.read: list[list[str]] = []
+        self.planned: list[int | None] = []
         self.p.opener = self.opener
 
-    def opener(self, key: str, dirs: list[str]) -> str:
+    def opener(self, key: str, dirs: list[str],
+               planned: int | None = None) -> str:
         self.opened.append(key)
         self.read.append([os.path.basename(d) for d in dirs])
+        self.planned.append(planned)
         return "p%d" % len(self.opened)
 
     def tearDown(self) -> None:
@@ -445,10 +448,11 @@ class ProjectRuns(unittest.TestCase):
         entered = threading.Event()
         release = threading.Event()
 
-        def slow(key: str, dirs: list[str]) -> str:
+        def slow(key: str, dirs: list[str],
+                 planned: int | None = None) -> str:
             entered.set()
             release.wait(5)
-            return self.opener(key, dirs)
+            return self.opener(key, dirs, planned)
         self.p.opener = slow
         got: list[str] = []
         first = threading.Thread(target=lambda: got.append(self.p.open(rid)))
@@ -469,6 +473,9 @@ class ProjectRuns(unittest.TestCase):
         rid = self.p.start("exp", 10, 2, False, False)
         wait(lambda: self.opened == [rid])
         self.assertEqual(self.read, [["s1"]])
+        # read without s2, the run still plans its 10 rows: not done when
+        # s1 has written its 5
+        self.assertEqual(self.planned, [10])
         wait(lambda: self.run_of(rid)["state"] == "failed")
         run = self.run_of(rid)
         self.assertEqual(run["note"], "s2 ended without writing a round, so "
@@ -650,7 +657,7 @@ class OpenedWhileServing(unittest.TestCase):
                              (os.path.basename(tmp), []))
             folder = os.path.join(tmp, rid)
             run_id = w.open_limen(rid, [os.path.join(folder, "s1"),
-                                        os.path.join(folder, "s2")])
+                                        os.path.join(folder, "s2")], 10)
             w.read_once()
             run = sweep.runs[0]
             self.assertEqual((run_id, run.id, run.shards), ("p1", "p1",
@@ -660,6 +667,8 @@ class OpenedWhileServing(unittest.TestCase):
             assert run.experiment is not None
             self.assertEqual([lb for lb, _ in run.experiment["shards"]],
                              ["s1", "s2"])
+            # the rows the whole run plans go with it to the page
+            self.assertEqual(run.experiment["planned"], 10)
             with self.assertRaisesRegex(ValueError, "no metadata.json"):
                 w.open_limen("manifests", [os.path.join(tmp, "manifests")])
             # a refused run takes no id

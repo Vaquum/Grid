@@ -349,11 +349,14 @@ class Wiring:
         self.add_round_log(run, directory, k)
         self.add_written(run, directory)
 
-    def open_limen(self, key: str, dirs: list[str]) -> str:
+    def open_limen(self, key: str, dirs: list[str],
+                   planned: int | None = None) -> str:
         """A Limen run added while the server runs (the Experiment view opens
         it): its result directories, one or a run's shards read as one run
         (as ``--limen`` reads a folder of them); the sweep's id for it.
-        ``key`` is the run's folder in the project, which names it."""
+        ``key`` is the run's folder in the project, which names it;
+        ``planned``, the rows the whole run plans, when its directories do
+        not all say (a shard that wrote nothing is not read)."""
         with self.open_lock:
             parts = key.split("/")
             label = "/".join(parts[2:] if parts[:2] == ["results", "dev"]
@@ -373,6 +376,8 @@ class Wiring:
                                  % self.shown(waiting[0]))
             experiment = experiments[0]
             experiment["host"] = None
+            if planned is not None:
+                experiment["planned"] = planned
             shard_followers: list[FileFollower | SSHFollower] = []
             if len(dirs) > 1:
                 labels = shard_labels(dirs)
