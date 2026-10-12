@@ -51,7 +51,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, cast
 from urllib.parse import parse_qs, urlparse
 
-from .agent import Agent, failure
+from .agent import Agent, AgentError, failure
 from .cohort import RoundLines, bar_step, costs_of, judge
 from .experiment import Project
 from .limen import dir_reports, walk_forward
@@ -319,7 +319,20 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
             q = {k: v[-1] for k, v in parse_qs(url.query).items()}
             if url.path == "/api/agent" and server.agent:
                 return self.send_json(server.agent.discovery())
+            if url.path == "/api/agent/snapshot" and server.agent:
+                try:
+                    pack = server.agent.snapshot_pack(q.get("id", ""))
+                    return self.send_bytes(
+                        ('{"pack":%s}' % pack).encode(), "application/json")
+                except AgentError as exc:
+                    return self.fail(410, str(exc))
             if url.path in ("/", "/index.html"):
+                if server.agent and "snapshot" in q:
+                    try:
+                        return self.send_bytes(server.agent.snapshot_page(
+                            q["snapshot"]), "text/html; charset=utf-8")
+                    except AgentError as exc:
+                        return self.fail(410, str(exc))
                 return self.send_bytes(server.page(),
                                        "text/html; charset=utf-8")
             if url.path == "/api/pack":

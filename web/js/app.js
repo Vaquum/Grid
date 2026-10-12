@@ -882,7 +882,7 @@ async function start() {
     if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
     app.config = JSON.parse(document.getElementById("grid-config").textContent || "{}");
     let pack = null, cursor = null;
-    if (app.config.mode === "live") {
+    if (app.config.mode === "live" || app.config.mode === "snapshot") {
       const body = await loadLive(app.config);
       pack = body.pack; cursor = body.cursor;
     } else {

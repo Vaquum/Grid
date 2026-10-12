@@ -11,6 +11,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -238,6 +239,22 @@ class Agent:
         except (ValueError, OSError) as exc:
             return failure("OPERATION_FAILED", str(exc))
 
+    def snapshot_pack(self, snapshot: str) -> str:
+        with self.snapshot_lock:
+            found = self.snapshots.get(snapshot)
+            if found is None or time.monotonic() - found[0] >= 600:
+                raise AgentError("SNAPSHOT_EXPIRED", "snapshot is unavailable")
+            return found[1]
+
+    def snapshot_page(self, snapshot: str) -> bytes:
+        self.snapshot_pack(snapshot)
+        config = json.dumps({"mode": "snapshot", "pack":
+                             "/api/agent/snapshot?id=" + snapshot})
+        return re.sub(
+            rb'(<script id="grid-config" type="application/json">).*?(</script>)',
+            lambda m: m[1] + config.encode() + m[2], self.server.page(),
+            count=1, flags=re.S)
+
     def project(self) -> Any:
         if self.server.project is None:
             raise AgentError("PROJECT_REQUIRED", "serve --project is required")
@@ -305,6 +322,7 @@ class Agent:
                     pack, _ = self.server.sweep.pack_text()
                     data: Json = json.loads(pack)
                     data["agentInstance"] = self.instance
+                    data["mode"] = "recorded"
                     pack = json.dumps(data)
                     snapshot = str(uuid.uuid4())
                     if len(self.snapshots) >= 4:
@@ -333,6 +351,8 @@ class Agent:
             result["result"]["snapshot"]["instance"] = self.instance
             result["result"]["snapshot"]["expiresIn"] = max(
                 0, int(600 - (time.monotonic() - created)))
+            result["result"]["viewLink"] = "/?snapshot=%s%s" % (
+                snapshot, result["result"]["viewLink"][1:])
             return result["result"]
         if operation == "grid_row":
             return {"reference": args["reference"],
@@ -381,7 +401,7 @@ class Agent:
                 receipt = self.receipt(args["requestId"])
                 if receipt["fingerprint"] != fingerprint:
                     raise AgentError("REQUEST_CONFLICT", "requestId already "
-                                     "belongs to different arguments") from None
+                                     "belongs to other arguments") from None
                 if receipt["state"] != "complete":
                     raise AgentError("OUTCOME_UNKNOWN", "write was recorded "
                                      "without a final receipt; inspect status "

@@ -157,7 +157,19 @@ class TestAgent(unittest.TestCase):
         self.assertFalse(self.client.call("grid_start", {**start,
                                                         "rounds": 41})["ok"])
         self.call("grid_status")
+        deadline = time.monotonic() + 10
+        results = Path(self.project_root, run, "s1", "results.csv")
+        while time.monotonic() < deadline:
+            if results.exists() and len(results.read_text().splitlines()) > 1:
+                break
+            time.sleep(0.01)
+        self.assertTrue(results.exists())
         self.call("grid_stop", run=run, requestId="stop")
+        checkpoint = results.with_name("checkpoint.json")
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and not checkpoint.exists():
+            time.sleep(0.01)
+        self.assertTrue(checkpoint.exists())
         self.call("grid_resume", run=run, requestId="resume")
         self.call("grid_stop", run=run, requestId="stop-again")
 
