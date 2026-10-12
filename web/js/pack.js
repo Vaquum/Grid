@@ -274,14 +274,14 @@ export function decodePack(pack) {
 // grid/columns.py Store.row_object does it.
 export function rowObject(ds, i) {
   if (!(i >= 0 && i < ds.n)) throw new Error(`row ${i} is outside 0..${ds.n - 1}`);
-  const root = {};
+  const root = Object.create(null);
   for (const name of ds.order) {
     const v = ds.cols.get(name).value(i);
     if (v === undefined) continue;
     const parts = name.split(".");
     let node = root;
     for (const p of parts.slice(0, -1)) {
-      if (node[p] === null || typeof node[p] !== "object" || Array.isArray(node[p])) node[p] = {};
+      if (node[p] === null || typeof node[p] !== "object" || Array.isArray(node[p])) node[p] = Object.create(null);
       node = node[p];
     }
     node[parts[parts.length - 1]] = v;
@@ -293,7 +293,5 @@ function toLists(node) {
   if (node === null || typeof node !== "object" || Array.isArray(node)) return node;
   const keys = Object.keys(node);
   if (keys.length && keys.every((k, i) => k === String(i))) return keys.map(k => toLists(node[k]));
-  const out = {};
-  for (const k of keys) out[k] = toLists(node[k]);
-  return out;
+  return Object.fromEntries(keys.map(k => [k, toLists(node[k])]));
 }

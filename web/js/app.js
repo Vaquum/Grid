@@ -1,3 +1,4 @@
+import { DEFAULT_STATE, NO_NEEDLE, encodeState, decodeState, createModel } from "./core.js";
 // The page: loads a sweep (embedded, live from the server, or a dropped
 // file), keeps the state (in the address), computes what the views need,
 // and routes keys, clicks and live updates. Served on a Limen project, it
@@ -49,11 +50,7 @@ function views(run) {
   return list;
 }
 
-const DEFAULT_STATE = {
-  run: null, view: "board", target: null, context: [], pocket: [], pocketB: null,
-  sel: null, edge: null, show: { flat: true }, pair: null, order: 2, featSort: "effect",
-  trialCols: ["movers", "halves"], gates: [], clusters: [], compare: false, clusterK: null, firstHalf: false, found: null,
-};
+
 
 const app = {
   config: null, sweep: null, state: null, cache: {}, live: null, playback: null,
@@ -69,31 +66,6 @@ const app = {
 // State in the address: a base64url token, which survives hosts that pass
 // only a bare #anchor.
 
-function encodeState(st) {
-  const o = { v: st.view, r: st.run, t: st.target, c: st.context, p: st.pocket, pb: st.pocketB, s: st.sel, e: st.edge, pr: st.pair, po: st.order, sh: st.show, fs: st.featSort, tc: st.trialCols, g: st.gates,
-    cl: st.clusters, cm: st.compare, ck: st.clusterK, fh: st.firstHalf ? 1 : undefined, fo: st.found || undefined };
-  const json = JSON.stringify(o);
-  const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(json)));
-  return "s1." + b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function decodeState(hash) {
-  const m = /^#?s1\.([A-Za-z0-9_-]+)$/.exec(hash || "");
-  if (!m) return null;
-  try {
-    const b64 = m[1].replace(/-/g, "+").replace(/_/g, "/");
-    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-    const o = JSON.parse(new TextDecoder().decode(bytes));
-    return { ...DEFAULT_STATE, view: o.v, run: o.r, target: o.t, context: o.c || [], pocket: o.p || [], pocketB: Array.isArray(o.pb) ? o.pb : null, sel: o.s || null,
-      edge: o.e ?? null, pair: o.pr || null, order: o.po || 2, show: o.sh || DEFAULT_STATE.show, featSort: o.fs || "effect",
-      trialCols: Array.isArray(o.tc) ? o.tc : DEFAULT_STATE.trialCols, gates: Array.isArray(o.g) ? o.g : [],
-      clusters: Array.isArray(o.cl) ? o.cl : [], compare: !!o.cm, clusterK: Number.isInteger(o.ck) ? o.ck : null, firstHalf: o.fh === 1,
-      found: o.fo === "first" || o.fo === "whole" ? o.fo : null };
-  } catch (err) {
-    console.warn("ignoring an address that is not a Grid view", err);
-    return null;
-  }
-}
 
 function pushState(next, replace = false) {
   // how the pocket, the gates and the context were found: on the first half
@@ -300,65 +272,12 @@ function installSweep(pack, keepState) {
 // ---------------------------------------------------------------------------
 // The model the views read
 
-const NO_NEEDLE = { id: "none", label: "Needle", kind: "cont", unit: "", better: 0, digits: 2, values: new Float64Array(0) };
-
 function currentRun() {
   return app.sweep.runs.find(r => r.id === app.state.run) || app.sweep.runs[0];
 }
 
 export function model() {
-  const ds = currentRun();
-  const c = app.cache;
-  if (c.ds !== ds || c.version !== ds.version) {
-    c.ds = ds; c.version = ds.version;
-    // a Limen run says what its columns are; other runs are matched to a
-    // known profile or inferred
-    const exp = ds.meta.experiment;
-    c.schema = buildSchema(ds, exp && exp.kind === "limen" ? { profile: limenProfile(exp) } : {});
-    c.key = null; c.indep = null;  // background results (mods, pairs) refresh on their own
-    c.gatedKey = null;
-  }
-  const st = app.state;
-  // read on the first half of the test window only, when set
-  const half = st.firstHalf ? "first" : "";
-  if (c.halfKey !== half || c.halfOf !== c.schema) {
-    c.read = half ? firstHalfOnly(c.schema) : c.schema;
-    c.halfKey = half; c.halfOf = c.schema; c.gatedKey = null;
-  }
-  // the gates set here, on the schema as read: gates, and needles of their own
-  const gatesKey = JSON.stringify(st.gates);
-  if (c.gatedKey !== gatesKey) { c.gated = applyGates(c.read, st.gates); c.gatedKey = gatesKey; }
-  const schema = c.gated;
-  let targetId = st.target && schema.targetById.has(st.target) ? st.target : schema.defaultTarget;
-  // a run with no row yet (one that has just started over) has no needle
-  // to measure: a stand-in with no values, so every view can say so
-  const target = schema.targetById.get(targetId) || NO_NEEDLE;
-  const edge = st.edge === null ? ds.n : Math.min(st.edge, ds.n);
-  const ctx = (st.context || []).filter(cnd => schema.dimById.has(cnd.dim));
-  // a gate's needle changes with its need: its revision is part of the question
-  const rev = target.rev || "";
-  const key = `${ds.id}|${ds.version}|${targetId}|${rev}|${edge}|${JSON.stringify(ctx)}|${half}`;
-  // the same question, whatever rows have arrived since
-  c.akey = `${ds.id}|${ds.meta.generation}|${targetId}|${rev}|${st.edge === null ? "latest" : edge}|${JSON.stringify(ctx)}|${half}`;
-  // the same rows, whatever the needle (the clusters do not read it, but
-  // read their outcomes on the half read)
-  c.rkey = `${ds.id}|${ds.meta.generation}|${st.edge === null ? "latest" : edge}|${JSON.stringify(ctx)}|${half}`;
-  if (c.key !== key) {
-    c.key = key;
-    c.rows = rowsIn(schema, ctx, edge);
-    c.allRows = rowsIn(schema, [], edge);
-    c.base = summarize(target, c.rows);
-    const dims = boardDims(schema);
-    c.board = board(schema, target, c.rows, dims);
-    // a needle measured on each half of the test window (a Limen run that
-    // recorded its execution): an effect counts only when it shows in both
-    const halves = halfTargets(target);
-    if (halves) twice(c.board, halves.map(ht => board(schema, ht, c.rows, dims)));
-    c.order = boardOrder(c.board.effects);
-    c.record = null;
-  }
-  return { sweep: app.sweep, ds, schema, target, edge, rows: c.rows, allRows: c.allRows, base: c.base,
-    board: c.board, order: c.order, state: st, context: ctx, cache: c };
+  return createModel(app.sweep, app.state, app.cache);
 }
 
 // ---------------------------------------------------------------------------
@@ -963,7 +882,7 @@ async function start() {
     if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
     app.config = JSON.parse(document.getElementById("grid-config").textContent || "{}");
     let pack = null, cursor = null;
-    if (app.config.mode === "live") {
+    if (app.config.mode === "live" || app.config.mode === "snapshot") {
       const body = await loadLive(app.config);
       pack = body.pack; cursor = body.cursor;
     } else {

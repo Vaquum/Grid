@@ -138,7 +138,7 @@ function clustersOf(m, A) {
 // What the cards show: every row; the chosen clusters (together) against
 // every row; or, with Compare and two chosen, the first against the
 // second.
-function selectionOf(m, res) {
+export function selectionOf(m, res) {
   const have = res ? res.clusters : [];
   const pick = (m.state.clusters || []).map(id => have.find(c => c.id === id)).filter(Boolean);
   const compare = !!m.state.compare;
@@ -172,7 +172,7 @@ function setCompare(m, A, on) {
 // every row in grey (its share over a broken bin in the secondary ink,
 // which reads as text where the grey does not); two clusters compared in
 // the first two categorical colours.
-function shownGroups(m, sel) {
+export function shownGroups(m, sel) {
   if (sel.mode === "compare") {
     return [{ key: "a", label: sel.a.id, rows: sel.a.rows, fill: "var(--cat-1-bar)", ink: "var(--cat-1)" },
       { key: "b", label: sel.b.id, rows: sel.b.rows, fill: "var(--cat-2-bar)", ink: "var(--cat-2)" }];
@@ -294,7 +294,7 @@ function hasValues(t, rows) {
   return false;
 }
 
-function sortedVals(values, rows) {
+export function sortedVals(values, rows) {
   const v = [];
   for (let j = 0; j < rows.length; j++) { const x = values[rows[j]]; if (x === x) v.push(x); }
   return Float64Array.from(v).sort();
@@ -314,7 +314,7 @@ function minus(rows, sub) {
 
 // The test of one outcome between what the card sets apart: the chosen
 // rows against the rest, or the first cluster against the second.
-function testOf(t, sel, m) {
+export function testOf(t, sel, m) {
   const [a, b] = sel.mode === "compare" ? [sel.a.rows, sel.b.rows] : [sel.rows, minus(m.rows, sel.rows)];
   if (t.kind === "binary") {
     const sa = summarize(t, a), sb = summarize(t, b);
@@ -429,7 +429,7 @@ function diffText(t, groups, test, q, sel) {
 // not drawn on, so they can be tested.
 
 const apartCache = new WeakMap();
-function apartOf(m, res, sel) {
+export function apartOf(m, res, sel) {
   let byMode = apartCache.get(res);
   if (!byMode) { byMode = new Map(); apartCache.set(res, byMode); }
   const key = `${sel.mode}|${sel.pick.map(c => c.id).join(",")}|${m.rows.length}`;
@@ -639,7 +639,7 @@ function recordIsland(m) {
 // A needle's rank agreement between the halves over the rows in view
 // (halves.js rankAgreement), cached on the model's key; null for a needle
 // with no halves.
-function reliabilityOf(m, t) {
+export function reliabilityOf(m, t) {
   if (!t || !t.halves) return null;
   const c = m.cache;
   if (!c.reliability || c.reliability.key !== c.key) c.reliability = { key: c.key, by: new Map() };
@@ -650,7 +650,7 @@ function reliabilityOf(m, t) {
 // The market's compounded return on each half of the rows' test windows:
 // the median over the rows that recorded it (windows can differ by a few
 // bars between rounds), and how many did.
-function marketHalves(m) {
+export function marketHalves(m) {
   const keyOf = rowRounds(m.ds);
   if (!keyOf || !m.ds.execution || !m.ds.execution.size) return null;
   const vals = [[], []];

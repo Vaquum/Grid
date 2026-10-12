@@ -49,7 +49,7 @@ export function renderGates(view, m, A) {
 // it passes them all (a row fails every gate it fails; it passes them all
 // only when each has a value and passes).
 
-function readTogether(m) {
+export function readTogether(m) {
   const G = m.schema.gates;
   if (!G.length) return null;
   let all = 0, decided = 0, most = 0, atMost = 0;
@@ -328,7 +328,7 @@ function problemCard(m, A, p) {
 
 // Targets that are the gate's value itself (|r| > 0.999) are not an
 // explanation of it.
-function aliasesOf(sc, values, rows) {
+export function aliasesOf(sc, values, rows) {
   const out = [];
   for (const t of sc.targets) {
     if (t.kind === "binary") continue;

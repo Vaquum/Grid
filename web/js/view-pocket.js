@@ -38,7 +38,7 @@ const VALUE = "application/x-grid-value";
 const labels = (d, keys) => keys.map(key => (d.levels.find(l => l.key === key) || { label: key }).label);
 
 // What a block does: its rows against the rows it takes away.
-function blockVerdict(t, ps, r) {
+export function blockVerdict(t, ps, r) {
   if (!Number.isFinite(r.q)) return "few";
   if (!(r.q < ALPHA)) return "narrows";
   if (!t.better) return "changes";
@@ -165,7 +165,7 @@ function stackIsland(m, A, pocket, ps, verdicts) {
 }
 
 // Rows and the needle after each block, bottom up.
-function cumulative(m, pocket) {
+export function cumulative(m, pocket) {
   const out = [];
   for (let k = 1; k <= pocket.length; k++) {
     const rows = intersect(rowsIn(m.schema, pocket.slice(0, k), m.edge), m.rows);
@@ -261,7 +261,7 @@ function compareIsland(m, A, pinned, ps) {
 // What the reader typed into the search, kept across redraws.
 let query = "";
 
-function suggest(m, pocket, rows) {
+export function suggest(m, pocket, rows) {
   const used = new Set(pocket.map(c => c.dim));
   const dims = boardDims(m.schema).concat(memberDims(m.schema)).filter(d => !used.has(d.id));
   return suggestions(m.schema, dims, m.target, rows, summarize(m.target, rows), 10);

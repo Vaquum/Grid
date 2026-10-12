@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { limenOutputsRun } from "../fixtures/limen_outputs.mjs";
 import { limenExecutionRun } from "../fixtures/limen_execution.mjs";
 
+
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const PW = process.env.GRID_PLAYWRIGHT;
 if (!PW) throw new Error("set GRID_PLAYWRIGHT to a playwright index.mjs (see the header of this file)");
@@ -310,8 +311,13 @@ test("trials: a toggle names itself and its key after half a second of rest", as
   const { page, errors } = await open();
   await page.keyboard.press("5");
   await page.waitForSelector(".tr-tools");
-  await page.clock.install();
+  const clockStart = new Date();
+  await page.clock.install({ time: clockStart });
+  await page.mouse.move(0, 0);
+  await page.clock.pauseAt(new Date(clockStart.getTime() + 5000));
   await page.locator('[data-cols="like"]').hover();
+  // Ensure Chromium has delivered the pointer event before advancing fake time.
+  await page.locator('[data-cols="like"]').dispatchEvent("pointermove");
   await page.clock.runFor(400);
   assert.equal(await page.locator("#tip").isVisible(), false);
   await page.clock.runFor(200);
@@ -1348,6 +1354,18 @@ test("experiment: on a Limen project, one is made, checked as it is typed, run i
     await page.locator(".ex-run-form .btn.primary").click();
     const state = (s) => page.waitForFunction(s => (document.querySelector(".ex-runs tbody tr .tag") || {}).textContent === s, s, { timeout: 30000 });
     await state("Running");
+    // A published PID can precede Limen's stop handler and checkpoint setup.
+    const initialized = await page.evaluate(async () => {
+      const until = Date.now() + 20000;
+      while (Date.now() < until) {
+        const project = await (await fetch("api/experiment")).json();
+        const run = project.runs.find(r => r.experiment === "first_2");
+        if (run && run.shards.length === 2 && run.shards.every(s => s.rows > 0)) return true;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      return false;
+    });
+    assert.equal(initialized, true, "both shards wrote a round before Stop");
     await page.locator(".ex-runs tbody tr").first().locator("button", { hasText: "Stop" }).click();
     await state("Stopped");
     await page.locator(".ex-runs tbody tr").first().locator("button", { hasText: "Resume" }).click();
@@ -1675,4 +1693,39 @@ test("first half: not offered on a run that is not measured on each half", async
   assert.equal(await page.locator(".half-pick").getAttribute("aria-pressed"), "false");
   assert.deepEqual(errors, []);
   await page.close();
+});
+
+test("an agent snapshot link opens the exact pinned analysis in the human UI", async () => {
+  const source = mkdtempSync(join(tmpdir(), "grid-agent-browser-"));
+  for (const name of ["metadata.json", "results.csv", "lightgbm_binary_full.yaml"])
+    copyFileSync(join(ROOT, "tests/fixtures/limen_run_200", name), join(source, name));
+  const connection = join(source, "connection.json");
+  const proc = spawn("python3", ["-m", "grid", "serve", "--limen", source, "--agent-file", connection], { cwd: ROOT });
+  let page;
+  try {
+    const url = await serverUrl(proc);
+    const opened = await limenPage();
+    page = opened.page;
+    await page.goto(url);
+    await page.waitForSelector(".pcard");
+    const credential = JSON.parse(readFileSync(connection, "utf8"));
+    const response = await fetch(new URL("api/agent", url), { method: "POST", headers: {
+      "Content-Type": "application/json", Authorization: `Bearer ${credential.token}`
+    }, body: JSON.stringify({ operation: "grid_analyze", arguments: { analysis: "board", state: { edge: 150 } } }) });
+    const body = await response.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.result.snapshot.rows, 150);
+    const reading = page.waitForResponse(/\/api\/agent\/snapshot\?/);
+    await page.goto(new URL(body.result.viewLink, url).href);
+    const packet = await (await reading).json();
+    assert.equal(packet.pack.runs[0].rows, 200);
+    await page.waitForSelector(".pcard");
+    assert.match(await page.locator(".strip").innerText(), /150/);
+    assert.equal(await page.locator(".rail button[aria-current=page]").getAttribute("aria-label"), "Board");
+    assert.deepEqual(opened.errors, []);
+  } finally {
+    if (page) await page.close();
+    proc.kill("SIGTERM");
+    await new Promise(resolve => proc.once("exit", resolve));
+  }
 });

@@ -38,7 +38,7 @@ function choose(n, k) {
 }
 
 // The parameters a size combines, strongest first, and how many sets.
-function comboPlan(m, size, pairs) {
+export function comboPlan(m, size, pairs) {
   const score = new Map(pairs.dims.map(id => [id, 0]));
   for (const e of m.board.effects) if (score.has(e.dim) && e.omega2 > 0) score.set(e.dim, e.omega2);
   for (const r of pairs.list) if (r.detectable) for (const id of [r.a, r.b]) score.set(id, Math.max(score.get(id), r.omega2));
@@ -50,7 +50,7 @@ function comboPlan(m, size, pairs) {
 }
 
 // Every set of the plan, in slices; q over the sets tested.
-function* comboJob(m, plan) {
+export function* comboJob(m, plan) {
   const k = plan.size, pool = plan.pool.map(id => m.schema.dimById.get(id));
   const base = summarize(m.target, m.rows);
   const list = [];
@@ -81,7 +81,7 @@ function pairDims(m) {
 }
 
 // Every pair's interaction test, in slices; q over all pairs.
-function* pairsJob(m) {
+export function* pairsJob(m) {
   const all = pairDims(m);
   const dims = all.slice(0, PAIR_DIMS);
   const base = summarize(m.target, m.rows);
@@ -124,7 +124,7 @@ export function renderPairs(view, m, A) {
 // The set the reader chose, of this size; else the strongest; for pairs,
 // else the pair the sampler drew together the most, which matters as much:
 // its effects mix.
-function chosenSet(m, pairs, ranked, size, combos) {
+export function chosenSet(m, pairs, ranked, size, combos) {
   const pr = m.state.pair;
   if (Array.isArray(pr) && pr.length === size && new Set(pr).size === size && pr.every(id => m.schema.dimById.has(id))) return { dims: pr.slice(), why: null };
   if (size === 2) {
