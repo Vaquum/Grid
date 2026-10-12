@@ -108,3 +108,16 @@ test("walk-forward trials do not offer cohort selection", () => {
   assert.equal(r.result.available, false);
   assert.match(r.result.reason, /walk-forward/);
 });
+
+test("trial parameters retain names that resemble engine internals", () => {
+  const pack = structuredClone(agentFixture);
+  const names = ["codes", "pass", "labelOf", "perRow", "rows", "n", "mean"];
+  for (const name of names) {
+    pack.runs[0].experiment.manifest.sfd.params[name] = ["a", "b"];
+    pack.runs[0].columns.push({ name, kind: "str", levelBase: 0,
+      levels: ["a", "b"], data: Array.from({ length: 200 }, (_, i) => i % 2) });
+  }
+  const r = analyzePack(pack, { analysis: "trials", limit: 1 });
+  const trial = r.result.list[0];
+  for (const name of names) assert.equal(trial.parameters[name], trial.i % 2 ? "b" : "a", name);
+});

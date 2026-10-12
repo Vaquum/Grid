@@ -36,25 +36,26 @@ export function rowReference(m, i) {
 }
 
 // Typed arrays and model internals never become implicit million-row outputs.
-export function portableQuery(value) {
+export function portableQuery(value, data = false) {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value === "bigint") return String(value);
   if (value === null || typeof value !== "object") return value;
-  if (value instanceof Map) return Object.fromEntries([...value].map(([k, v]) => [k, portableQuery(v)]));
-  if (value instanceof Set) return [...value].map(portableQuery);
-  if (ArrayBuffer.isView(value)) return Array.from(value, portableQuery);
-  if (Array.isArray(value)) return value.map(portableQuery);
+  if (value instanceof Map) return Object.fromEntries([...value].map(([k, v]) => [k, portableQuery(v, data)]));
+  if (value instanceof Set) return [...value].map(v => portableQuery(v, data));
+  if (ArrayBuffer.isView(value)) return Array.from(value, v => portableQuery(v, data));
+  if (Array.isArray(value)) return value.map(v => portableQuery(v, data));
   const skip = new Set(["codes", "pass", "labelOf", "perRow"]);
   const out = {};
   for (const [k, v] of Object.entries(value)) {
-    if (skip.has(k) || typeof v === "function") continue;
-    if (["values", "value"].includes(k) && ArrayBuffer.isView(v)) continue;
-    if (["target", "t"].includes(k) && v && v.values) { out[k] = describeTarget(v); continue; }
-    if (k === "rows" && (Array.isArray(v) || ArrayBuffer.isView(v))) { out.rowCount = v.length; continue; }
-    out[k] = portableQuery(v);
+    if (typeof v === "function") continue;
+    if (!data && skip.has(k) && (ArrayBuffer.isView(v) || k === "perRow")) continue;
+    if (!data && ["values", "value"].includes(k) && ArrayBuffer.isView(v)) continue;
+    if (!data && ["target", "t"].includes(k) && v && v.values) { out[k] = describeTarget(v); continue; }
+    if (!data && k === "rows" && (Array.isArray(v) || ArrayBuffer.isView(v))) { out.rowCount = v.length; continue; }
+    out[k] = portableQuery(v, data || k === "parameters");
   }
   // Match the page's floor: retain support, withhold unsupported estimates.
-  if (typeof out.n === "number" && out.n < MIN_N) {
+  if (!data && typeof out.n === "number" && out.n < MIN_N) {
     out.withheld = true;
     for (const k of ["mean", "lo", "hi", "lift", "delta", "keep"]) if (k in out) out[k] = null;
   }
