@@ -45,7 +45,7 @@ export function portableQuery(value, data = false) {
   if (ArrayBuffer.isView(value)) return Array.from(value, v => portableQuery(v, data));
   if (Array.isArray(value)) return value.map(v => portableQuery(v, data));
   const skip = new Set(["codes", "pass", "labelOf", "perRow"]);
-  const out = {};
+  const out = Object.create(null);
   for (const [k, v] of Object.entries(value)) {
     if (typeof v === "function") continue;
     if (!data && skip.has(k) && (ArrayBuffer.isView(v) || k === "perRow")) continue;

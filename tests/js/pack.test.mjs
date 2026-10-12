@@ -37,6 +37,19 @@ test("a set wider than 32 members spans two words", () => {
   assert.equal(f.members(3).length, 41);
 });
 
+test("row reconstruction retains prototype-like keys without changing inherited objects", () => {
+  const ds = new Dataset({ id: "r0" });
+  ds.append(0, 1, [
+    { name: "__proto__.grid_agent_probe", kind: "num", data: [1] },
+    { name: "constructor.prototype.grid_agent_probe", kind: "num", data: [2] }
+  ], [null]);
+  const row = rowObject(ds, 0);
+  assert.equal(Object.hasOwn(row, "__proto__"), true);
+  assert.equal(row.__proto__.grid_agent_probe, 1);
+  assert.equal(row.constructor.prototype.grid_agent_probe, 2);
+  assert.equal(({}).grid_agent_probe, undefined);
+});
+
 test("deltas append, extend dictionaries and add columns", () => {
   const ds = new Dataset({ id: "r0" });
   ds.append(0, 2, [{ name: "m", kind: "str", levelBase: 0, levels: ["a", "b"], data: [0, 1] }], [null, null]);
