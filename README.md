@@ -143,6 +143,16 @@ a sweep's pace, crashes and relaunches.
 python3 tools/live_demo.py --out /tmp/grid-live --port 8765
 ```
 
+## Agents
+
+Agents can use every analytical view and the experiment/cohort workflow
+through a JSON CLI/API or MCP stdio. Start with
+`python3 -m grid serve --project ~/limen-lab --agent-file /tmp/grid-agent.json`,
+then `python3 -m grid agent --connection /tmp/grid-agent.json grid_discover`.
+For MCP, use `python3 -m grid mcp --connection /tmp/grid-agent.json`.
+Headless analysis requires Node.js 18 or later. See
+[the agent contract and workflow](docs/agents.md).
+
 ## Views
 
 | Key | View | What it answers |

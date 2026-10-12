@@ -312,6 +312,8 @@ test("trials: a toggle names itself and its key after half a second of rest", as
   await page.waitForSelector(".tr-tools");
   await page.clock.install();
   await page.locator('[data-cols="like"]').hover();
+  // Ensure Chromium has delivered the pointer event before advancing fake time.
+  await page.locator('[data-cols="like"]').dispatchEvent("pointermove");
   await page.clock.runFor(400);
   assert.equal(await page.locator("#tip").isVisible(), false);
   await page.clock.runFor(200);

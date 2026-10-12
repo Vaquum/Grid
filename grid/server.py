@@ -52,6 +52,7 @@ from typing import Any, Callable, cast
 from urllib.parse import parse_qs, urlparse
 
 from .cohort import RoundLines, bar_step, costs_of, judge
+from .agent import Agent
 from .experiment import Project
 from .limen import dir_reports, walk_forward
 from .sweep import SHARD, Cursor, Json, Sweep
@@ -88,11 +89,14 @@ def direct_host(host: str) -> bool:
 class Server:
     def __init__(self, sweep: Sweep, page: PageFn,
                  project: Project | None = None,
-                 token: str | None = None) -> None:
+                 token: str | None = None,
+                 agent_token: str | None = None) -> None:
         self.sweep = sweep
         self.page = page
         self.project = project      # the Limen project, with --project
         self.token = token          # the page's own, for the project's POSTs
+        self.agent_token = agent_token
+        self.agent = Agent(self) if agent_token else None
         self.cursors: dict[str, tuple[float, Cursor]] = {}
         self.lock = threading.Lock()
         self.round_lines = RoundLines()
@@ -112,7 +116,7 @@ class Server:
             got = self.cursors.pop(token, None)
         return got[1] if got else None
 
-    def members(self, run_id: object, rows: list[int]
+    def members(self, run_id: object, rows: list[int], generation: object = None
                 ) -> tuple[Json, list[Json], list[str]]:
         """A Limen run's rows as cohort members: the run's experiment, each
         row's round line (by its round id, from its result directory) and
@@ -124,6 +128,8 @@ class Server:
             run = next((r for r in s.runs if r.id == run_id), None)
             if run is None:
                 raise ValueError("no run %r" % (run_id,))
+            if generation is not None and str(generation) != str(run.generation):
+                raise ValueError("stale run generation; analyze the run again")
             exp = run.experiment
             if not exp or exp.get("kind") != "limen":
                 raise ValueError("a cohort is made of a Limen run's rounds")
@@ -166,7 +172,8 @@ class Server:
             rows = [int(x) for x in q.get("rows", "").split(",") if x]
         except ValueError as err:
             raise ValueError("rows are row numbers, comma separated") from err
-        exp, records, where = self.members(q.get("run"), rows)
+        exp, records, where = self.members(q.get("run"), rows,
+                                           q.get("generation"))
         fee, slip = costs_of(records)
         if q.get("fee") or q.get("slip"):
             try:
@@ -233,7 +240,8 @@ class Server:
         name: Any = body.get("name")
         if not isinstance(name, str):
             raise ValueError("a predictor has a name")
-        _, records, where = self.members(body.get("run"), rows)
+        _, records, where = self.members(body.get("run"), rows,
+                                        body.get("generation"))
         # how the page chose and judged them, as it says it: kept with the
         # predictor (row numbers and run ids are the page's own, so it is
         # not asked for them)
@@ -303,6 +311,8 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
                 return
             url = urlparse(self.path)
             q = {k: v[-1] for k, v in parse_qs(url.query).items()}
+            if url.path == "/api/agent" and server.agent:
+                return self.send_json(server.agent.discovery())
             if url.path in ("/", "/index.html"):
                 return self.send_bytes(server.page(),
                                        "text/html; charset=utf-8")
@@ -352,6 +362,8 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
             if self.misaddressed():
                 return
             url = urlparse(self.path)
+            if url.path == "/api/agent" and server.agent:
+                return self.agent_request()
             action = url.path.removeprefix("/api/experiment/")
             project = server.project
             if project is None or action == url.path or action not in ACTIONS:
@@ -379,6 +391,39 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
                 return self.send_json(act(project, action, body))
             except (ValueError, OSError) as exc:
                 return self.fail(400, str(exc))
+
+        def agent_request(self) -> None:
+            credential = self.headers.get("Authorization", "")
+            expected = "Bearer " + (server.agent_token or "")
+            if not secrets.compare_digest(credential.encode(), expected.encode()):
+                return self.fail(403, "agent credential is missing or wrong")
+            host = self.headers.get("Host", "")
+            if not direct_host(host):
+                return self.fail(403, "agent requests name localhost or an IP")
+            origin = self.headers.get("Origin")
+            if origin is not None and origin != "http://" + host:
+                return self.fail(403, "agent request is from another origin")
+            site = self.headers.get("Sec-Fetch-Site")
+            if site is not None and site not in ("same-origin", "none"):
+                return self.fail(403, "agent request is from another site")
+            if not self.headers.get("Content-Type", "").startswith(
+                    "application/json"):
+                return self.fail(400, "agent body must be application/json")
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if not 0 <= size <= MAX_BODY:
+                    return self.fail(413, "agent body is too large")
+                body: Any = json.loads(self.rfile.read(size) or b"{}")
+                if not isinstance(body, dict):
+                    return self.fail(400, "agent body is a JSON object")
+                request = cast(dict[str, Any], body)
+                if set(request) - {"operation", "arguments"}:
+                    return self.fail(400, "unknown agent request fields")
+            except ValueError:
+                return self.fail(400, "invalid agent JSON body or length")
+            assert server.agent is not None
+            return self.send_json(server.agent.call(request.get("operation"),
+                                                     request.get("arguments", {})))
 
         def refused(self) -> str | None:
             """Why a POST is refused: no token or another, another origin,
@@ -478,8 +523,9 @@ def act(project: Project, action: str, body: dict[str, Any]) -> Any:
 
 def serve(sweep: Sweep, page: PageFn, host: str, port: int,
           project: Project | None = None,
-          token: str | None = None) -> ThreadingHTTPServer:
+          token: str | None = None,
+          agent_token: str | None = None) -> ThreadingHTTPServer:
     httpd = ThreadingHTTPServer((host, port), make_handler(
-        Server(sweep, page, project, token)))
+        Server(sweep, page, project, token, agent_token)))
     httpd.daemon_threads = True
     return httpd

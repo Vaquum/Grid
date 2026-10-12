@@ -37,7 +37,7 @@ export function renderFeatures(view, m, A) {
 // ---------------------------------------------------------------------------
 // What is read, cached on the model's key.
 
-function limenFeatures(m) {
+export function limenFeatures(m) {
   const exp = m.ds.meta.experiment;
   if (!exp || exp.kind !== "limen") return null;
   const c = m.cache;
@@ -80,7 +80,7 @@ function limenFeatures(m) {
   return out;
 }
 
-function memberSets(m) {
+export function memberSets(m) {
   const members = memberDims(m.schema);
   const cols = [...new Set(members.map(d => d.set.column))];
   return cols.map(col => {

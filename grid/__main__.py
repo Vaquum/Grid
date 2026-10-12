@@ -54,6 +54,7 @@ import webbrowser
 from typing import Any, cast
 
 from . import __version__
+from .agent_client import cmd_agent, cmd_mcp, write_connection
 from .experiment import Project
 from .follow import (
     FileFollower,
@@ -630,9 +631,19 @@ def cmd_serve(a: argparse.Namespace) -> int:
     page = LivePage(config)
     page()  # fail now, not on the first request, when the page is missing
     w.start()
-    httpd = serve(sweep, page, a.bind, a.port, project, token)
+    agent_file = getattr(a, "agent_file", None)
+    agent_token = secrets.token_urlsafe(32) if agent_file else None
+    httpd = serve(sweep, page, a.bind, a.port, project, token, agent_token)
     host, port = httpd.server_address[:2]
     url = "http://%s:%d/" % (host, port)
+    if agent_file and agent_token:
+        agent_host = "127.0.0.1" if host == "0.0.0.0" else host
+        try:
+            write_connection(agent_file, "http://%s:%d" % (agent_host, port),
+                             agent_token)
+        except OSError as exc:
+            httpd.server_close()
+            raise SystemExit("cannot create agent connection: %s" % exc) from exc
     print("grid %s serving %s at %s" % (__version__, sweep.name, url),
           flush=True)
     if a.open:
@@ -673,6 +684,14 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="grid",
                                  description="Monitor a parameter sweep.")
     sub = ap.add_subparsers(dest="cmd", required=True)
+    agent = sub.add_parser("agent", help="call the JSON agent API")
+    agent.add_argument("--connection", required=True)
+    agent.add_argument("operation")
+    inputs = agent.add_mutually_exclusive_group()
+    inputs.add_argument("--args", dest="arguments", default="{}")
+    inputs.add_argument("--args-file", dest="arguments_file")
+    mcp = sub.add_parser("mcp", help="serve Grid tools over MCP stdio")
+    mcp.add_argument("--connection", required=True)
     for name in ("serve", "pack"):
         p = sub.add_parser(name)
         source = p.add_mutually_exclusive_group(required=True)
@@ -701,6 +720,9 @@ def main(argv: list[str] | None = None) -> int:
                            help="0 picks a free port")
             p.add_argument("--open", action="store_true",
                            help="open the page in a browser")
+            p.add_argument("--agent-file", metavar="PATH",
+                           help="enable agents; create a private connection "
+                                "file at a new path")
             p.add_argument("--limen-cli", metavar="PATH",
                            help="the limen command a --project runs "
                                 "(default: its .venv/bin/limen, else limen "
@@ -713,6 +735,10 @@ def main(argv: list[str] | None = None) -> int:
         else:
             p.add_argument("--out", required=True)
     a = ap.parse_args(argv)
+    if a.cmd == "agent":
+        return cmd_agent(a)
+    if a.cmd == "mcp":
+        return cmd_mcp(a)
     return cmd_serve(a) if a.cmd == "serve" else cmd_pack(a)
 
 

@@ -1,4 +1,4 @@
-import { DEFAULT_STATE, encodeState, decodeState, createModel } from "./core.js";
+import { DEFAULT_STATE, NO_NEEDLE, encodeState, decodeState, createModel } from "./core.js";
 // The page: loads a sweep (embedded, live from the server, or a dropped
 // file), keeps the state (in the address), computes what the views need,
 // and routes keys, clicks and live updates. Served on a Limen project, it

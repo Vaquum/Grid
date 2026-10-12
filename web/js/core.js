@@ -39,7 +39,7 @@ export function decodeState(hash) {
   }
 }
 
-const NO_NEEDLE = { id: "none", label: "Needle", kind: "cont", unit: "", better: 0, digits: 2, values: new Float64Array(0) };
+export const NO_NEEDLE = { id: "none", label: "Needle", kind: "cont", unit: "", better: 0, digits: 2, values: new Float64Array(0) };
 
 export function createModel(sweep, st, c = {}) {
   const ds = sweep.runs.find(r => r.id === st.run) || sweep.runs[0];
