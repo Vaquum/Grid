@@ -18,40 +18,6 @@ import { fileURLToPath } from "node:url";
 import { limenOutputsRun } from "../fixtures/limen_outputs.mjs";
 import { limenExecutionRun } from "../fixtures/limen_execution.mjs";
 
-test("an agent snapshot link opens the exact pinned analysis in the human UI", async () => {
-  const source = mkdtempSync(join(tmpdir(), "grid-agent-browser-"));
-  for (const name of ["metadata.json", "results.csv", "lightgbm_binary_full.yaml"])
-    copyFileSync(join(ROOT, "tests/fixtures/limen_run_200", name), join(source, name));
-  const connection = join(source, "connection.json");
-  const proc = spawn("python3", ["-m", "grid", "serve", "--limen", source, "--agent-file", connection], { cwd: ROOT });
-  let page;
-  try {
-    const url = await serverUrl(proc);
-    const opened = await limenPage();
-    page = opened.page;
-    await page.goto(url);
-    await page.waitForSelector(".pcard");
-    const credential = JSON.parse(readFileSync(connection, "utf8"));
-    const response = await fetch(new URL("api/agent", url), { method: "POST", headers: {
-      "Content-Type": "application/json", Authorization: `Bearer ${credential.token}`
-    }, body: JSON.stringify({ operation: "grid_analyze", arguments: { analysis: "board", state: { edge: 150 } } }) });
-    const body = await response.json();
-    assert.equal(body.ok, true);
-    assert.equal(body.result.snapshot.rows, 150);
-    const reading = page.waitForResponse(/\/api\/agent\/snapshot\?/);
-    await page.goto(new URL(body.result.viewLink, url).href);
-    const packet = await (await reading).json();
-    assert.equal(packet.pack.runs[0].rows, 200);
-    await page.waitForSelector(".pcard");
-    assert.match(await page.locator(".strip").innerText(), /150/);
-    assert.equal(await page.locator(".rail button[aria-current=page]").getAttribute("aria-label"), "Board");
-    assert.deepEqual(opened.errors, []);
-  } finally {
-    if (page) await page.close();
-    proc.kill("SIGTERM");
-    await new Promise(resolve => proc.once("exit", resolve));
-  }
-});
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const PW = process.env.GRID_PLAYWRIGHT;
@@ -1712,4 +1678,39 @@ test("first half: not offered on a run that is not measured on each half", async
   assert.equal(await page.locator(".half-pick").getAttribute("aria-pressed"), "false");
   assert.deepEqual(errors, []);
   await page.close();
+});
+
+test("an agent snapshot link opens the exact pinned analysis in the human UI", async () => {
+  const source = mkdtempSync(join(tmpdir(), "grid-agent-browser-"));
+  for (const name of ["metadata.json", "results.csv", "lightgbm_binary_full.yaml"])
+    copyFileSync(join(ROOT, "tests/fixtures/limen_run_200", name), join(source, name));
+  const connection = join(source, "connection.json");
+  const proc = spawn("python3", ["-m", "grid", "serve", "--limen", source, "--agent-file", connection], { cwd: ROOT });
+  let page;
+  try {
+    const url = await serverUrl(proc);
+    const opened = await limenPage();
+    page = opened.page;
+    await page.goto(url);
+    await page.waitForSelector(".pcard");
+    const credential = JSON.parse(readFileSync(connection, "utf8"));
+    const response = await fetch(new URL("api/agent", url), { method: "POST", headers: {
+      "Content-Type": "application/json", Authorization: `Bearer ${credential.token}`
+    }, body: JSON.stringify({ operation: "grid_analyze", arguments: { analysis: "board", state: { edge: 150 } } }) });
+    const body = await response.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.result.snapshot.rows, 150);
+    const reading = page.waitForResponse(/\/api\/agent\/snapshot\?/);
+    await page.goto(new URL(body.result.viewLink, url).href);
+    const packet = await (await reading).json();
+    assert.equal(packet.pack.runs[0].rows, 200);
+    await page.waitForSelector(".pcard");
+    assert.match(await page.locator(".strip").innerText(), /150/);
+    assert.equal(await page.locator(".rail button[aria-current=page]").getAttribute("aria-label"), "Board");
+    assert.deepEqual(opened.errors, []);
+  } finally {
+    if (page) await page.close();
+    proc.kill("SIGTERM");
+    await new Promise(resolve => proc.once("exit", resolve));
+  }
 });

@@ -253,7 +253,8 @@ class Agent:
         config = json.dumps({"mode": "snapshot", "pack":
                              "/api/agent/snapshot?id=" + snapshot})
         return re.sub(
-            rb'(<script id="grid-config" type="application/json">).*?(</script>)',
+            rb'(<script id="grid-config" type="application/json">)'
+            rb'.*?(</script>)',
             lambda m: m[1] + config.encode() + m[2], self.server.page(),
             count=1, flags=re.S)
 
@@ -423,7 +424,7 @@ class Agent:
 
     def publish_receipt(self, path: str, receipt: Json,
                         exclusive: bool = False) -> None:
-        """Readers see a complete JSON record or no record, never partial JSON."""
+        """Atomically publish a complete private receipt."""
         fd, temp = tempfile.mkstemp(prefix=".receipt-",
                                     dir=os.path.dirname(path))
         try:
