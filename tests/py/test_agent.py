@@ -133,7 +133,7 @@ class TestAgent(unittest.TestCase):
         self.assertEqual(failed["error"]["code"], "STALE_REFERENCE")
 
     def test_create_edit_run_monitor_stop_resume_and_retry(self):
-        self.call("grid_create", name="example", template="lightgbm_binary_full",
+        self.call("grid_create", name="example", template="lightgbm_binary",
                   requestId="create-example")
         manifest = self.call("grid_manifest", name="example")
         self.assertEqual(self.call("grid_validate", text=manifest["text"])["errors"], [])
@@ -156,7 +156,7 @@ class TestAgent(unittest.TestCase):
 
     def test_receipts_survive_restart_and_unknown_outcomes_do_not_replay(self):
         assert self.agent is not None
-        args = {"name": "durable", "template": "lightgbm_binary_full",
+        args = {"name": "durable", "template": "lightgbm_binary",
                 "requestId": "durable-create"}
         response = self.agent.call("grid_create", args)
         restarted = Agent(self.server)
