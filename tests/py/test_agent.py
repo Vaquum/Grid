@@ -83,6 +83,20 @@ class TestAgent(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             write_connection(self.connection, self.url, "other")
 
+    def test_malformed_connections_return_json_without_tracebacks(self):
+        for config in (None, [], {}, {"url": None, "token": "t"},
+                       {"url": self.url, "token": None},
+                       {"url": self.url, "token": 123}):
+            Path(self.connection).write_text(json.dumps(config))
+            result = subprocess.run([
+                sys.executable, "-m", "grid", "agent", "--connection",
+                self.connection, "grid_status"], cwd=ROOT,
+                capture_output=True, text=True, check=False)
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(json.loads(result.stdout)["error"]["code"],
+                             "INVALID_INPUT")
+            self.assertNotIn("Traceback", result.stderr)
+
     def test_discovery_cli_and_real_stdio_mcp(self):
         discover = self.call("grid_discover")
         self.assertEqual(len(discover["tools"]), len(TOOLS))

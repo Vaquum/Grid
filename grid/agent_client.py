@@ -28,9 +28,16 @@ def write_connection(path: str, url: str, token: str) -> None:
 class Client:
     def __init__(self, connection: str) -> None:
         with open(connection, encoding="utf-8") as f:
-            config: Json = json.load(f)
-        self.url = str(config["url"]).rstrip("/")
-        self.token = str(config["token"])
+            loaded: Any = json.load(f)
+        if not isinstance(loaded, dict):
+            raise ValueError("connection file is a JSON object")
+        config = cast(Json, loaded)
+        for key in ("url", "token"):
+            value: Any = config.get(key)
+            if not isinstance(value, str) or not value:
+                raise ValueError("connection %s is nonempty text" % key)
+        self.url = cast(str, config["url"]).rstrip("/")
+        self.token = cast(str, config["token"])
         parsed = urlparse(self.url)
         if parsed.scheme not in ("http", "https") or not parsed.hostname or \
                 parsed.username or parsed.password or parsed.query or \
