@@ -1352,11 +1352,17 @@ test("experiment: on a Limen project, one is made, checked as it is typed, run i
     const state = (s) => page.waitForFunction(s => (document.querySelector(".ex-runs tbody tr .tag") || {}).textContent === s, s, { timeout: 30000 });
     await state("Running");
     // A published PID can precede Limen's stop handler and checkpoint setup.
-    await page.waitForFunction(async () => {
-      const project = await (await fetch("api/experiment")).json();
-      const run = project.runs.find(r => r.experiment === "first_2");
-      return run && run.shards.every(s => s.rows > 0);
-    }, null, { timeout: 20000 });
+    const initialized = await page.evaluate(async () => {
+      const until = Date.now() + 20000;
+      while (Date.now() < until) {
+        const project = await (await fetch("api/experiment")).json();
+        const run = project.runs.find(r => r.experiment === "first_2");
+        if (run && run.shards.length === 2 && run.shards.every(s => s.rows > 0)) return true;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      return false;
+    });
+    assert.equal(initialized, true, "both shards wrote a round before Stop");
     await page.locator(".ex-runs tbody tr").first().locator("button", { hasText: "Stop" }).click();
     await state("Stopped");
     await page.locator(".ex-runs tbody tr").first().locator("button", { hasText: "Resume" }).click();
