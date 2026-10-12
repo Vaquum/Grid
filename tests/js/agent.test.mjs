@@ -88,3 +88,11 @@ test("first-half queries preserve the page's isolation and declared exceptions",
   assert.deepEqual(r.warnings, []);
   assert.ok(r.result.effects.every(e => !e.halves));
 });
+
+test("a run with no target returns a reusable question", () => {
+  const pack = { grid: 1, runs: [{ id: "r0", generation: 0, rows: 0, columns: [] }] };
+  const first = analyzePack(structuredClone(pack), { analysis: "schema" });
+  assert.equal(first.state.target, null);
+  const again = analyzePack(structuredClone(pack), { analysis: "schema", state: first.state });
+  assert.deepEqual(again.state, first.state);
+});

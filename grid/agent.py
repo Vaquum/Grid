@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 import uuid
@@ -44,7 +45,8 @@ CONDITION = obj({"dim": TEXT, "keys": {"type": "array", "minItems": 1}},
                 ["dim", "keys"])
 CONDITIONS: Json = {"type": "array", "items": CONDITION}
 STATE = obj({
-    "run": TEXT, "view": TEXT, "target": TEXT, "context": CONDITIONS,
+    "run": TEXT, "view": TEXT, "target": {"type": ["string", "null"]},
+    "context": CONDITIONS,
     "pocket": CONDITIONS, "pocketB": {"type": ["array", "null"],
                                        "items": CONDITION},
     "edge": {"type": ["integer", "null"], "minimum": 0},
@@ -202,9 +204,9 @@ def validate_input(value: Any, schema: Json, path: str = "arguments") -> None:
     if isinstance(value, str) and len(value) < schema.get("minLength", 0):
         raise AgentError("INVALID_ARGUMENT", "%s is empty" % path)
     if value is not None and isinstance(value, (int, float)):
-        if not math.isfinite(value) or \
-                value < schema.get("minimum", float("-inf")) or value > \
-                schema.get("maximum", float("inf")):
+        if value < schema.get("minimum", float("-inf")) or value > \
+                schema.get("maximum", float("inf")) or \
+                (isinstance(value, float) and not math.isfinite(value)):
             raise AgentError("INVALID_ARGUMENT", "%s is outside its bounds"
                              % path)
 
@@ -395,8 +397,10 @@ class Agent:
             [operation, args], sort_keys=True).encode()).hexdigest()
         path = self.receipt_path(args["requestId"])
         with self.lock:
+            receipt = {"requestId": args["requestId"], "operation": operation,
+                       "fingerprint": fingerprint, "state": "running"}
             try:
-                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                self.publish_receipt(path, receipt, exclusive=True)
             except FileExistsError:
                 receipt = self.receipt(args["requestId"])
                 if receipt["fingerprint"] != fingerprint:
@@ -407,12 +411,6 @@ class Agent:
                                      "without a final receipt; inspect status "
                                      "before issuing a new intent") from None
                 return receipt["response"]
-            receipt = {"requestId": args["requestId"], "operation": operation,
-                       "fingerprint": fingerprint, "state": "running"}
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(receipt, f)
-                f.flush()
-                os.fsync(f.fileno())
             try:
                 response = success(self.dispatch(operation, args))
             except AgentError as exc:
@@ -420,10 +418,28 @@ class Agent:
             except (ValueError, OSError) as exc:
                 response = failure("OPERATION_FAILED", str(exc))
             receipt.update(state="complete", response=response)
-            temp = path + "." + self.instance
-            with open(temp, "w", encoding="utf-8") as f:
+            self.publish_receipt(path, receipt)
+            return response
+
+    def publish_receipt(self, path: str, receipt: Json,
+                        exclusive: bool = False) -> None:
+        """Readers see a complete JSON record or no record, never partial JSON."""
+        fd, temp = tempfile.mkstemp(prefix=".receipt-",
+                                    dir=os.path.dirname(path))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(receipt, f)
                 f.flush()
                 os.fsync(f.fileno())
-            os.replace(temp, path)
-            return response
+            if exclusive:
+                os.link(temp, path)
+            else:
+                os.replace(temp, path)
+            directory = os.open(os.path.dirname(path), os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+        finally:
+            if os.path.exists(temp):
+                os.unlink(temp)

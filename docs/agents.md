@@ -107,6 +107,8 @@ gates and state fields fail instead of silently changing the question.
 Each result returns the explicit state, a snapshot (run, generation,
 server instance, replay edge, support, ID and expiry), and `viewLink`.
 Resolve the link against the connection's URL to open the equivalent UI.
+The link reads the exact captured pack without a live stream; its snapshot
+ID grants access to that read-only snapshot, so share it deliberately.
 Reuse the returned state and snapshot ID in subsequent queries: the same
 rows, schema and round evidence are used even while new rows arrive.
 Snapshots expire after ten minutes, on server restart, or when displaced

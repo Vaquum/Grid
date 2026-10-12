@@ -106,7 +106,7 @@ export function analyzePack(pack, args = {}) {
   if (state.pocketB !== null) checkConditions(state.pocketB, m.schema, "pocketB");
   if (state.target && !m.schema.targetById.has(state.target)) queryFail(`unknown target ${state.target}`);
   if (m.schema.gateProblems?.length) queryFail(m.schema.gateProblems.map(x => x.why).join("; "));
-  state.target = m.target.id;
+  state.target = m.schema.targetById.has(m.target.id) ? m.target.id : null;
   state.view = ANALYSES.includes(args.analysis) && !["schema", "manifest"].includes(args.analysis) ? args.analysis : "pocket";
   state.found = choiceFound(given.found ? given : null, state, needleReadsWhole(m.cache.schema, state));
   const limit = queryInteger(args.limit, 100, 1, 1000, "limit");

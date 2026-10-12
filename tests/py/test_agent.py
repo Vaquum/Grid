@@ -16,6 +16,7 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from unittest.mock import patch
 
 from grid.__main__ import Wiring
 from grid.agent import TOOLS, Agent
@@ -216,3 +217,43 @@ class TestAgent(unittest.TestCase):
                                         "arguments": {}}})
         assert reply is not None
         self.assertTrue(reply["result"]["isError"])
+
+    def test_huge_integer_is_a_structured_error(self):
+        result = self.client.call("grid_analyze", {"analysis": "schema",
+                                                  "limit": 10 ** 400})
+        self.assertEqual(result["error"]["code"], "INVALID_ARGUMENT")
+
+    def test_receipt_is_atomic_during_active_write(self):
+        assert self.agent is not None
+        entered, release = threading.Event(), threading.Event()
+        original = self.agent.dispatch
+
+        def paused(operation, arguments):
+            entered.set()
+            release.wait(5)
+            return original(operation, arguments)
+
+        args = {"name": "atomic", "template": "lightgbm_binary",
+                "requestId": "atomic"}
+        with patch.object(self.agent, "dispatch", side_effect=paused):
+            worker = threading.Thread(target=self.agent.call,
+                                      args=("grid_create", args))
+            worker.start()
+            try:
+                self.assertTrue(entered.wait(5))
+                receipt = self.agent.receipt("atomic")
+                self.assertEqual(receipt["state"], "running")
+            finally:
+                release.set()
+                worker.join(10)
+        self.assertEqual(self.agent.receipt("atomic")["state"], "complete")
+
+    def test_snapshot_page_uses_the_pinned_pack(self):
+        result = self.call("grid_analyze", analysis="schema")
+        snapshot = result["snapshot"]["id"]
+        with urllib.request.urlopen(self.url + "/api/agent/snapshot?id=" +
+                                    snapshot) as response:
+            pack = json.load(response)["pack"]
+        self.assertEqual(pack["mode"], "recorded")
+        self.assertEqual(pack["runs"][0]["generation"],
+                         result["snapshot"]["generation"])
