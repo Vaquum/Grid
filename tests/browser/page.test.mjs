@@ -311,7 +311,10 @@ test("trials: a toggle names itself and its key after half a second of rest", as
   const { page, errors } = await open();
   await page.keyboard.press("5");
   await page.waitForSelector(".tr-tools");
-  await page.clock.install();
+  const clockStart = new Date();
+  await page.clock.install({ time: clockStart });
+  await page.mouse.move(0, 0);
+  await page.clock.pauseAt(new Date(clockStart.getTime() + 5000));
   await page.locator('[data-cols="like"]').hover();
   // Ensure Chromium has delivered the pointer event before advancing fake time.
   await page.locator('[data-cols="like"]').dispatchEvent("pointermove");
