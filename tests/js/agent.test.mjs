@@ -53,6 +53,9 @@ test("a returned state can be reused and its link restores the same UI question"
   assert.equal(decoded.edge, 150);
   assert.equal(decoded.target, r.target.id);
   assert.match(r.result.manifest.text, /use_calibration: \[false\]/);
+  assert.equal(r.result.steps.length, 1);
+  assert.ok(r.result.suggestions.every(x => x.dim !== "use_calibration"));
+  assert.ok(r.result.blocks[0].kind);
 });
 
 test("invalid targets, levels, dimensions, edges and generations fail explicitly", () => {
@@ -74,6 +77,7 @@ test("unsupported estimates are withheld, and trials carry generation-bound refe
   assert.equal(trials.result.list[0].reference.instance, "test-instance");
   assert.equal(trials.result.list[0].reference.generation, 0);
   assert.ok(trials.result.list[0].parameters);
+  assert.match(trials.result.list[0].replay, /from limen.inference import Trainer/);
 });
 
 test("first-half queries preserve the page's isolation and declared exceptions", () => {

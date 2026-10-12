@@ -1,12 +1,13 @@
 // Headless queries use the same model and view calculations as the page.
 import { decodePack, rowObject } from "./pack.js";
 import { DEFAULT_STATE, createModel, encodeState } from "./core.js";
-import { MIN_N, pocketStats, blockTests, suggestions, comboEffect, moderatorScan, gateStats, strongestCorrelate, uniformity } from "./engine.js";
+import { MIN_N, pocketStats, blockTests, pairEffect, comboEffect, moderatorScan, gateStats, strongestCorrelate, uniformity } from "./engine.js";
 import { boardDims, memberDims, moderatorParents, bestRows, independence, records } from "./model.js";
-import { pairsJob, comboPlan, comboJob } from "./view-pairs.js";
+import { pairsJob, comboPlan, comboJob, chosenSet } from "./view-pairs.js";
 import { limenFeatures, memberSets } from "./view-features.js";
-import { readTogether } from "./view-gates.js";
+import { readTogether, aliasesOf } from "./view-gates.js";
 import { runHealth, runLog, selectionOf, shownGroups, cardOutcomes, sortedVals, testOf, apartOf, reliabilityOf, marketHalves } from "./view-run.js";
+import { suggest, cumulative, blockVerdict } from "./view-pocket.js";
 import { clusterRows } from "./clusters.js";
 import { rankAt, bhQ } from "./stats.js";
 import { heldBack } from "./outputs.js";
@@ -116,14 +117,14 @@ export function analyzePack(pack, args = {}) {
     case "schema":
       result = { profile: m.schema.profile?.id ?? null, fields: m.schema.fields,
         dimensions: m.schema.dims.map(d => ({ id: d.id, label: d.label, role: d.role, kind: d.kind, levels: d.levels })),
-        targets: m.schema.targets.map(describeTarget), objective: m.schema.objective, gates: m.schema.gates.map(g => ({ id: g.id, label: g.label, need: g.need, definition: g.def })) };
+        targets: m.schema.targets.map(describeTarget), replay: m.schema.profile?.replay ? { title: m.schema.profile.replay.title, refused: m.schema.profile.replay.refused } : null, objective: m.schema.objective, gates: m.schema.gates.map(g => ({ id: g.id, label: g.label, need: g.need, definition: g.def })) };
       break;
     case "board":
       result = { ...m.board, effects: m.order, moderators: moderatorScan(m.schema, boardDims(m.schema).concat(memberDims(m.schema)), m.target, m.rows, moderatorParents(m.schema)) };
       break;
     case "pocket": {
       const p = pocketStats(m.schema, state.pocket, m.target, m.rows, m.edge);
-      result = { ...p, blocks: blockTests(m.schema, state.pocket, m.target, m.rows, m.edge, p.rows), suggestions: suggestions(m.schema, boardDims(m.schema), m.target, p.rows, p.base),
+      result = { ...p, blocks: blockTests(m.schema, state.pocket, m.target, m.rows, m.edge, p.rows).map(r => ({ ...r, kind: blockVerdict(m.target, p, r) })), steps: cumulative(m, state.pocket), suggestions: suggest(m, state.pocket, p.rows),
         comparison: state.pocketB === null ? null : pocketStats(m.schema, state.pocketB, m.target, m.rows, m.edge), manifest: queryManifest(m) };
       break;
     }
@@ -134,19 +135,24 @@ export function analyzePack(pack, args = {}) {
       let detail = null;
       if (state.pair !== null) {
         if (!Array.isArray(state.pair) || state.pair.length !== state.order || new Set(state.pair).size !== state.order || state.pair.some(id => !m.schema.dimById.has(id))) queryFail("pair names distinct known dimensions of the chosen order");
-        detail = comboEffect(state.pair.map(id => m.schema.dimById.get(id)), m.target, m.rows, m.base, 5, true);
       }
-      result = { pairs, plan, sets, detail };
+      const selected = chosenSet(m, pairs, pairs.list.filter(r => r.detectable).sort((a, b) => b.omega2 - a.omega2), state.order, sets);
+      if (selected) {
+        const dims = selected.dims.map(id => m.schema.dimById.get(id));
+        detail = state.order === 2 ? pairEffect(dims[0], dims[1], m.target, m.rows, m.base)
+          : comboEffect(dims, m.target, m.rows, m.base, 5, true);
+      }
+      result = { pairs, plan, sets, selected, detail };
       break;
     }
     case "features": result = { limen: limenFeatures(m), sets: memberSets(m) }; break;
     case "trials": {
       const ranked = bestRows(m);
-      result = ranked ? { ...ranked, list: ranked.list.slice(offset, offset + limit).map(x => ({ ...x, reference: rowReference(m, x.i), parameters: Object.fromEntries(m.schema.fields.filter(f => ["param", "set", "nested", "fixed", "effective"].includes(f.role)).map(f => [f.name, ds.col(f.name)?.value(x.i)])), outcomes: m.schema.targets.map(t => ({ target: describeTarget(t), value: t.values[x.i] })) })), limit: 100, offset } : { available: false, reason: "run has no declared objective" };
+      result = ranked ? { ...ranked, list: ranked.list.slice(offset, offset + limit).map(x => ({ ...x, reference: rowReference(m, x.i), replay: m.schema.profile?.replay?.python(rowObject(ds, x.i)) ?? null, parameters: Object.fromEntries(m.schema.fields.filter(f => ["param", "set", "nested", "fixed", "effective"].includes(f.role)).map(f => [f.name, ds.col(f.name)?.value(x.i)])), outcomes: m.schema.targets.map(t => ({ target: describeTarget(t), value: t.values[x.i] })) })), limit: 100, offset } : { available: false, reason: "run has no declared objective" };
       break;
     }
     case "gates":
-      result = { gates: gateStats(m.schema, m.rows).map(g => ({ ...g, correlate: strongestCorrelate(m.schema, m.schema.gates.find(x => x.id === g.id).value, m.rows) })), together: readTogether(m) };
+      result = { gates: gateStats(m.schema, m.rows).map(g => ({ ...g, correlate: g.never ? strongestCorrelate(m.schema, m.schema.gates.find(x => x.id === g.id).value, m.rows, aliasesOf(m.schema, m.schema.gates.find(x => x.id === g.id).value, m.rows)) : null })), together: readTogether(m) };
       break;
     case "run": {
       const clusters = clusterRows(m.schema, m.rows, { n: ds.n, k: state.clusterK });

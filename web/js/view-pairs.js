@@ -124,7 +124,7 @@ export function renderPairs(view, m, A) {
 // The set the reader chose, of this size; else the strongest; for pairs,
 // else the pair the sampler drew together the most, which matters as much:
 // its effects mix.
-function chosenSet(m, pairs, ranked, size, combos) {
+export function chosenSet(m, pairs, ranked, size, combos) {
   const pr = m.state.pair;
   if (Array.isArray(pr) && pr.length === size && new Set(pr).size === size && pr.every(id => m.schema.dimById.has(id))) return { dims: pr.slice(), why: null };
   if (size === 2) {
