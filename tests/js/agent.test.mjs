@@ -100,3 +100,11 @@ test("a run with no target returns a reusable question", () => {
   const again = analyzePack(structuredClone(pack), { analysis: "schema", state: first.state });
   assert.deepEqual(again.state, first.state);
 });
+
+test("walk-forward trials do not offer cohort selection", () => {
+  const out = join(agentTemp, "walk-forward.json");
+  execFileSync("python3", ["-m", "grid", "pack", "--limen", "tests/fixtures/limen_walk_forward", "--out", out]);
+  const r = analyzePack(JSON.parse(readFileSync(out)), { analysis: "cohort" });
+  assert.equal(r.result.available, false);
+  assert.match(r.result.reason, /walk-forward/);
+});

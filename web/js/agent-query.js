@@ -171,6 +171,10 @@ export function analyzePack(pack, args = {}) {
       break;
     }
     case "cohort": {
+      if (ds.meta.experiment?.kind !== "limen" || m.schema.profile?.walkForward) {
+        result = { available: false, reason: m.schema.profile?.replay?.refused || "Only Limen rounds support cohorts." };
+        break;
+      }
       const t = m.target.base || m.target, reads = gateReads(m.schema);
       const pool = poolOf(m.schema, m.rows, state.pocket, m.edge, reads);
       const ranked = rankedOf(t, pool), count = queryInteger(args.members, 5, 1, 100, "members");
