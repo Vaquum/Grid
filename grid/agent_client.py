@@ -18,7 +18,7 @@ PROTOCOLS = ("2025-11-25", "2025-06-18", "2024-11-05")
 
 
 def write_connection(path: str, url: str, token: str) -> None:
-    """A credential file is exclusive, private, and separate from page config."""
+    """Create an exclusive private credential, separate from page config."""
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump({"apiVersion": 1, "url": url, "token": token}, f)
@@ -41,7 +41,8 @@ class Client:
         data = json.dumps({"operation": operation, "arguments": arguments},
                           allow_nan=False).encode()
         req = urllib.request.Request(self.url + "/api/agent", data=data,
-                                     headers={"Content-Type": "application/json",
+                                     headers={"Content-Type":
+                                              "application/json",
                                               "Authorization": "Bearer "
                                               + self.token}, method="POST")
         try:
@@ -50,6 +51,14 @@ class Client:
             with opener.open(req, timeout=150) as res:
                 return cast(Json, json.load(res))
         except urllib.error.HTTPError as exc:
+            with exc:
+                try:
+                    error: Json = json.load(exc)
+                    if error.get("apiVersion") == 1 and error.get(
+                            "ok") is False:
+                        return error
+                except ValueError:
+                    pass
             return failure("HTTP_ERROR", "Grid answered HTTP %d" % exc.code)
         except (urllib.error.URLError, OSError, ValueError) as exc:
             return failure("CONNECTION_FAILED", str(exc), True)
@@ -86,10 +95,13 @@ def rpc_error(code: int, message: str) -> Json:
 
 
 def mcp_reply(client: Client, request: Any) -> Json | None:
-    if not isinstance(request, dict) or request.get("jsonrpc") != "2.0":
+    if not isinstance(request, dict):
         return {"jsonrpc": "2.0", "id": None,
                 "error": rpc_error(-32600, "invalid request")}
     req = cast(Json, request)
+    if req.get("jsonrpc") != "2.0":
+        return {"jsonrpc": "2.0", "id": None,
+                "error": rpc_error(-32600, "invalid request")}
     if "id" not in req:
         return None
     reply: Json = {"jsonrpc": "2.0", "id": req["id"]}
@@ -101,10 +113,11 @@ def mcp_reply(client: Client, request: Any) -> Json | None:
     if method == "initialize":
         version = params.get("protocolVersion")
         reply["result"] = {
-            "protocolVersion": version if version in PROTOCOLS else PROTOCOLS[0],
+            "protocolVersion": version if version in PROTOCOLS
+            else PROTOCOLS[0],
             "capabilities": {"tools": {}},
             "serverInfo": {"name": "grid", "version": __version__},
-            "instructions": "Discover with grid_discover. Analyze schema first; "
+            "instructions": "Use grid_discover. Analyze schema first; "
             "reuse returned state and generation for subsequent queries. "
             "Reuse requestId only when retrying the identical write intent."}
     elif method == "ping":

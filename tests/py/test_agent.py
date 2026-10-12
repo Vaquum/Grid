@@ -1,4 +1,4 @@
-"""Full JSON/MCP workflow, retry receipts, authentication and stale evidence."""
+"""JSON/MCP workflow, retry receipts, authentication and stale evidence."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ import urllib.request
 from pathlib import Path
 
 from grid.__main__ import Wiring
-from grid.agent import Agent, TOOLS
+from grid.agent import TOOLS, Agent
 from grid.agent_client import Client, mcp_reply, write_connection
 from grid.experiment import Project
 from grid.server import Server, serve
@@ -87,7 +87,8 @@ class TestAgent(unittest.TestCase):
         self.assertEqual(len(discover["tools"]), len(TOOLS))
         cli = subprocess.run([sys.executable, "-m", "grid", "agent",
                               "--connection", self.connection, "grid_status"],
-                             cwd=ROOT, capture_output=True, text=True, check=True)
+                             cwd=ROOT, capture_output=True, text=True,
+                             check=True)
         self.assertTrue(json.loads(cli.stdout)["ok"])
         requests = [
             {"jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -113,22 +114,27 @@ class TestAgent(unittest.TestCase):
                          "Sec-Fetch-Site": "cross-site"}]:
             req = urllib.request.Request(self.url + "/api/agent", data=b"{}",
                                          headers={"Content-Type":
-                                                  "application/json", **headers})
+                                                  "application/json",
+                                                  **headers})
             with self.assertRaises(urllib.error.HTTPError) as caught:
                 urllib.request.urlopen(req)
             self.assertEqual(caught.exception.code, 403)
+            caught.exception.close()
 
     def test_snapshot_survives_arrivals_and_stale_rows_are_rejected(self):
         schema = self.call("grid_analyze", analysis="schema")
         pinned = self.call("grid_analyze", analysis="cohort",
-                           snapshot=schema["snapshot"]["id"], state=schema["state"])
+                           snapshot=schema["snapshot"]["id"],
+                           state=schema["state"])
         ref = pinned["result"]["members"][0]
         self.call("grid_row", reference=ref)
         with self.sweep.lock:
             self.sweep.runs[0].generation += 1
         still = self.call("grid_analyze", analysis="schema",
-                          snapshot=schema["snapshot"]["id"], state=schema["state"])
-        self.assertEqual(still["snapshot"]["generation"], schema["snapshot"]["generation"])
+                          snapshot=schema["snapshot"]["id"],
+                          state=schema["state"])
+        self.assertEqual(still["snapshot"]["generation"],
+                         schema["snapshot"]["generation"])
         failed = self.client.call("grid_row", {"reference": ref})
         self.assertEqual(failed["error"]["code"], "STALE_REFERENCE")
 
@@ -136,7 +142,8 @@ class TestAgent(unittest.TestCase):
         self.call("grid_create", name="example", template="lightgbm_binary",
                   requestId="create-example")
         manifest = self.call("grid_manifest", name="example")
-        self.assertEqual(self.call("grid_validate", text=manifest["text"])["errors"], [])
+        validated = self.call("grid_validate", text=manifest["text"])
+        self.assertEqual(validated["errors"], [])
         save = dict(name="example", text=manifest["text"] + "\n# agent edit\n",
                     version=manifest["version"], requestId="save-example")
         saved = self.call("grid_save", **save)
@@ -171,10 +178,12 @@ class TestAgent(unittest.TestCase):
         query = self.call("grid_analyze", analysis="cohort", members=2)
         members = query["result"]["members"]
         self.call("grid_cohort_evaluate", members=members)
-        self.call("grid_predictor_create", name="agent-cohort", members=members,
+        self.call("grid_predictor_create", name="agent-cohort",
+                  members=members,
                   how={"query": query["state"], "snapshot": query["snapshot"]},
                   requestId="predictor")
         deadline = time.monotonic() + 20
+        cohort = {"state": "training"}
         while time.monotonic() < deadline:
             cohort = self.call("grid_status")["project"]["cohorts"][0]
             if cohort["state"] != "training":
@@ -184,11 +193,14 @@ class TestAgent(unittest.TestCase):
         self.assertTrue(cohort["cohortId"])
 
     def test_schema_validation_and_mcp_errors(self):
-        for args in [{"analysis": "missing"}, {"analysis": "schema", "limit": True},
+        for args in [{"analysis": "missing"},
+                     {"analysis": "schema", "limit": True},
                      {"analysis": "schema", "state": {"unknown": 1}}]:
             result = self.client.call("grid_analyze", args)
             self.assertEqual(result["error"]["code"], "INVALID_ARGUMENT")
         reply = mcp_reply(self.client, {"jsonrpc": "2.0", "id": 1,
                                        "method": "tools/call", "params":
-                                       {"name": "grid_manifest", "arguments": {}}})
+                                       {"name": "grid_manifest",
+                                        "arguments": {}}})
+        assert reply is not None
         self.assertTrue(reply["result"]["isError"])

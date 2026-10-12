@@ -93,7 +93,7 @@ TOOLS = [
          "Use schema to discover targets, dimensions and level keys.", QUERY),
     tool("grid_row", "Read a row using its generation-bound reference.",
          obj({"reference": REFERENCE}, ["reference"])),
-    tool("grid_reports", "Read the latest Limen convergence/selection reports.",
+    tool("grid_reports", "Read Limen's latest convergence/selection reports.",
          obj({"run": TEXT}, ["run"])),
     tool("grid_manifest", "Read a working manifest and its version.",
          obj({"name": TEXT}, ["name"])),
@@ -104,7 +104,7 @@ TOOLS = [
     tool("grid_create", "Create an experiment from template or manifest text.",
          obj({"name": TEXT, "template": TEXT, "text": TEXT,
               "requestId": TEXT}, ["name", "requestId"]), True),
-    tool("grid_save", "Save only the manifest version read; stale writes fail.",
+    tool("grid_save", "Save the manifest version read; stale writes fail.",
          obj({"name": TEXT, "text": TEXT, "version": TEXT,
               "requestId": TEXT}, ["name", "text", "version", "requestId"]),
          True),
@@ -148,7 +148,18 @@ def failure(code: str, message: str, retryable: bool = False) -> Json:
 
 
 def success(result: Any) -> Json:
-    return {"apiVersion": 1, "ok": True, "result": result, "error": None}
+    return {"apiVersion": 1, "ok": True, "result": json_safe(result),
+            "error": None}
+
+
+def json_safe(value: Any) -> Any:
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {k: json_safe(v) for k, v in cast(Json, value).items()}
+    if isinstance(value, list):
+        return [json_safe(v) for v in cast(list[Any], value)]
+    return value
 
 
 def validate_input(value: Any, schema: Json, path: str = "arguments") -> None:
@@ -160,7 +171,8 @@ def validate_input(value: Any, schema: Json, path: str = "arguments") -> None:
         "number": isinstance(value, (int, float))
         and not isinstance(value, bool), "null": value is None}
     wanted: Any = schema.get("type")
-    types = wanted if isinstance(wanted, list) else [wanted]
+    types: list[Any] = cast(list[Any], wanted) if isinstance(wanted, list) \
+        else [wanted]
     if wanted and not any(kinds.get(str(t), False) for t in types):
         raise AgentError("INVALID_ARGUMENT", "%s has the wrong type" % path)
     if "enum" in schema and value not in schema["enum"]:
@@ -331,7 +343,8 @@ class Agent:
             body = self.members(args["members"])
             query = {k: str(v) for k, v in body.items() if k != "rows"}
             query["rows"] = ",".join(str(i) for i in body["rows"])
-            query.update({k: str(args[k]) for k in ("fee", "slip") if k in args})
+            query.update({k: str(args[k]) for k in ("fee", "slip")
+                          if k in args})
             return self.server.cohort(query)
         if operation == "grid_receipt":
             return self.receipt(args["requestId"])
@@ -368,11 +381,11 @@ class Agent:
                 receipt = self.receipt(args["requestId"])
                 if receipt["fingerprint"] != fingerprint:
                     raise AgentError("REQUEST_CONFLICT", "requestId already "
-                                     "belongs to different arguments")
+                                     "belongs to different arguments") from None
                 if receipt["state"] != "complete":
                     raise AgentError("OUTCOME_UNKNOWN", "write was recorded "
                                      "without a final receipt; inspect status "
-                                     "before issuing a new intent")
+                                     "before issuing a new intent") from None
                 return receipt["response"]
             receipt = {"requestId": args["requestId"], "operation": operation,
                        "fingerprint": fingerprint, "state": "running"}

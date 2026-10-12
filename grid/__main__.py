@@ -643,7 +643,8 @@ def cmd_serve(a: argparse.Namespace) -> int:
                              agent_token)
         except OSError as exc:
             httpd.server_close()
-            raise SystemExit("cannot create agent connection: %s" % exc) from exc
+            raise SystemExit("cannot create agent connection: %s"
+                             % exc) from exc
     print("grid %s serving %s at %s" % (__version__, sweep.name, url),
           flush=True)
     if a.open:

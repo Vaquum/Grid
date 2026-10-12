@@ -51,8 +51,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, cast
 from urllib.parse import parse_qs, urlparse
 
+from .agent import Agent, failure
 from .cohort import RoundLines, bar_step, costs_of, judge
-from .agent import Agent
 from .experiment import Project
 from .limen import dir_reports, walk_forward
 from .sweep import SHARD, Cursor, Json, Sweep
@@ -116,7 +116,8 @@ class Server:
             got = self.cursors.pop(token, None)
         return got[1] if got else None
 
-    def members(self, run_id: object, rows: list[int], generation: object = None
+    def members(self, run_id: object, rows: list[int],
+                generation: object = None
                 ) -> tuple[Json, list[Json], list[str]]:
         """A Limen run's rows as cohort members: the run's experiment, each
         row's round line (by its round id, from its result directory) and
@@ -128,7 +129,8 @@ class Server:
             run = next((r for r in s.runs if r.id == run_id), None)
             if run is None:
                 raise ValueError("no run %r" % (run_id,))
-            if generation is not None and str(generation) != str(run.generation):
+            if generation is not None and str(generation) != str(
+                    run.generation):
                 raise ValueError("stale run generation; analyze the run again")
             exp = run.experiment
             if not exp or exp.get("kind") != "limen":
@@ -288,7 +290,11 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
             self.send_bytes(json.dumps(obj).encode(), "application/json")
 
         def fail(self, code: int, message: str) -> None:
-            body = json.dumps({"error": message}).encode()
+            obj: Any = {"error": message}
+            if urlparse(self.path).path == "/api/agent":
+                obj = failure("AUTHENTICATION_FAILED" if code == 403
+                              else "INVALID_REQUEST", message)
+            body = json.dumps(obj).encode()
             self.send_response(code)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -395,7 +401,8 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
         def agent_request(self) -> None:
             credential = self.headers.get("Authorization", "")
             expected = "Bearer " + (server.agent_token or "")
-            if not secrets.compare_digest(credential.encode(), expected.encode()):
+            if not secrets.compare_digest(credential.encode(),
+                                          expected.encode()):
                 return self.fail(403, "agent credential is missing or wrong")
             host = self.headers.get("Host", "")
             if not direct_host(host):
@@ -422,8 +429,9 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
             except ValueError:
                 return self.fail(400, "invalid agent JSON body or length")
             assert server.agent is not None
-            return self.send_json(server.agent.call(request.get("operation"),
-                                                     request.get("arguments", {})))
+            response = server.agent.call(request.get("operation"),
+                                         request.get("arguments", {}))
+            return self.send_json(response)
 
         def refused(self) -> str | None:
             """Why a POST is refused: no token or another, another origin,
