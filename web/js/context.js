@@ -146,6 +146,10 @@ const LABEL_CONTEXT = {
   predictor: "The saved model made from these configurations for use on new data.",
   "cohort id": "The saved cohort's identifier.",
   "feature groups": "Results for combinations of feature groups, and the change from adding one group.",
+  clusters: "Configurations grouped by similar recorded outcomes. Each group shows its size and the outcomes that distinguish it.",
+  distributions: "How each recorded outcome is spread across the configurations in view. Each bar shows a group's share of its own rows.",
+  "the best rows": "Configurations ranked by the runner's objective, with the settings and measurements behind each result.",
+  "shards side by side": "How many independent parts of the run to evaluate in parallel.",
   activity: "How much trading supports the score: entries, time in the market and the number of observations.",
   risk: "The losses and drawdowns that came with the score.",
   skill: "How well the model's predictions match the recorded outcomes.",
@@ -204,7 +208,7 @@ function contextLookup(m) {
     const fields = new Map();
     for (const d of schema.dims || []) for (const key of [d.label, d.id]) fields.set(contextKey(key), dimensionContext(d));
     for (const t of schema.targets || []) for (const key of [t.label, t.id]) fields.set(contextKey(key), targetContext(t));
-    for (const g of schema.gates || []) fields.set(contextKey(g.label), `${g.target ? targetContext(g.target) : "A check on the configuration's result."} To pass: ${g.need}.`);
+    for (const g of schema.gates || []) for (const key of [g.label, g.id]) fields.set(contextKey(key), `${g.target ? targetContext(g.target) : "A check on the configuration's result."} To pass: ${g.need}.`);
     contextLookups.set(schema, fields);
   }
   return contextLookups.get(schema);
@@ -259,13 +263,14 @@ function contextTable(cell, m) {
   const index = contextColumn(cell);
   const heads = table.tHead ? [...table.tHead.rows] : [];
   const head = heads.length ? contextHeader(heads.at(-1), index) : null;
-  const label = contextText(head), rowLabel = contextText(row.cells[0]);
+  const label = contextText(head), rowLabel = table.matches(".trials") ? `row ${contextText(row.querySelector(".ri"))}` : contextText(row.cells[0]);
   const rowField = contextLookup(m).get(contextKey(rowLabel));
-  const transposed = !contextText(heads.at(-1)?.cells[0]);
+  const transposed = /^(Pinned|This pocket)$/i.test(label);
   let text = index === 0 ? labelContext(rowLabel, m) || labelContext(label, m)
     : transposed ? labelContext(rowLabel, m) : labelContext(label, m);
   if (!text) return null;
-  if (rowField && /^(first half|second half|95% interval)/i.test(label)) text = `${text} ${rowField}`;
+  if (rowField && /^(first half|second half|value)/i.test(label)) text = `${text} ${rowField}`;
+  if (/^95% interval/i.test(label) && heads.some(h => [...h.cells].some(c => contextText(c) === "Ranks agree"))) text = "The uncertainty range for the agreement between the first-half and second-half rankings.";
   const group = heads.length > 1 ? contextText(contextHeader(heads[0], index)) : "";
   const scope = [index > 0 && rowLabel ? `For ${rowLabel}.` : "", group && group !== label ? `Group: ${group}.` : ""].filter(Boolean).join(" ");
   return `${text}${scope ? ` ${scope}` : ""}${contextText(cell) === "–" ? " No value is shown; this is not zero." : ""}`;
@@ -281,6 +286,7 @@ export function measurementContext(node, m) {
       || labelContext(contextText(el.querySelector(":scope > span:first-child")), m, true);
     else if (el.matches(".pcard")) text = el.dataset.dim ? dimensionContext(m?.schema?.dimById.get(el.dataset.dim)) : "Results with each member of this feature subset included.";
     else if (el.closest(".co-cost")) text = LABEL_CONTEXT[contextKey(contextText(el.closest("label")?.querySelector("span")))];
+    else if (el.matches("input, select")) text = labelContext(el.getAttribute("aria-label") || "", m);
     else if (el.matches(".num, .count")) {
       const fact = el.closest("dd");
       const cell = el.closest("td, th");

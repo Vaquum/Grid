@@ -333,7 +333,7 @@ export function installTips(root, tipBox, contextFor = () => null) {
     show(t, r.left, r.bottom);
   });
   root.addEventListener("focusout", () => hideTip());
-  root.addEventListener("keydown", e => { if (e.key === "Escape") { current = null; hideTip(); } });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") { current = null; hideTip(); } }, true);
   root.addEventListener("scroll", () => { current = null; hideTip(); }, { capture: true, passive: true });
   window.addEventListener("resize", () => { current = null; hideTip(); });
 }

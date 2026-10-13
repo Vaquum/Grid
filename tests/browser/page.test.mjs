@@ -364,7 +364,8 @@ test("trial figures, grouped labels and inspector fields explain their actual me
   const { page, errors } = await open();
   await page.keyboard.press("5");
   await page.waitForSelector("table.trials");
-  const metric = page.locator("table.trials tbody tr").first().locator("td").nth(3);
+  const column = await page.locator("table.trials thead tr").last().locator("th", { hasText: /^Mean month/ }).evaluate(th => th.cellIndex);
+  const metric = page.locator("table.trials tbody tr").first().locator("td").nth(column);
   await metric.hover();
   await page.waitForTimeout(550);
   assert.match(await page.locator("#tip").innerText(), /average monthly return/);
@@ -381,6 +382,46 @@ test("trial figures, grouped labels and inspector fields explain their actual me
   await field.locator("xpath=following-sibling::dd[1]").hover();
   await page.waitForTimeout(550);
   assert.match(await page.locator("#tip").innerText(), /average monthly return/);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("measurement labels and figures have context throughout the recorded views", async () => {
+  const { page, errors } = await open();
+  await page.waitForSelector(".sc[data-ready=true]");
+  const start = new Date();
+  await page.clock.install({ time: start });
+  await page.clock.pauseAt(new Date(start.getTime() + 5000));
+  const missing = [];
+  for (const key of ["1", "2", "3", "4", "5", "6", "7"]) {
+    await page.keyboard.press(key);
+    await page.clock.runFor(3000);
+    const probes = await page.locator(".view").evaluate(root => {
+      const seen = new Set(), out = [];
+      for (const node of root.querySelectorAll(".num, h2, h3, dt, dd, th, td, .pc-name, .pc-sub, .rn-fig, .chart text")) {
+        if (!node.getClientRects().length || node.closest("[hidden], .sr, pre, code") || !node.textContent.trim()) continue;
+        if (node.matches("td") && node.querySelector("button") && !node.querySelector(".num")) continue;
+        const section = node.closest(".island, .board-sec, .pcard");
+        const shape = [section?.getAttribute("aria-labelledby") || section?.querySelector("h2, h3, .pc-name")?.textContent,
+          node.tagName, String(node.className), node.matches("td") ? node.cellIndex : node.matches("th, h2, h3, dt, .pc-name") ? node.textContent : ""].join("|");
+        if (seen.has(shape)) continue;
+        seen.add(shape);
+        const id = String(out.length);
+        node.dataset.contextProbe = id;
+        out.push({ id, text: node.textContent.trim(), shape });
+      }
+      return out;
+    });
+    for (const probe of probes) {
+      const node = page.locator(`[data-context-probe="${probe.id}"]`);
+      if (!await node.count()) continue; // a completed background analysis replaced it
+      await page.locator("#app").dispatchEvent("pointerleave");
+      await node.dispatchEvent("pointermove");
+      await page.clock.runFor(500);
+      if (!await page.locator("#tip").isVisible()) missing.push(`${key}: ${probe.shape}: ${probe.text}`);
+    }
+  }
+  assert.deepEqual(missing, []);
   assert.deepEqual(errors, []);
   await page.close();
 });
