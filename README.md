@@ -240,6 +240,7 @@ The deploy waits for `/api/health` before reporting success.
 
 ```sh
 python3 tools/build.py                       # dist/grid.html
+python3 tools/check_agent_docs.py            # links, JSON and agent contract coverage
 ./tools/check.sh                             # every check, stops at the first failure
 GRID_PLAYWRIGHT=/path/to/playwright/index.mjs ./tools/check.sh   # with browser tests
 ```

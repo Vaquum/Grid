@@ -16,7 +16,7 @@ import sys
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 Json = dict[str, Any]
 ROOT = Path(__file__).resolve().parents[1]
@@ -130,9 +130,10 @@ class Workflow:
         self.project()
         state: Json = {"run": run, "firstHalf": True}
         if state_file:
-            state = json.loads(Path(state_file).read_text(encoding="utf-8"))
-            if not isinstance(state, dict) or state.get("run") != run:
+            loaded: Any = json.loads(Path(state_file).read_text(encoding="utf-8"))
+            if not isinstance(loaded, dict) or loaded.get("run") != run:
                 raise WorkflowError("state file is an object for this run")
+            state = cast(Json, loaded)
             if not state.get("firstHalf") or state.get("found") == "whole":
                 raise WorkflowError("state must preserve first-half selection")
         schema = self.call("grid_analyze", analysis="schema", state=state)

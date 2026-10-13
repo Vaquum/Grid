@@ -319,10 +319,10 @@ Pair `detail` has `ka`, `kb` (axis level counts), `table[]`, `N`, `F`, `p`,
 `omega2`, `dfI`, `dfW`, `SSI`, `SST`, `cells`, `test`. Each table entry is
 `{a, b, n, mean, lo, hi, withheld, fitted}`; a/b are zero-based schema level
 indices. Fitted is the additive mean without interaction. A binary pair adds
-`D` and `dfLR` for its likelihood-ratio test. Higher-order detail has `dims`,
-`size`, `levels`, `cells`, `sparse`, `p`, `omega2`, plus supported `N`, `df`,
-`dfW`, `SSI`, `SST`, `F` or binary `G`; its optional table uses combination
-indices. Sums of squares and degrees of freedom describe the model fit, not
+`D` and `dfLR` for its likelihood-ratio test. Higher-order detail has `k`
+(order), `cells`, `minN`, `sparse`, `p`, `omega2`, `N`, `df`, `dfW`, `F`;
+supported fits also have `SSI`, `SST` and binary `G`. Its `table` describes
+combination indices. Sums of squares and degrees of freedom describe the model fit, not
 additional independent claims.
 
 ### `features`
