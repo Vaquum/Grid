@@ -84,8 +84,8 @@ class Workflow:
                 if entry["state"] not in pending:
                     raise WorkflowError(json.dumps(entry, allow_nan=False))
             if time.monotonic() >= deadline:
-                raise WorkflowError("wait expired for %s; inspect grid_status. "
-                                    "The job may still be running." % value)
+                raise WorkflowError("wait expired for %s; inspect grid_status."
+                                    " The job may still be running." % value)
             time.sleep(self.poll)
 
     def inspect(self, run: str | None = None) -> Json:
@@ -173,9 +173,10 @@ class Workflow:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--connection", required=True)
-    parser.add_argument("--journal", help="private JSONL intent log for writes")
+    parser.add_argument("--journal",
+                        help="private JSONL intent log for writes")
     parser.add_argument("--timeout", type=float, default=300,
-                        help="seconds waiting for a job; timeout does not stop it")
+                        help="job wait in seconds; timeout does not stop it")
     commands = parser.add_subparsers(dest="command", required=True)
     inspect = commands.add_parser("inspect", help="read one pinned capture")
     inspect.add_argument("--run", help="analysis run ID from grid_status")
@@ -190,10 +191,12 @@ def main() -> int:
     cohort.add_argument("--run", required=True, help="analysis run ID")
     cohort.add_argument("--name", required=True)
     cohort.add_argument("--members", type=int, default=5)
-    cohort.add_argument("--state-file", help="raw returned analysis state JSON")
+    cohort.add_argument("--state-file",
+                        help="raw returned analysis state JSON")
     cohort.add_argument("--fee", type=float)
     cohort.add_argument("--slip", type=float)
-    control = commands.add_parser("control", help="stop or resume a project run")
+    control = commands.add_parser("control",
+                                  help="stop or resume a project run")
     control.add_argument("operation", choices=["stop", "resume"])
     control.add_argument("--run", required=True, help="project run ID")
     recover = commands.add_parser("recover", help="read a durable receipt")
@@ -207,7 +210,8 @@ def main() -> int:
             result = workflow.inspect(args.run)
         elif args.command == "experiment":
             result = workflow.experiment(args.name, args.template,
-                                         args.manifest, args.rounds, args.shards)
+                                         args.manifest, args.rounds,
+                                         args.shards)
         elif args.command == "cohort":
             result = workflow.cohort(args.run, args.name, args.members,
                                      args.state_file, args.fee, args.slip)

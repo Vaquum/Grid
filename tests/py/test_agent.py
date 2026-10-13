@@ -117,7 +117,8 @@ class TestAgent(unittest.TestCase):
         self.assertEqual(result["analysisRun"], result["analysis"]["schema"][
             "snapshot"]["run"])
         journal = Path(self.temp, "intents")
-        entries = [json.loads(line) for line in journal.read_text().splitlines()]
+        entries = [json.loads(line)
+                   for line in journal.read_text().splitlines()]
         self.assertEqual([e["operation"] for e in entries],
                          ["grid_create", "grid_save", "grid_start"])
         self.assertEqual(stat.S_IMODE(journal.stat().st_mode), 0o600)
@@ -127,7 +128,8 @@ class TestAgent(unittest.TestCase):
         self.assertEqual(recovered["response"]["result"]["run"],
                          result["projectRun"])
         # Replaying the exact documented journal entry returns its old run.
-        retried = self.client.call(original["operation"], original["arguments"])
+        retried = self.client.call(original["operation"],
+                                   original["arguments"])
         self.assertEqual(retried, recovered["response"])
         self.assertEqual(len(self.project.runs()), 1)
 
@@ -137,8 +139,8 @@ class TestAgent(unittest.TestCase):
         manifest = self.call("grid_manifest", name="control")
         run = self.call("grid_start", name="control", rounds=200, shards=1,
                         execution=True, outputs=True,
-                        version=manifest["version"], requestId="control-start")[
-                            "run"]
+                        version=manifest["version"],
+                        requestId="control-start")["run"]
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
             if self.project.runs()[0]["rows"] > 0:

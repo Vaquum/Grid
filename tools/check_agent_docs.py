@@ -1,4 +1,4 @@
-"""Check agent documentation links, JSON blocks and public-contract coverage."""
+"""Check agent docs: links, JSON blocks and public contract coverage."""
 
 from __future__ import annotations
 
