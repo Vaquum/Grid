@@ -93,7 +93,8 @@ class Server:
                  token: str | None = None,
                  agent_token: str | None = None,
                  public_origin: str | None = None) -> None:
-        self.public_origin = public_origin.rstrip("/") if public_origin else None
+        self.public_origin = (public_origin.rstrip("/")
+                              if public_origin else None)
         address = urlparse(self.public_origin or "")
         if self.public_origin and (
                 address.scheme not in ("http", "https") or not address.hostname

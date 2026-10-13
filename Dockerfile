@@ -15,3 +15,4 @@ RUN git config --global user.name Grid \
     && git config --global user.email grid@localhost
 ENV PYTHONUNBUFFERED=1
 ENTRYPOINT ["sh", "/app/deploy/start.sh"]
+CMD ["python", "-m", "grid", "serve", "--project", "/data/project", "--bind", "127.0.0.1", "--port", "8490", "--public-origin", "https://grid.vaquum.fi", "--limen-cli", "/usr/local/bin/limen", "--limen-python", "/usr/local/bin/python"]
