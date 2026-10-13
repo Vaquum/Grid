@@ -188,7 +188,8 @@ class TestAgent(unittest.TestCase):
                 break
             time.sleep(0.01)
         self.assertTrue(checkpoint.exists())
-        self.assertEqual(stopped["state"], "stopped")
+        self.assertEqual(next(r["state"] for r in self.project.runs()
+                              if r["id"] == run), "stopped")
         self.call("grid_resume", run=run, requestId="resume")
         self.call("grid_stop", run=run, requestId="stop-again")
 
