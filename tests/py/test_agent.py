@@ -182,9 +182,13 @@ class TestAgent(unittest.TestCase):
         self.call("grid_stop", run=run, requestId="stop")
         checkpoint = results.with_name("checkpoint.json")
         deadline = time.monotonic() + 10
-        while time.monotonic() < deadline and not checkpoint.exists():
+        while time.monotonic() < deadline:
+            stopped = next(r for r in self.project.runs() if r["id"] == run)
+            if checkpoint.exists() and stopped["state"] == "stopped":
+                break
             time.sleep(0.01)
         self.assertTrue(checkpoint.exists())
+        self.assertEqual(stopped["state"], "stopped")
         self.call("grid_resume", run=run, requestId="resume")
         self.call("grid_stop", run=run, requestId="stop-again")
 
