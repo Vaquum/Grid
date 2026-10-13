@@ -202,11 +202,20 @@ const LABEL_CONTEXT = {
   "not on the board": "Fields that are fixed, duplicate other settings, or are resolved by the runner rather than sampled independently.",
 };
 
-const CONTEXT_NODES = "th, td, dt, dd, h1, h2, h3, h4, label, .num, .count, .sc-k, .pc-name, .pc-sub, .pcard, .lbl, .picker .label, .stat .k, .legend > span, .rn-name, .rn-unit, .rn-fig, .rn-chip-what, .gt-need-line, .gt-cap, .ex-field .k, .eyebrow, .part-title, .chart text, .bk-name, .bk-vals, .mf-file";
+const CONTEXT_NODES = "th, td, dt, dd, h1, h2, h3, h4, label, .num, .count, .muted, .sc-k, .pc-name, .pc-sub, .pcard, .lbl, .picker .label, .stat .k, .legend > span, .rn-name, .rn-unit, .rn-fig, .rn-chip-what, .gt-need-line, .gt-cap, .ex-field .k, .eyebrow, .part-title, .chart text, .bk-name, .bk-vals, .mf-file";
 const contextLookups = new WeakMap();
 
 const contextText = node => (node?.textContent || "").replace(/\s+/g, " ").trim();
 const contextKey = text => text.toLowerCase().replace(/\s+/g, " ").trim();
+
+export function statisticContext(text) {
+  const parts = [];
+  if (/ω²/.test(text)) parts.push(LABEL_CONTEXT.strength);
+  if (/\bV\s+[\d.]/.test(text)) parts.push("How closely two sets of values are linked: 0 means no link, 1 means a perfect link.");
+  if (/\bq\s*[=<]/.test(text)) parts.push(LABEL_CONTEXT.corrected);
+  if (/\bp\s*[=<]/.test(text)) parts.push("How unusual the observed difference would be if there were no real difference. Smaller means less consistent with chance alone.");
+  return parts.length ? parts.join(" ") : null;
+}
 
 const GATE_CONTEXT = {
   m_green: "How many months returned at least −0.5%.",
@@ -315,13 +324,13 @@ export function measurementContext(node, m) {
     else if (el.matches(".pcard")) text = el.dataset.dim ? dimensionContext(m?.schema?.dimById.get(el.dataset.dim)) : "Results with each member of this feature subset included.";
     else if (el.closest(".co-cost")) text = LABEL_CONTEXT[contextKey(contextText(el.closest("label")?.querySelector("span")))];
     else if (el.matches("input, select")) text = labelContext(el.getAttribute("aria-label") || "", m);
-    else if (el.matches(".num, .count")) {
+    else if (el.matches(".num, .count, .muted")) {
       const fact = el.closest("dd");
       const cell = el.closest("td, th");
       const stat = el.closest(".stat, .sc");
       text = fact ? labelContext(contextText(fact.previousElementSibling), m)
         : cell ? contextTable(cell, m)
-        : stat ? labelContext(contextText(stat.querySelector(".k, .sc-k")), m) : null;
+        : stat ? labelContext(contextText(stat.querySelector(".k, .sc-k")), m) : statisticContext(contextText(el));
     } else text = labelContext(contextText(el), m);
     if (!text) {
       const section = el.closest(".isl-part, .part, .rn-card, .island, .board-sec, .pcard, .brick, .manifest-sec");
