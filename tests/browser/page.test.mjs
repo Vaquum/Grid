@@ -1434,7 +1434,7 @@ test("experiment: on a Limen project, one is made, checked as it is typed, run i
     // its manifest, checked by limen validate as it is typed
     await page.waitForSelector(".ex-status .sev.ok");
     assert.match(await page.locator(".ex-status").innerText(), /^Valid\s+· 45 parameters, 3\.76 × 10¹⁸ combinations$/);
-    await expectContext(page, page.locator("input[aria-label=Rounds]"), /configurations.*planned count/);
+    await expectContext(page, page.locator("input[aria-label=Rounds]"), /configurations.*in total.*shards/);
     await expectContext(page, page.locator('input[aria-label="Shards side by side"]'), /independent parts.*parallel/);
     await expectContext(page, page.locator("#ex-list"), /Saved search setups/);
     await page.locator(".ed-text").evaluate(t => { t.focus(); t.setSelectionRange(t.value.length, t.value.length); });

@@ -292,8 +292,7 @@ export function installTips(root, tipBox, contextFor = () => null) {
     const label = target.matches(".sc") ? target.querySelector(".sc-k") : null;
     const plain = label ? contextFor(label)?.text : target.matches("td, dd") && !target.closest("table.heat") ? contextFor(target)?.text : null;
     if (plain && plain !== c) tipEl.append(h("div", { class: "k", text: plain }));
-    if (typeof c === "string") tipEl.append(c);
-    else tipEl.append(c);
+    tipEl.append(c);
     tipOwner = target;
     tipDescription = target.getAttribute("aria-describedby");
     target.setAttribute("aria-describedby", [tipDescription, tipEl.id].filter(Boolean).join(" "));

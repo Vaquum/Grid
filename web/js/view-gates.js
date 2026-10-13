@@ -203,6 +203,7 @@ function maker(m, A, gate) {
   }
   const input = h("input", { class: "gt-need", type: "text", inputmode: "decimal", spellcheck: "false", autocomplete: "off",
     value: d.text, "aria-label": `Need${t.unit ? `, in ${t.unit}` : ""}`, dataset: { focus: "gate-need" } });
+  tip(input, `The cutoff a configuration must meet to pass this gate, in the outcome's units. ${targetContext(t)}`);
   const preview = h("div", { class: "gt-preview" });
   const foot = h("div", { class: "isl-foot" });
   const defs = m.state.gates;
@@ -279,6 +280,7 @@ function gateCard(m, A, g, s) {
     s.never ? h("span", { class: "sev crit" }, icon("alert"), "never passed") : s.always ? h("span", { class: "sev ok" }, icon("check"), "always passes") : null,
     g.set ? null : g.standing ? tip(h("span", { class: "tag has-tip", text: "Grid's" }), "Grid sets this gate on every run that records its trades: a score that rests on fewer than 30 trades, or on trades whose mean is within two of its standard errors of 0, is mostly luck.")
       : h("span", { class: "tag", text: "the runner's" })));
+  tip(card.querySelector(".gt-sub .num"), "The count of configurations passing this check, out of those with a recorded value. The 95% interval shows the uncertainty in its pass rate.");
   if (!g.set) card.append(h("div", { class: "gt-need-line", text: `Need: ${g.need}` }));
   // the needle's rows against the need
   const sign = g.def && g.def.op[0] === "<" ? -1 : 1;
@@ -294,7 +296,7 @@ function gateCard(m, A, g, s) {
     // a gate on a needle knows which way is better; the runner's says only
     // its need; a yes or no gate's pass line above says it all
     const extreme = g.target ? `best ${gateValueText(g, sign > 0 ? hi : lo)}` : `max ${gateValueText(g, hi)}`;
-    if (!g.yesNo) card.append(h("div", { class: "gt-cap num", text: `median ${gateValueText(g, vals[Math.floor(vals.length / 2)])} · ${extreme}${chart.outside ? ` · ${fmtInt(chart.outside)} beyond what is drawn` : ""}` }));
+    if (!g.yesNo) card.append(tip(h("div", { class: "gt-cap num", text: `median ${gateValueText(g, vals[Math.floor(vals.length / 2)])} · ${extreme}${chart.outside ? ` · ${fmtInt(chart.outside)} beyond what is drawn` : ""}` }), `The middle recorded value and the ${g.target ? "best" : "largest"} recorded value for ${g.label}. Any outside count names values beyond the chart's shown range.`));
   }
   if (s.never) {
     const corr = strongestCorrelate(sc, g.value, m.rows, aliasesOf(sc, g.value, m.rows));

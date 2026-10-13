@@ -659,6 +659,9 @@ function runForm(f) {
   const num = (key, label, max) => {
     const input = h("input", { class: "ex-num num", type: "number", inputmode: "numeric", min: "1", max: String(max), step: "1",
       value: String(f[key]), "aria-label": label, dataset: { focus: `ex-${key}` } });
+    const context = key === "rounds" ? "How many configurations this run should evaluate in total, split across its shards."
+      : "How many independent parts of the run to evaluate in parallel.";
+    tip(input, context);
     input.addEventListener("input", () => {
       const v = Number(input.value);
       const ok = input.value !== "" && Number.isInteger(v) && v >= 1 && v <= max;
@@ -667,7 +670,7 @@ function runForm(f) {
       paintForm(f);
     });
     f.inputs[key] = input;
-    return h("label", { class: "ex-field" }, h("span", { class: "k", text: label }), input);
+    return tip(h("label", { class: "ex-field" }, h("span", { class: "k", text: label }), input), context);
   };
   const box = (key, label, why) => {
     const input = h("input", { type: "checkbox", checked: f[key] ? true : null, "aria-label": label, dataset: { focus: `ex-${key}` } });

@@ -299,6 +299,8 @@ function cohortMembersIsland(m, A, t, ranked, members, dirOf) {
   const isl = h("section", { class: "island", "aria-labelledby": "co-members" });
   const n = h("input", { class: "co-num num", type: "number", min: "1", max: "200", step: "1", value: String(pick.n),
     "aria-label": "How many of the best", dataset: { focus: "co-n" } });
+  const memberContext = `How many of the highest-ranked configurations to choose from the pool, by ${t.label}${t.halves ? " on the first half of the test window" : " over the whole test window"}.`;
+  tip(n, memberContext);
   n.addEventListener("change", () => {
     const v = Math.floor(Number(n.value));
     if (v >= 1 && v <= 200) { pick.n = v; pick.out = new Set(); pick.in = new Set(); A.rerender(); }
@@ -308,6 +310,7 @@ function cohortMembersIsland(m, A, t, ranked, members, dirOf) {
     h("label", { class: "co-best" }, h("span", { text: "The best" }), n,
       h("span", { text: t.halves ? `by ${t.label}, first half` : `by ${t.label}` })));
   isl.append(head);
+  tip(head.querySelector(".co-best"), memberContext);
   if (!t.halves) {
     isl.append(h("p", { class: "isl-note", text: `${t.label} is not measured on each half (only the figures of the run's recorded execution are), so the members are chosen on the whole window, and the second half below chose them too; a needle of the execution, such as net PnL per bar, judges them on data that did not choose them.` }));
   }
