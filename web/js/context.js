@@ -121,6 +121,7 @@ const LABEL_CONTEXT = {
   made: "When the predictor was created, on your local clock.",
   started: "When the run started, on your local clock.",
   "last run": "The most recent run of this experiment.",
+  "the runs of this sweep": "Each run's results measured on the same selected outcome, for comparison.",
   runs: "Runs of the experiment, with their progress and status.",
   rounds: "How many configurations the run has evaluated, against its planned count when available.",
   shards: "How many parallel parts this run is split into.",
@@ -265,7 +266,10 @@ function contextHeader(row, index) {
 function contextTable(cell, m) {
   const table = cell.closest("table"), row = cell.closest("tr");
   if (!table || !row) return null;
-  if (cell.tagName === "TH") return labelContext(contextText(cell), m, true);
+  if (cell.tagName === "TH") {
+    const text = labelContext(contextText(cell), m, true);
+    return table.matches(".co-table") && /^(First|Second) half/.test(contextText(cell)) ? `${text} ${targetContext(m?.target?.base || m?.target)}` : text;
+  }
   const index = contextColumn(cell);
   const heads = table.tHead ? [...table.tHead.rows] : [];
   const head = heads.length ? contextHeader(heads.at(-1), index) : null;
@@ -276,6 +280,7 @@ function contextTable(cell, m) {
     : transposed ? labelContext(rowLabel, m) : labelContext(label, m);
   if (!text) return null;
   if (rowField && /^(first half|second half|value)/i.test(label)) text = `${text} ${rowField}`;
+  if (table.matches(".co-table") && /^(first|second) half/i.test(label)) text += ` ${targetContext(m?.target?.base || m?.target)}`;
   if (/^95% interval/i.test(label) && heads.some(h => [...h.cells].some(c => contextText(c) === "Ranks agree"))) text = "The uncertainty range for the agreement between the first-half and second-half rankings.";
   const group = heads.length > 1 ? contextText(contextHeader(heads[0], index)) : "";
   const scope = [index > 0 && rowLabel ? `For ${rowLabel}.` : "", group && group !== label ? `Group: ${group}.` : ""].filter(Boolean).join(" ");

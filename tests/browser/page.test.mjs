@@ -70,6 +70,13 @@ async function open(width = 1440, height = 900) {
   return { page, errors };
 }
 
+async function expectContext(page, node, pattern) {
+  await node.hover();
+  await node.dispatchEvent("pointermove");
+  await page.waitForFunction(() => !document.querySelector("#tip").hidden, null, { timeout: 2000 });
+  assert.match(await page.locator("#tip").innerText(), pattern);
+}
+
 test("the board sums itself up in a strip and plots every parameter", async () => {
   const { page, errors } = await open();
   assert.equal(await page.locator(".view h1").innerText(), "What moves Tradeable");
@@ -425,6 +432,25 @@ test("measurement labels and figures have context throughout the recorded views"
   assert.deepEqual(missing, []);
   assert.deepEqual(errors, []);
   await page.close();
+});
+
+test("measurement context stays within phone and desktop viewports and follows the active needle", async () => {
+  for (const width of [320, 1440]) {
+    const { page, errors } = await open(width, 900);
+    await page.waitForSelector(".sc[data-ready=true]");
+    const figure = page.locator(".strip .sc").first();
+    await expectContext(page, figure, /at least 6 gates/);
+    await page.selectOption("#target-pick", "mean_mo");
+    await expectContext(page, page.locator(".strip .sc").first(), /average monthly return/);
+    const box = await page.locator("#tip").boundingBox();
+    assert.ok(box && box.x >= 0 && box.x + box.width <= width && box.y >= 0 && box.y + box.height <= 900, JSON.stringify(box));
+    if (process.env.GRID_CONTEXT_ARTIFACTS) {
+      mkdirSync(process.env.GRID_CONTEXT_ARTIFACTS, { recursive: true });
+      await page.screenshot({ path: join(process.env.GRID_CONTEXT_ARTIFACTS, `context-${width}.png`) });
+    }
+    assert.deepEqual(errors, []);
+    await page.close();
+  }
 });
 
 test("trials on a Limen run: tied rounds share a rank, values as written, the table as notes", async () => {
@@ -1408,6 +1434,9 @@ test("experiment: on a Limen project, one is made, checked as it is typed, run i
     // its manifest, checked by limen validate as it is typed
     await page.waitForSelector(".ex-status .sev.ok");
     assert.match(await page.locator(".ex-status").innerText(), /^Valid\s+· 45 parameters, 3\.76 × 10¹⁸ combinations$/);
+    await expectContext(page, page.locator("input[aria-label=Rounds]"), /configurations.*planned count/);
+    await expectContext(page, page.locator('input[aria-label="Shards side by side"]'), /independent parts.*parallel/);
+    await expectContext(page, page.locator("#ex-list"), /Saved search setups/);
     await page.locator(".ed-text").evaluate(t => { t.focus(); t.setSelectionRange(t.value.length, t.value.length); });
     await page.keyboard.type("# BAD_VALUE\n");
     await page.waitForSelector(".ex-status .sev.crit");
@@ -1658,6 +1687,9 @@ test("cohort: a Limen run's pool chosen on the first half, judged on the second,
     await page.waitForSelector(".co-verdict", { timeout: 20000 });
     assert.match(await page.locator(".co-verdict").innerText(), /^Chosen on the first half, the cohort makes 0\.00 bps a bar on the second/);
     assert.match(await page.locator(".co-costs").innerText(), /696 bars they share/);
+    await expectContext(page, page.locator(".co-judge tbody tr").first().locator("td").nth(1), /after costs.*For Cohort.*First half/);
+    await expectContext(page, page.locator(".co-judge tbody tr").first().locator("td").nth(6), /trades started.*For Cohort.*Second half/);
+    await expectContext(page, page.locator(".co-cost", { has: page.locator("input[aria-label=Slippage]") }).locator("span").first(), /basis points per fill/);
     // a member taken out: judged again on the one left
     await page.locator(".co-table tbody input").nth(1).uncheck();
     await page.waitForFunction(() => /Members\s+3\s/.test(document.querySelector(".strip").innerText), null, { timeout: 20000 });

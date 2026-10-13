@@ -290,8 +290,8 @@ export function installTips(root, tipBox, contextFor = () => null) {
     hideTip();
     clear(tipEl);
     const label = target.matches(".sc") ? target.querySelector(".sc-k") : null;
-    const plain = label && contextFor(label)?.text;
-    if (plain) tipEl.append(h("div", { class: "k", text: plain }));
+    const plain = label ? contextFor(label)?.text : target.matches("td, dd") && !target.closest("table.heat") ? contextFor(target)?.text : null;
+    if (plain && plain !== c) tipEl.append(h("div", { class: "k", text: plain }));
     if (typeof c === "string") tipEl.append(c);
     else tipEl.append(c);
     tipOwner = target;
