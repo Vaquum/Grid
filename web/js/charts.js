@@ -4,6 +4,7 @@
 
 import { h, s, tip, fmtT, fmtDelta, fmtInt, fmtNum, fmtPct, fmtFixed, fmtRowValue, rangeText, spanText, stepDecimals, tickText } from "./ui.js";
 import { rankAt } from "./stats.js";
+import { targetContext } from "./context.js";
 
 // A horizontal domain for interval bars (the inspector's table): every
 // shown level mean and interval, plus the base, with a little air.
@@ -22,6 +23,7 @@ export function needleDomain(effects, base) {
 export function levelTip(l, target, base, past, halves) {
   const half = (x, k) => `${k ? "2, second half" : "1, first half"} ${x && !x.withheld && Number.isFinite(x.mean) ? fmtT(target, x.mean) : "withheld"}`;
   return h("div", null,
+    h("div", { class: "k", text: `${target.label}: ${targetContext(target)} This group's average over its supporting rows.` }),
     h("div", null, h("b", { text: l.withheld ? "withheld" : fmtT(target, l.mean) }),
       l.withheld ? "" : h("span", { class: "k", text: `  95% ${rangeText(target, l.lo, l.hi)}` })),
     h("div", { class: "mono", text: l.label }),
@@ -100,6 +102,8 @@ export function sized(kind, guess, draw) {
 export function lineChart(series, opts = {}) {
   const H = opts.height || 200;
   const t0 = opts.target || null;
+  const yContext = opts.yContext || (t0 ? `${t0.label}: ${targetContext(t0)}` : "How many evaluated configurations had arrived.");
+  const xContext = opts.xContext || `How many ${opts.xLabel || "steps"} are included at this point on the chart.`;
   const unit = t0 && t0.kind !== "binary" && t0.unit && t0.unit !== "$" ? t0.unit : null;
   const m = { l: 52, r: 16, t: unit ? 24 : 12, b: 28 };
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
@@ -131,11 +135,11 @@ export function lineChart(series, opts = {}) {
     const svgEl = s("svg", { class: "chart", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": opts.label || "chart" });
     for (const t of yt) {
       svgEl.append(s("line", { class: "grid", x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t) }));
-      svgEl.append(s("text", { class: "label", x: m.l - 6, y: Y(t) + 3.5, "text-anchor": "end", text: t0 ? tickText(t0, t, ystep) : fmtFixed(t, stepDecimals(ystep)) }));
+      svgEl.append(tip(s("text", { class: "label", x: m.l - 6, y: Y(t) + 3.5, "text-anchor": "end", text: t0 ? tickText(t0, t, ystep) : fmtFixed(t, stepDecimals(ystep)) }), yContext));
     }
-    if (unit) svgEl.append(s("text", { class: "label", x: m.l - 6, y: m.t - 10, "text-anchor": "end", text: unit }));
+    if (unit) svgEl.append(tip(s("text", { class: "label", x: m.l - 6, y: m.t - 10, "text-anchor": "end", text: unit }), yContext));
     for (const t of xt) {
-      svgEl.append(s("text", { class: "label", x: X(t), y: H - 10, "text-anchor": "middle", text: fmtFixed(t, stepDecimals(xstep)) }));
+      svgEl.append(tip(s("text", { class: "label", x: X(t), y: H - 10, "text-anchor": "middle", text: fmtFixed(t, stepDecimals(xstep)) }), xContext));
     }
     svgEl.append(s("line", { class: "axis", x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b }));
     for (const sr of series) {
@@ -174,7 +178,7 @@ export function lineChart(series, opts = {}) {
           h("b", { text: hi > lo ? span(lo, hi) : fmtY(lo) }), h("span", { class: "k", text: "  " + e.label }));
       });
       const p0 = nearest(series[0] ? series[0].points : [], hoverX);
-      return h("div", null, h("div", { class: "k", text: fmtX(p0 ? p0[0] : hoverX) }), rows);
+      return h("div", null, h("div", { class: "k", text: yContext }), h("div", { class: "k", text: fmtX(p0 ? p0[0] : hoverX) }), rows);
     });
     svgEl.append(overlay);
     return svgEl;
@@ -182,7 +186,7 @@ export function lineChart(series, opts = {}) {
   const wrap = h("figure", { class: "fig" });
   if (entries.length >= 2 || opts.legend) {
     wrap.append(h("div", { class: "legend" }, entries.map(e =>
-      h("span", null, h("i", { class: "swatch" + (e.dash ? " dash" : ""), style: { "--c": e.color } }), e.label))));
+      tip(h("span", null, h("i", { class: "swatch" + (e.dash ? " dash" : ""), style: { "--c": e.color } }), e.label), `${e.label}: ${yContext}`))));
   }
   wrap.append(sized(opts.kind || "line", opts.width || 640, draw));
   return wrap;
@@ -293,12 +297,12 @@ export function passHistogram(values, passOf, rows, opts = {}) {
       svgEl.append(bar);
     }
     svgEl.append(s("line", { class: "axis", x1: m.l, x2: W - m.r, y1: base, y2: base }));
-    for (const [t, text] of marks) svgEl.append(s("text", { class: "label", x: Math.min(W - m.r - 12, Math.max(m.l + 12, X(t))), y: H - 6, "text-anchor": "middle", text }));
+    for (const [t, text] of marks) svgEl.append(tip(s("text", { class: "label", x: Math.min(W - m.r - 12, Math.max(m.l + 12, X(t))), y: H - 6, "text-anchor": "middle", text }), opts.context || `${opts.label || "Recorded value"}. The bars count configurations with values in each range.`));
     if (Number.isFinite(need)) {
       const x = X(need);
       svgEl.append(s("line", { x1: x, x2: x, y1: m.t - 4, y2: base, stroke: "var(--ink)", "stroke-width": 1.25, "stroke-dasharray": "3 2" }));
       const right = x > W * 0.62;
-      svgEl.append(s("text", { class: "label ink", x: x + (right ? -5 : 5), y: m.t - 5, "text-anchor": right ? "end" : "start", text: opts.needLabel || "need" }));
+      svgEl.append(tip(s("text", { class: "label ink", x: x + (right ? -5 : 5), y: m.t - 5, "text-anchor": right ? "end" : "start", text: opts.needLabel || "need" }), "The cutoff this gate requires a configuration to meet."));
     }
     return svgEl;
   };
@@ -412,13 +416,14 @@ export function distChart(groups, opts = {}) {
       if (cut.length) svg.append(cutLabel(cut, g0 + inner / 2, m, W));
       const range = discrete ? fmtRow(distinct[b]) : edges2(edges[b], edges[b + 1]);
       tip(bar, () => h("div", null, h("b", { text: range }),
+        h("div", { class: "k", text: `${t.label || "Outcome"}: ${targetContext(t)} The bars show each group's share in this range.` }),
         shown.map((g, gi) => h("div", { class: "k", text: `${g.label}: ${fmtPct(share[gi][b], share[gi][b] < 0.01 ? 2 : 1)} (${fmtInt(counts[gi][b])} of ${fmtInt(g.vals.length)})` }))));
       svg.append(bar);
     }
     svg.append(s("line", { class: "axis", x1: m.l, x2: W - m.r, y1: base, y2: base }));
     ticks.forEach((v, j) => {
       if (j % every) return;
-      svg.append(s("text", { class: "label", x: Math.min(W - m.r - 12, Math.max(m.l + 12, X(v))), y: base + 14, "text-anchor": "middle", text: discrete ? fmtRow(v, { unit: false }) : tickText(t, v, step) }));
+      svg.append(tip(s("text", { class: "label", x: Math.min(W - m.r - 12, Math.max(m.l + 12, X(v))), y: base + 14, "text-anchor": "middle", text: discrete ? fmtRow(v, { unit: false }) : tickText(t, v, step) }), targetContext(t)));
     });
     // each group's spread, on the same axis
     if (boxes) {

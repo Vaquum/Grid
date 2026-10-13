@@ -9,6 +9,7 @@
 
 import { h, s, tip, fmtT, tickText } from "./ui.js";
 import { levelTip } from "./charts.js";
+import { targetContext } from "./context.js";
 
 const PAD = 7;        // % of the width kept clear inside each edge
 const NULL_GAP = 13;  // % between "none" and the first number
@@ -111,10 +112,10 @@ export function effectPlot(levels, opts) {
   for (const t of domain.ticks) {
     const y = Y(t);
     area.append(h("i", { class: t === 0 ? "gl zero" : "gl", style: { bottom: `${y}%` }, dataset: { y: y.toFixed(2) } }));
-    yAxis.append(h("span", { class: "yl", style: { bottom: `${y}%` }, dataset: { y: y.toFixed(2) }, text: tickText(target, t, domain.step) }));
+    yAxis.append(tip(h("span", { class: "yl", style: { bottom: `${y}%` }, dataset: { y: y.toFixed(2) }, text: tickText(target, t, domain.step) }), `${target.label}: ${targetContext(target)} Each mark is a group's average.`));
   }
   area.append(h("i", { class: "ref", style: { bottom: `${refY}%` } }));
-  yAxis.append(h("span", { class: "yl ref-l", style: { bottom: `${refY}%` }, dataset: { y: refY.toFixed(2) }, text: fmtT(target, ref, { unit: false }) }));
+  yAxis.append(tip(h("span", { class: "yl ref-l", style: { bottom: `${refY}%` }, dataset: { y: refY.toFixed(2) }, text: fmtT(target, ref, { unit: false }) }), `The comparison average of ${target.label}, over the rows in this parameter's scope.`));
 
   // x places
   let place, log = false, nullEdge = null;
@@ -194,10 +195,10 @@ export function effectPlot(levels, opts) {
     if (opts.labels === "marked" && !marked) return;
     const prio = l.key === opts.selected ? 5 : l.key === opts.best ? 4 : l.key === opts.worst ? 3 : (j === 0 || j === order.length - 1) ? 2 : 1;
     const dead = opts.dead && opts.dead.includes(l.key);
-    xAxis.append(h("span", { class: "xl" + (l.n > 0 ? "" : " blank") + (l.key === opts.best && opts.on ? " best" : "") + (dead ? " dead" : ""), style: { left: `${x}%` },
-      dataset: { prio: String(prio) }, text: l.label }));
+    xAxis.append(tip(h("span", { class: "xl" + (l.n > 0 ? "" : " blank") + (l.key === opts.best && opts.on ? " best" : "") + (dead ? " dead" : ""), style: { left: `${x}%` },
+      dataset: { prio: String(prio) }, text: l.label }), () => levelTip(l, target, ref, past, opts.halves ? opts.halves.map(x => x?.get(l.key)) : null)));
   });
-  if (log) corner.append(h("span", { class: "xs", title: "The values are spaced by factors: a log axis", text: "log" }));
+  if (log) corner.append(tip(h("span", { class: "xs", text: "log" }), "The values are spaced by factors: equal distances mean equal ratios, rather than equal differences."));
   return box;
 }
 

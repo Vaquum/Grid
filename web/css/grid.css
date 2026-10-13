@@ -836,7 +836,7 @@ kbd { border: 1px solid var(--line-2); border-radius: var(--r-s); padding: 0 var
 
 /* tooltip and toasts */
 .tip {
-  position: fixed; z-index: 60; pointer-events: none; max-width: 320px; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-m);
+  position: fixed; z-index: 60; pointer-events: none; max-width: min(320px, calc(100vw - 16px)); padding: var(--sp-2) var(--sp-3); border-radius: var(--r-m);
   background: var(--raised); color: var(--ink); border: 1px solid var(--line-2); font-size: var(--fs-m); line-height: 1.45;
   box-shadow: 0 6px 20px var(--shadow);
 }
