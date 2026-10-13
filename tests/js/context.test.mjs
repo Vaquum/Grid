@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { targetContext, dimensionContext, labelContext } from "../../web/js/context.js";
+import { targetContext, dimensionContext, labelContext, statisticContext } from "../../web/js/context.js";
 import { PLATE, LIMEN_METRICS, LIMEN_EXECUTION, LIMEN_ROUND } from "../../web/js/profiles.js";
 
 test("every known outcome has a plain definition instead of an unknown-field fallback", () => {
@@ -57,4 +57,10 @@ test("a gate named after a metric does not replace its definition", () => {
   ] } };
   assert.doesNotMatch(labelContext("Entries", m), /To pass/);
   assert.match(labelContext("Entries ≥ 30", m), /To pass: ≥ 30/);
+});
+
+test("bare statistical readouts explain the measured link and uncertainty", () => {
+  assert.match(statisticContext("V 0.32 · q < 0.0001"), /0 means no link.*all the comparisons/);
+  assert.match(statisticContext("p = 0.01"), /if there were no real difference/);
+  assert.equal(statisticContext("Limen 5.24"), null);
 });
