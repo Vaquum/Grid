@@ -151,7 +151,8 @@ through a JSON CLI/API or MCP stdio. Start with
 then `python3 -m grid agent --connection /tmp/grid-agent.json grid_discover`.
 For MCP, use `python3 -m grid mcp --connection /tmp/grid-agent.json`.
 Headless analysis requires Node.js 18 or later. See
-[the agent contract and workflow](docs/agents.md).
+[the connection guide](docs/agents.md), [tool and response reference](docs/agent-reference.md),
+[runnable workflows](docs/agent-workflows.md), and [error recovery and limits](docs/agent-errors.md).
 
 ## Views
 

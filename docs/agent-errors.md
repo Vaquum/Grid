@@ -90,6 +90,7 @@ supported revision. The client must decide whether that revision is acceptable.
 | Cluster count | `clusterK`: null (automatic) or 2–7. Small/sparse runs may have no clusters. |
 | Agent run rounds | Integer 1–1,000,000. Shards: at least 1, no more than rounds or the server's cores. Multiple shards require random search. Shares are rounded up, so total planned rounds may exceed the requested total. |
 | Experiment/predictor name | 1–64 characters: first character is ASCII letter, digit or underscore; remaining characters may also be hyphens. |
+| Predictor provenance | Serialized `how` JSON may contain at most 65,536 characters. Store the selection question and capture identity rather than an entire analysis payload. |
 | Statistical support | Summaries with `n < 30` withhold `mean`, `lo`, `hi`, `lift`, `delta` and `keep` where present; support is retained. It is not a blanket guarantee that every diagnostic is suppressed. |
 | Numeric transport | Nonfinite/missing numbers become JSON null. Never interpret null as zero. |
 
