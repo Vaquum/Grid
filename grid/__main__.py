@@ -633,7 +633,8 @@ def cmd_serve(a: argparse.Namespace) -> int:
     w.start()
     agent_file = getattr(a, "agent_file", None)
     agent_token = secrets.token_urlsafe(32) if agent_file else None
-    httpd = serve(sweep, page, a.bind, a.port, project, token, agent_token)
+    httpd = serve(sweep, page, a.bind, a.port, project, token, agent_token,
+                  a.public_origin)
     host, port = httpd.server_address[:2]
     url = "http://%s:%d/" % (host, port)
     if agent_file and agent_token:
@@ -719,6 +720,9 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--bind", default="127.0.0.1")
             p.add_argument("--port", type=int, default=0,
                            help="0 picks a free port")
+            p.add_argument("--public-origin",
+                           help="trusted HTTP(S) origin behind a reverse "
+                                "proxy; permits its Host and browser Origin")
             p.add_argument("--open", action="store_true",
                            help="open the page in a browser")
             p.add_argument("--agent-file", metavar="PATH",
