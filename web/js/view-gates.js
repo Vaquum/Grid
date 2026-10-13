@@ -223,11 +223,12 @@ function maker(m, A, gate) {
     const passOf = valid ? (i => { const v = t.values[i]; return v === v ? (test(v, x) ? 1 : 0) : NaN; }) : (() => 0);
     let k = 0, n = 0;
     for (let j = 0; j < m.rows.length; j++) { const p = passOf(m.rows[j]); if (p === p && t.values[m.rows[j]] === t.values[m.rows[j]]) { n++; k += p; } }
-    const chart = passHistogram(t.values, passOf, m.rows, { kind: "gate", need: valid ? x : undefined, needLabel: valid ? `need ${needText(t, x)}` : undefined, unit: t.unit, label: `${t.label} against the need` });
+    const chart = passHistogram(t.values, passOf, m.rows, { kind: "gate", context: targetContext(t), need: valid ? x : undefined, needLabel: valid ? `need ${needText(t, x)}` : undefined, unit: t.unit, label: `${t.label} against the need` });
     clear(preview);
     preview.append(chart.svg, h("div", { class: "gt-cap" }, valid
       ? h("span", null, h("b", { class: "num", text: n ? rate(k / n) : "–" }), ` of the rows pass · ${fmtInt(k)} of ${fmtInt(n)}`)
       : h("span", { text: draft.text === "" ? "Type the need." : "The need is not a number." })));
+    tip(preview.querySelector(".gt-cap"), `The share and count of configurations that would pass the gate being edited. ${targetContext(t)}${valid ? ` Need: ${draft.op} ${needText(t, x)}.` : ""}`);
     const dup = valid && defs.some(g => g && g.id !== draft.editing && g.target === draft.target && g.op === draft.op && g.value === x);
     clear(foot);
     foot.append(h("button", { class: "btn primary", type: "button", disabled: !valid || dup ? true : null, onclick: commit }, dup ? "Already set" : gate ? "Save" : "Add gate"));

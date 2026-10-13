@@ -171,6 +171,11 @@ const LABEL_CONTEXT = {
   outcomes: "Measurements recorded for this one evaluated configuration.",
   parameters: "Settings used for this one evaluated configuration.",
   stack: "Restrictions applied one after another to form the pocket; each step shows the rows it keeps.",
+  "add a block": "Choose another parameter restriction to narrow the pocket and compare the configurations it keeps.",
+  "for the next pool": "Feature choices suggested by these results for a future sweep.",
+  "for the next sweep": "Parameter or feature choices suggested by these results for a future sweep.",
+  "new gate": "Choose an outcome and a cutoff; the preview shows how many configurations would pass.",
+  "edit the gate": "Change this gate's cutoff; the preview shows how many configurations would pass.",
   "against the pinned pocket": "Compare the current pocket with the one saved as the reference.",
   "what stops the best rows": "Checks failed by configurations that rank highest on the runner's objective.",
   "the halves of the test window": "Compare results on two separate stretches of the market and see whether their rankings repeat.",
@@ -231,6 +236,7 @@ export function labelContext(label, m, heading = false) {
   if (/^what (makes|sets)\b/.test(key)) return "The parameter values that occur more often in this group than in the comparison group.";
   if (/^interacting\b/.test(key)) return "Sets of parameters whose combined effect exceeds what their smaller subsets explain.";
   if (/^including each of\b/.test(key)) return "Compare the outcome with each feature included versus left out, allowing for subset size.";
+  if (/by the number of members/.test(key)) return `How ${m?.target?.label || "the outcome"} changes with the number of features included in the configuration.`;
   if (/^the selection\b/.test(key)) return "The runner's selection report: its best configuration and how much of that score could come from trying many configurations.";
   if (/^row \d/.test(key)) return "One evaluated configuration, with its recorded settings and outcomes.";
   return null;

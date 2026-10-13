@@ -378,6 +378,7 @@ test("trial figures, grouped labels and inspector fields explain their actual me
   const field = page.locator("#inspector dt", { hasText: /^Mean month$/ });
   await field.hover();
   await page.waitForTimeout(550);
+  assert.equal(await page.locator("#tip").isVisible(), true, JSON.stringify(await field.evaluate(n => ({ hovered: n.matches(":hover"), described: n.getAttribute("aria-describedby"), at: n.getBoundingClientRect().toJSON(), tip: document.querySelector("#tip").textContent }))));
   assert.match(await page.locator("#tip").innerText(), /average monthly return/);
   await field.locator("xpath=following-sibling::dd[1]").hover();
   await page.waitForTimeout(550);
