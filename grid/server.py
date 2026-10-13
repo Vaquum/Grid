@@ -103,6 +103,13 @@ class Server:
                 or address.fragment or address.port == 0):
             raise ValueError("public origin must be an HTTP(S) origin")
         self.public_host = address.netloc.lower()
+        if self.public_origin:
+            name = address.hostname or ""
+            self.public_host = "[" + name + "]" if ":" in name else name
+            default_port = 443 if address.scheme == "https" else 80
+            if address.port is not None and address.port != default_port:
+                self.public_host += ":" + str(address.port)
+            self.public_origin = address.scheme + "://" + self.public_host
         self.sweep = sweep
         self.page = page
         self.project = project      # the Limen project, with --project
@@ -470,7 +477,9 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
                 return "the page's token is missing or wrong"
             origin = self.headers.get("Origin")
             host = self.headers.get("Host", "")
-            expected = server.public_origin or "http://" + host
+            expected = (server.public_origin
+                        if host.lower() == server.public_host
+                        else "http://" + host)
             if origin is not None and origin != expected:
                 return "a request from another origin (%s)" % origin
             site = self.headers.get("Sec-Fetch-Site")

@@ -639,7 +639,7 @@ class Routes(unittest.TestCase):
         self.httpd.server_close()
         self.httpd = serve(Sweep("s"), lambda: b"page", "127.0.0.1", 0,
                            Project(self.tmp, FAKE), "t0ken",
-                           public_origin="https://grid.vaquum.fi")
+                           public_origin="https://GRID.VAQUUM.FI:443/")
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
         host, port = self.httpd.server_address[:2]
         self.base = "http://%s:%d" % (host, port)
@@ -652,6 +652,8 @@ class Routes(unittest.TestCase):
                    "Origin": "https://grid.vaquum.fi"}
         self.assertEqual(self.post("/api/experiment/validate", body,
                                    **headers), (200, {"errors": []}))
+        self.assertEqual(self.post("/api/experiment/validate", body),
+                         (200, {"errors": []}))
         for changes in ({"Origin": "http://grid.vaquum.fi"},
                         {"Origin": "https://other.vaquum.fi"},
                         {"Host": "other.vaquum.fi"},
