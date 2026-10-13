@@ -21,6 +21,7 @@ import { bhQ, rankAt } from "./stats.js";
 import { heldBack } from "./outputs.js";
 import { rankAgreement, HALF_NAMES, firstHalfOnly } from "./halves.js";
 import { rowRounds } from "./pack.js";
+import { targetContext } from "./context.js";
 
 // The log a run's runner writes.
 export function runLog(m) {
@@ -387,6 +388,7 @@ function distCard(m, t, groups, drawn, sel, test, q, res) {
       if (heap) line.append(h("span", { class: "muted", text: ` · ${fmtPct(heap.share, 0)} at ${fmtRowValue(t, heap.v)}` }));
     }
     if (miss) line.append(h("span", { class: "muted", text: ` · ${fmtInt(miss)} without one` }));
+    tip(line, `${t.label}: ${targetContext(t)} For ${g.label}. ${t.kind === "binary" ? "The share of rows meeting this outcome, with its uncertainty." : "The median is the middle result; the middle half spans the central 50% of results."} Missing values are left out.`);
     figs.append(line);
   });
   if (ch.outside) figs.append(h("div", { class: "rn-fig muted", text: `${fmtInt(ch.outside)} outside the 1st to 99th percentile, not plotted` }));
@@ -767,7 +769,7 @@ function paceIsland(m, health) {
     }));
     if (series.length) {
       isl.append(h("div", { class: "part-title", text: `Rows over time, in ${unit[2]} from each segment's start` }));
-      isl.append(lineChart(series, { kind: "pace", height: 160, fmtX: v => `${fmtNum(v, unit[1] === "h" ? 1 : 0)} ${unit[1]}`, fmtY: v => `${fmtInt(v)} rows`, label: "rows over time by segment" }));
+      isl.append(lineChart(series, { kind: "pace", height: 160, fmtX: v => `${fmtNum(v, unit[1] === "h" ? 1 : 0)} ${unit[1]}`, fmtY: v => `${fmtInt(v)} rows`, xContext: `Elapsed ${unit[2]} since this segment started.`, yContext: "How many configurations had been evaluated by this time.", label: "rows over time by segment" }));
     }
     isl.append(h("div", { class: "part-title", text: "Segments in the log" }));
     const maxRows = Math.max(1, ...log.segments.map(s => (s.progress.length ? s.progress[s.progress.length - 1][1] : 0)));

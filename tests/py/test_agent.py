@@ -182,14 +182,18 @@ class TestAgent(unittest.TestCase):
         self.call("grid_stop", run=run, requestId="stop")
         checkpoint = results.with_name("checkpoint.json")
         deadline = time.monotonic() + 10
+        stopped = False
         while time.monotonic() < deadline:
-            stopped = next(r for r in self.project.runs() if r["id"] == run)
-            if checkpoint.exists() and stopped["state"] == "stopped":
+            status = self.call("grid_status")["project"]["runs"]
+            stopped = any(r["id"] == run and r["state"] == "stopped"
+                          for r in status)
+            if checkpoint.exists() and stopped:
                 break
             time.sleep(0.01)
         self.assertTrue(checkpoint.exists())
-        self.assertEqual(next(r["state"] for r in self.project.runs()
-                              if r["id"] == run), "stopped")
+        # A checkpoint is written before the process exits and its watcher
+        # records stopped. Resume requires both, not just the file.
+        self.assertTrue(stopped)
         self.call("grid_resume", run=run, requestId="resume")
         self.call("grid_stop", run=run, requestId="stop-again")
 

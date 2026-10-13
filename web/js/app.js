@@ -26,6 +26,7 @@ import { renderRun, runHealth, runLog, segmentOf } from "./view-run.js";
 import { renderReference } from "./reference.js";
 import { renderExperiment, experimentKey, startFrom } from "./view-experiment.js";
 import { renderCohort } from "./view-cohort.js";
+import { measurementContext, targetContext } from "./context.js";
 
 const VIEWS = [
   { id: "board", label: "Board", icon: "board", key: "1", title: "What moves the needle" },
@@ -311,6 +312,7 @@ function scheduleUpdate() {
 function update() {
   if (!app.sweep) return;
   const m = app.sweep.runs.length ? model() : null;
+  app.measurementModel = m;
   updateTop(m);
   updateRail(m);
   const view = app.els.view;
@@ -524,6 +526,8 @@ function updateTop(m0) {
   }
   if (els.tsel.value !== m.target.id) els.tsel.value = m.target.id;
   top.target = m.target;
+  tip(els.tsel, () => h("div", null, h("b", { text: top.target.label }), h("div", { class: "k", text: targetContext(top.target) })));
+  tip(els.progress, "Evaluated configurations against the planned total, with the measured pace and estimated time left when available.");
   // First half: offered on a run measured on each half; the needle in view
   // says when it reads the whole window all the same
   const halved = m.cache.schema.targets.some(x => x.halves);
@@ -549,7 +553,10 @@ function updateTop(m0) {
     if (!m.context.length) els.chips.append(h("span", { class: "chip ghost", text: "All rows" }));
     else { top.count = h("span", { class: "muted num" }); els.chips.append(top.count); }
   }
-  if (top.count) setText(top.count, `${fmtInt(m.rows.length)} of ${fmtInt(m.allRows.length)} rows`);
+  if (top.count) {
+    setText(top.count, `${fmtInt(m.rows.length)} of ${fmtInt(m.allRows.length)} rows`);
+    tip(top.count, "Configurations meeting the context restrictions, out of all configurations before the replay edge.");
+  }
   // play turns to pause while a replay runs
   const playing = !!app.playback;
   if (playing !== top.playing) {
@@ -859,7 +866,7 @@ function buildFrame() {
   const insp = h("aside", { class: "inspector", id: "inspector", "aria-label": "Inspector" });
   shell.append(rail, view, insp);
   app.els = { root, top, rail, view, insp, toasts: document.getElementById("toasts") };
-  installTips(root, document.getElementById("tip"));
+  installTips(root, document.getElementById("tip"), node => measurementContext(node, app.measurementModel));
 }
 
 function fail(err) {

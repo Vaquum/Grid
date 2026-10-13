@@ -250,11 +250,11 @@ export function runName(meta) {
 
 // ---------------------------------------------------------------------------
 // Tooltips: data-tip holds plain text, or a function in tipFns. The first
-// shows after half a second; once one has shown, the next shows at once.
+// shows after half a second on each hover. Keyboard focus shows it at once.
 
 const TIP_DELAY = 500;
 const tipFns = new WeakMap();
-let tipTimer = null, tipWarm = false, tipCool = null, tipEl = null;
+let tipTimer = null, tipEl = null, tipOwner = null, tipDescription = null;
 
 // A control's tip: its name, its key, and what it does.
 export function keyTip(title, key, text) {
@@ -263,24 +263,41 @@ export function keyTip(title, key, text) {
 }
 
 export function tip(el, content) {
-  if (typeof content === "function") { tipFns.set(el, content); el.classList.add("has-tip"); }
-  else el.dataset.tip = content;
+  if (typeof content === "function") {
+    tipFns.set(el, content); el.classList.add("has-tip");
+    delete el.dataset.tip; el.removeAttribute("aria-description");
+  } else if (content) {
+    tipFns.delete(el); el.dataset.tip = content; el.setAttribute("aria-description", content);
+  }
   return el;
 }
 
-export function installTips(root, tipBox) {
+export function installTips(root, tipBox, contextFor = () => null) {
   tipEl = tipBox;
+  const resolve = node => {
+    if (!node?.closest) return null;
+    for (let t = node.closest("[data-tip], .has-tip"); t; t = t.parentElement?.closest("[data-tip], .has-tip")) {
+      if (tipFns.has(t) || t.dataset.tip) return { target: t };
+    }
+    return contextFor(node);
+  };
   const show = (target, x, y) => {
+    clearTimeout(tipTimer);
+    if (!target.isConnected) { hideTip(); return; }
     const fn = tipFns.get(target);
+    const c = fn ? fn() : target.dataset.tip || contextFor(target)?.text;
+    if (!c) { hideTip(); return; }
+    hideTip();
     clear(tipEl);
-    if (fn) {
-      const c = fn();
-      if (!c) { tipEl.hidden = true; return; }
-      tipEl.append(c);
-    } else tipEl.textContent = target.dataset.tip;
+    const label = target.matches(".sc") ? target.querySelector(".sc-k") : null;
+    const plain = label ? contextFor(label)?.text : target.matches("td, dd") && !target.closest("table.heat") ? contextFor(target)?.text : null;
+    if (plain && plain !== c) tipEl.append(h("div", { class: "k", text: plain }));
+    tipEl.append(c);
+    tipOwner = target;
+    tipDescription = target.getAttribute("aria-describedby");
+    target.setAttribute("aria-describedby", [tipDescription, tipEl.id].filter(Boolean).join(" "));
     tipEl.hidden = false;
     place(x, y);
-    tipWarm = true;
   };
   const place = (x, y) => {
     const r = tipEl.getBoundingClientRect();
@@ -292,32 +309,44 @@ export function installTips(root, tipBox) {
     tipEl.style.top = top + "px";
   };
   let current = null;
-  root.addEventListener("pointermove", (e) => {
-    const t = e.target.closest ? e.target.closest("[data-tip], .has-tip") : null;
+  const move = (e) => {
+    if (e.pointerType === "touch") return;
+    const t = resolve(e.target)?.target || null;
     if (t !== current) {
       current = t;
-      clearTimeout(tipTimer);
-      if (!t) { hideTip(); return; }
-      clearTimeout(tipCool);
-      if (tipWarm) show(t, e.clientX, e.clientY);
-      else tipTimer = setTimeout(() => current === t && show(t, e.clientX, e.clientY), TIP_DELAY);
+      hideTip();
+      if (!t) return;
+      tipTimer = setTimeout(() => current === t && show(t, e.clientX, e.clientY), TIP_DELAY);
     } else if (t && !tipEl.hidden) place(e.clientX, e.clientY);
+  };
+  root.addEventListener("pointerover", move);
+  root.addEventListener("pointermove", move);
+  root.addEventListener("pointerout", e => {
+    if (current && !current.contains(e.relatedTarget)) { current = null; hideTip(); }
   });
   root.addEventListener("pointerleave", () => { current = null; hideTip(); });
   root.addEventListener("focusin", (e) => {
-    const t = e.target.closest ? e.target.closest("[data-tip], .has-tip") : null;
+    const t = resolve(e.target)?.target;
     if (!t) return;
     const r = t.getBoundingClientRect();
     show(t, r.left, r.bottom);
   });
-  root.addEventListener("focusout", () => hideTip());
+  root.addEventListener("focusout", e => { if (tipOwner?.contains(e.target)) hideTip(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") { current = null; hideTip(); } }, true);
+  // Scrolling a field into view can finish after pointerover. Keep its pending
+  // dwell; pointerout still cancels it if the field moves away from the pointer.
+  root.addEventListener("scroll", () => { if (tipOwner) { current = null; hideTip(); } }, { capture: true, passive: true });
+  window.addEventListener("resize", () => { current = null; hideTip(); });
 }
 
 export function hideTip() {
   clearTimeout(tipTimer);
   if (tipEl) tipEl.hidden = true;
-  clearTimeout(tipCool);
-  tipCool = setTimeout(() => { tipWarm = false; }, 800);
+  if (tipOwner) {
+    if (tipDescription === null) tipOwner.removeAttribute("aria-describedby");
+    else tipOwner.setAttribute("aria-describedby", tipDescription);
+  }
+  tipOwner = null; tipDescription = null;
 }
 
 // ---------------------------------------------------------------------------
