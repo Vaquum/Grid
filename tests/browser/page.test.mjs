@@ -327,6 +327,64 @@ test("trials: a toggle names itself and its key after half a second of rest", as
   await page.close();
 });
 
+test("measurement context waits 500 ms on every hover and cancels on leave or Escape", async () => {
+  const { page, errors } = await open();
+  await page.waitForSelector(".sc[data-ready=true]");
+  const start = new Date();
+  await page.clock.install({ time: start });
+  await page.clock.pauseAt(new Date(start.getTime() + 5000));
+  const label = page.locator(".pc-name").first();
+  await label.hover();
+  await label.dispatchEvent("pointermove");
+  await page.clock.runFor(499);
+  assert.equal(await page.locator("#tip").isVisible(), false);
+  await page.clock.runFor(1);
+  assert.match(await page.locator("#tip").innerText(), /Results grouped by/);
+  const axis = page.locator(".pcard").first().locator(".yl.ref-l");
+  await axis.hover();
+  await axis.dispatchEvent("pointermove");
+  assert.equal(await page.locator("#tip").isVisible(), false);
+  await page.clock.runFor(499);
+  assert.equal(await page.locator("#tip").isVisible(), false);
+  await page.clock.runFor(1);
+  assert.match(await page.locator("#tip").innerText(), /comparison average of Tradeable/);
+  await page.keyboard.press("Escape");
+  assert.equal(await page.locator("#tip").isVisible(), false);
+  await label.hover();
+  await label.dispatchEvent("pointermove");
+  await page.clock.runFor(200);
+  await page.mouse.move(0, 0);
+  await page.clock.runFor(600);
+  assert.equal(await page.locator("#tip").isVisible(), false);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("trial figures, grouped labels and inspector fields explain their actual metric", async () => {
+  const { page, errors } = await open();
+  await page.keyboard.press("5");
+  await page.waitForSelector("table.trials");
+  const metric = page.locator("table.trials tbody tr").first().locator("td").nth(3);
+  await metric.hover();
+  await page.waitForTimeout(550);
+  assert.match(await page.locator("#tip").innerText(), /average monthly return/);
+  await page.locator('[data-cols="risk"]').click();
+  const group = page.locator("table.trials th.grp", { hasText: /^Risk$/ });
+  await group.hover();
+  await page.waitForTimeout(550);
+  assert.match(await page.locator("#tip").innerText(), /losses and drawdowns/);
+  await page.locator("table.trials tbody tr").first().click();
+  const field = page.locator("#inspector dt", { hasText: /^Mean month$/ });
+  await field.hover();
+  await page.waitForTimeout(550);
+  assert.match(await page.locator("#tip").innerText(), /average monthly return/);
+  await field.locator("xpath=following-sibling::dd[1]").hover();
+  await page.waitForTimeout(550);
+  assert.match(await page.locator("#tip").innerText(), /average monthly return/);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("trials on a Limen run: tied rounds share a rank, values as written, the table as notes", async () => {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors = [];

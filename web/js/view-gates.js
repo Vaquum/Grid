@@ -12,6 +12,7 @@ import { passHistogram } from "./charts.js";
 import { wilson } from "./stats.js";
 import { OPS, asSet, gateable, needText, nextGateId } from "./gates.js";
 import { bestRows } from "./model.js";
+import { targetContext } from "./context.js";
 
 // The gate being set or edited, kept across redraws (arriving rows redraw
 // the view): its run, the gate it edits (null for a new one), its needle,
@@ -270,6 +271,8 @@ function gateCard(m, A, g, s) {
   const card = h("article", { class: "island gt-card" + (s.never ? " never" : ""), role: "listitem", "aria-label": g.label });
   card.append(h("header", { class: "gt-head" }, h("h3", { class: "gt-title" }, wrapName(g.label)),
     h("span", { class: "gt-rate num", text: s.n ? rate(s.rate) : "–" })));
+  tip(card.querySelector(".gt-title"), `${g.target ? targetContext(g.target) : "A check on each configuration's result."} To pass: ${g.need}.`);
+  tip(card.querySelector(".gt-rate"), `The share of configurations with a recorded value that pass ${g.label}. To pass: ${g.need}.`);
   card.append(h("div", { class: "gt-sub" },
     h("span", { class: "num", text: s.n ? `${fmtInt(s.passed)} of ${fmtInt(s.n)} rows pass · 95% ${pctRange(s.lo, s.hi, s.rate > 0 && s.rate < 0.01 ? 2 : 1)}` : "No row has a value." }),
     s.never ? h("span", { class: "sev crit" }, icon("alert"), "never passed") : s.always ? h("span", { class: "sev ok" }, icon("check"), "always passes") : null,
@@ -284,7 +287,7 @@ function gateCard(m, A, g, s) {
   if (vals.length) {
     vals.sort((a, b) => a - b);
     const unit = g.target ? g.target.unit : g.unit;
-    const chart = passHistogram(g.value, i => g.pass[i], m.rows, { kind: "gate", need: g.needAt, needLabel: g.needAt !== undefined ? `need ${needText(g.target || { unit }, g.needAt)}` : undefined,
+    const chart = passHistogram(g.value, i => g.pass[i], m.rows, { kind: "gate", context: g.target ? targetContext(g.target) : `${g.label}. To pass: ${g.need}.`, need: g.needAt, needLabel: g.needAt !== undefined ? `need ${needText(g.target || { unit }, g.needAt)}` : undefined,
       unit, labels: g.yesNo ? [[0, "no"], [1, "yes"]] : undefined, label: `${g.label}: rows against the need` });
     card.append(h("div", { class: "gt-chart" }, chart.svg));
     // a gate on a needle knows which way is better; the runner's says only

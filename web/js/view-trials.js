@@ -16,6 +16,7 @@ import { bestRows, objectiveKeys, BEST_LIMIT } from "./model.js";
 import { strengthText } from "./view-board.js";
 import { halfTargets, firstHalfRanks, keptLead, persistence, HALF_NAMES } from "./halves.js";
 import { lineChart } from "./charts.js";
+import { targetContext } from "./context.js";
 
 // The column sets, in the order of their toggles: a row's parameters, the
 // checks on its score, and what it cost.
@@ -76,6 +77,8 @@ function leadIsland(m, lt, better) {
     { label: "95% interval", group: "ci", color: "var(--muted)", points: pts.map(x => [x.bin, x.hi]), width: 1, endDot: false },
     { label: "every row's second half", color: "var(--ink-2)", points: [[1, p.all.mean], [pts.length, p.all.mean]], dash: "5 4", endDot: false },
   ], { kind: "halves", height: 192, target: lt, label: "the second half by the tenth on the first",
+    xContext: "Configurations grouped into tenths by their first-half rank: 1 is the best tenth.",
+    yContext: `${lt.label}: ${targetContext(lt)} Each point is a tenth's average on the second half.`,
     fmtX: v => `tenth ${fmtInt(v)} on the first half${v === 1 ? ", the best" : ""}` }));
   const lead = r && Number.isFinite(r.kept) ? r : null;
   isl.append(h("p", { class: "isl-note" },
@@ -177,7 +180,7 @@ function renderUnranked(view, m, A) {
 const listText = (xs) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
 
 function targetTip(t) {
-  return h("div", null, h("b", { text: t.label }), t.definition ? h("div", { text: t.definition }) : null,
+  return h("div", null, h("b", { text: t.label }), h("div", { text: targetContext(t) }),
     h("div", { class: "k", text: `${t.unit || "value"}; ${t.better > 0 ? "higher is better" : t.better < 0 ? "lower is better" : "no better direction"}${t.decimals !== null && t.decimals !== undefined && t.decimals < (t.digits ?? 2) ? `; written to ${t.decimals} decimal${t.decimals === 1 ? "" : "s"}` : ""}` }));
 }
 

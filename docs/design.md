@@ -292,7 +292,9 @@ same in every view:
 
 Every view opens with a strip of its figures and its blurb behind an (i)
 (a click opens it, and so do five seconds resting on the (i)). A tooltip
-shows after half a second, and the next one at once. Every control has a
+shows after half a second on each hover. Measurements, table cells, axes,
+inspector fields and group labels explain what they measure in plain language;
+keyboard focus shows the explanation at once. Every control has a
 key and a label: the views' own have keys of their own (N on Experiment,
 R and F on the Board, S on Pairs, O on Features, X on Trials, N on Gates,
 K and M on the Run), and a control's tip names its key. Every view ends with

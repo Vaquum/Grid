@@ -375,17 +375,17 @@ function pairIsland(m, A, pairs, chosen) {
 
   const tbl = h("table", { class: "heat pr-heat" });
   const head = h("tr", null, h("th", { class: "corner" }, h("span", { class: "mono", text: da.label }), " ↓ ", h("span", { class: "mono", text: db.label }), " →"));
-  db.levels.forEach(l => head.append(h("th", { class: "col-h", text: l.label })));
-  head.append(h("th", { class: "col-h margin-h", text: "every" }));
+  db.levels.forEach(l => head.append(tip(h("th", { class: "col-h", text: l.label }), `Results where ${db.label} = ${l.label}. Each cell also uses the row's ${da.label} value.`)));
+  head.append(tip(h("th", { class: "col-h margin-h", text: "every" }), `Results across every value of ${db.label}, for the row's ${da.label} value.`));
   tbl.append(h("thead", null, head));
   const tb = h("tbody");
   da.levels.forEach((la, a) => {
-    const tr = h("tr", null, h("th", { class: "row-h", text: la.label }));
+    const tr = h("tr", null, tip(h("th", { class: "row-h", text: la.label }), `Results where ${da.label} = ${la.label}. Each cell also uses the column's ${db.label} value.`));
     db.levels.forEach((lb, b) => tr.append(cell(pe.table[a * db.levels.length + b], [{ dim: da.id, keys: [la.key] }, { dim: db.id, keys: [lb.key] }], `${da.label} = ${la.label}, ${db.label} = ${lb.label}`)));
     tr.append(cell(ea.levels[a], [{ dim: da.id, keys: [la.key] }], `${da.label} = ${la.label}, any ${db.label}`, "margin"));
     tb.append(tr);
   });
-  const foot = h("tr", { class: "margin-row" }, h("th", { class: "row-h margin-h", text: "every" }));
+  const foot = h("tr", { class: "margin-row" }, tip(h("th", { class: "row-h margin-h", text: "every" }), `Results across every value of ${da.label}, for the column's ${db.label} value.`));
   db.levels.forEach((lb, b) => foot.append(cell(eb.levels[b], [{ dim: db.id, keys: [lb.key] }], `${db.label} = ${lb.label}, any ${da.label}`, "margin")));
   const baseTd = h("td", { class: "margin base-cell has-tip", style: divergingFill(0) }, h("span", { class: "v", text: fmtT(t, base.mean, { unit: false, digits: t.kind === "binary" ? 0 : undefined }) }), h("span", { class: "n", text: fmtInt(base.n) }));
   tip(baseTd, `The base: ${fmtT(t, base.mean)} over the ${fmtInt(base.n)} rows in view`);
@@ -454,11 +454,11 @@ function facets(ctx, dims, r) {
   dims[f].levels.forEach((lf, vf) => {
     const tbl = h("table", { class: "heat pr-heat" });
     const head = h("tr", null, h("th", { class: "corner" }, vf === 0 ? [h("span", { class: "mono", text: dims[ra].label }), " ↓ ", h("span", { class: "mono", text: dims[cb].label }), " →"] : ""));
-    dims[cb].levels.forEach(l => head.append(h("th", { class: "col-h", text: l.label })));
+    dims[cb].levels.forEach(l => head.append(tip(h("th", { class: "col-h", text: l.label }), `Results where ${dims[cb].label} = ${l.label}, inside ${dims[f].label} = ${lf.label}.`)));
     tbl.append(h("thead", null, head));
     const tb = h("tbody");
     dims[ra].levels.forEach((la, va) => {
-      const tr = h("tr", null, h("th", { class: "row-h", text: la.label }));
+      const tr = h("tr", null, tip(h("th", { class: "row-h", text: la.label }), `Results where ${dims[ra].label} = ${la.label}, inside ${dims[f].label} = ${lf.label}.`));
       dims[cb].levels.forEach((lb, vb) => {
         const x = [0, 0, 0];
         x[f] = vf; x[ra] = va; x[cb] = vb;

@@ -12,7 +12,7 @@ export function stripCell(label, value, suffix, tipFn, onPick, attrs = {}) {
   const { valueClass, ...rest } = attrs;
   const el = h(onPick ? "button" : "div", { class: "sc" + (onPick ? " pick" : "") + " has-tip", type: onPick ? "button" : null, onclick: onPick || null, ...rest },
     h("span", { class: "sc-k", text: label }),
-    h("span", { class: "sc-v" }, h("b", { class: "num" + (valueClass ? ` ${valueClass}` : ""), title: value, text: value }), suffix ? h("small", { title: suffix, text: suffix }) : null));
+    h("span", { class: "sc-v" }, h("b", { class: "num" + (valueClass ? ` ${valueClass}` : ""), text: value }), suffix ? h("small", { text: suffix }) : null));
   if (tipFn) tip(el, tipFn);
   return el;
 }
