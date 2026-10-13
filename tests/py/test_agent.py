@@ -41,6 +41,7 @@ class TestAgent(unittest.TestCase):
                                   ssh=None, as_=None, log=None, run=None,
                                   label=None, project=None)
         wiring = Wiring(args, follow=False)
+        self.wiring = wiring
         self.sweep = wiring.build()
         wiring.read_once()
         self.server = Server(self.sweep, lambda: b"page", self.project,
@@ -77,6 +78,79 @@ class TestAgent(unittest.TestCase):
         response = self.client.call(operation, args)
         self.assertTrue(response["ok"], response)
         return response["result"]
+
+    def example(self, *arguments):
+        proc = subprocess.run([
+            sys.executable, "tools/agent_workflow.py", "--connection",
+            self.connection, "--journal", os.path.join(self.temp, "intents"),
+            "--timeout", "30", *arguments], cwd=ROOT,
+            capture_output=True, text=True, check=False)
+        result = json.loads(proc.stdout)
+        self.assertEqual(proc.returncode, 0, result)
+        self.assertTrue(result["ok"], result)
+        return result["result"]
+
+    def test_documented_inspection_and_predictor_workflow(self):
+        inspected = self.example("inspect", "--run", "r0")
+        ids = {q["snapshot"]["id"] for q in inspected.values()}
+        self.assertEqual(len(ids), 1)
+        self.assertLessEqual(len(inspected["trials"]["result"]["list"]), 5)
+        trained = self.example("cohort", "--run", "r0", "--name",
+                               "documented", "--members", "2")
+        self.assertTrue(trained["selection"]["result"]["firstHalfSelection"])
+        self.assertIsNotNone(trained["evaluation"]["cohort"]["halves"])
+        self.assertEqual(trained["predictor"]["state"], "made")
+        self.assertIsNotNone(trained["predictor"]["cohortId"])
+
+    def test_documented_experiment_workflow(self):
+        def open_run(key, dirs, planned):
+            run_id = self.wiring.open_limen(key, dirs, planned)
+            self.wiring.read_once()
+            return run_id
+
+        self.project.opener = open_run
+        result = self.example("experiment", "--name", "documented",
+                              "--template", "lightgbm_binary",
+                              "--rounds", "40")
+        self.assertEqual(result["job"]["state"], "finished")
+        self.assertEqual(result["job"]["rows"], 40)
+        self.assertEqual(result["analysisRun"], result["analysis"]["schema"][
+            "snapshot"]["run"])
+        journal = Path(self.temp, "intents")
+        entries = [json.loads(line)
+                   for line in journal.read_text().splitlines()]
+        self.assertEqual([e["operation"] for e in entries],
+                         ["grid_create", "grid_save", "grid_start"])
+        self.assertEqual(stat.S_IMODE(journal.stat().st_mode), 0o600)
+        original = entries[-1]
+        recovered = self.example("recover", "--request-id",
+                                 original["arguments"]["requestId"])
+        self.assertEqual(recovered["response"]["result"]["run"],
+                         result["projectRun"])
+        # Replaying the exact documented journal entry returns its old run.
+        retried = self.client.call(original["operation"],
+                                   original["arguments"])
+        self.assertEqual(retried, recovered["response"])
+        self.assertEqual(len(self.project.runs()), 1)
+
+    def test_documented_stop_and_resume_wait_for_observed_state(self):
+        self.call("grid_create", name="control", template="lightgbm_binary",
+                  requestId="control-create")
+        manifest = self.call("grid_manifest", name="control")
+        run = self.call("grid_start", name="control", rounds=200, shards=1,
+                        execution=True, outputs=True,
+                        version=manifest["version"],
+                        requestId="control-start")["run"]
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if self.project.runs()[0]["rows"] > 0:
+                break
+            time.sleep(0.01)
+        stopped = self.example("control", "stop", "--run", run)
+        self.assertEqual(stopped["state"], "stopped")
+        self.assertTrue(stopped["shards"][0]["checkpoint"])
+        resumed = self.example("control", "resume", "--run", run)
+        self.assertIn(resumed["state"], {"running", "finished"})
 
     def test_connection_is_private_and_cannot_be_overwritten(self):
         self.assertEqual(stat.S_IMODE(os.stat(self.connection).st_mode), 0o600)
