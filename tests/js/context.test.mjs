@@ -31,5 +31,28 @@ test("metric names are distinct from section headings and pocket statistics", ()
   assert.match(labelContext("Recall", m), /positive examples/);
   assert.match(labelContext("Gates", m), /runner's checks/);
   assert.match(labelContext("Gates", m, true), /each card/);
-  assert.match(labelContext("Recall", { ...m, state: { view: "pocket" } }), /kept by the pocket/);
+  assert.match(labelContext("Recall", { ...m, state: { view: "pocket" } }), /positive examples/);
+});
+
+test("parenthesized metric scopes remain distinct while unit suffixes resolve", () => {
+  const m = { schema: { targets: [
+    { id: "precision", label: "Precision", unit: "" },
+    { id: "confusion_precision", label: "Precision (test window)", unit: "" },
+    { id: "recall", label: "Recall", unit: "" },
+    { id: "confusion_recall", label: "Recall (test window)", unit: "" },
+    { id: "mean_mo", label: "Mean month", unit: "%/mo" },
+  ] } };
+  assert.match(labelContext("Precision", m), /examples/);
+  assert.match(labelContext("Precision (test window)", m), /test bars/);
+  assert.match(labelContext("Recall", m), /examples/);
+  assert.match(labelContext("Recall (test window)", m), /test bars/);
+  assert.match(labelContext("Mean month (%/mo)", m), /monthly return/);
+});
+
+test("a gate named after a metric does not replace its definition", () => {
+  const m = { schema: { targets: [{ id: "entries", label: "Entries" }], gates: [
+    { id: "entries", label: "Entries ≥ 30", target: { id: "entries", label: "Entries" }, need: "≥ 30" },
+  ] } };
+  assert.doesNotMatch(labelContext("Entries", m), /To pass/);
+  assert.match(labelContext("Entries ≥ 30", m), /To pass: ≥ 30/);
 });

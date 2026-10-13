@@ -41,9 +41,16 @@ before(async () => {
   // a walk-forward run of Limen 5.24, with the reports it writes at the end
   execFileSync("python3", ["-m", "grid", "pack", "--limen", "tests/fixtures/limen_walk_forward", "--out", join(dir, "limenwf.pack.json.gz")], { cwd: ROOT });
   execFileSync("python3", ["tools/build.py", "--pack", join(dir, "limenwf.pack.json.gz"), "--out", join(dir, "limenwf.html")], { cwd: ROOT, stdio: "ignore" });
+  // A known metric whose name is also a cost control, plus scoped fit metrics.
+  const contextRun = limenExecutionRun(join(dir, "context-run"));
+  const contextCsv = join(contextRun, "results.csv");
+  const contextLines = readFileSync(contextCsv, "utf8").trimEnd().split(/\r?\n/);
+  writeFileSync(contextCsv, contextLines.map((line, i) => `${line},${i ? "1.25" : "backtest_slippage"}`).join("\n") + "\n");
+  execFileSync("python3", ["-m", "grid", "pack", "--limen", contextRun, "--out", join(dir, "context.pack.json.gz")], { cwd: ROOT });
+  execFileSync("python3", ["tools/build.py", "--pack", join(dir, "context.pack.json.gz"), "--out", join(dir, "context.html")], { cwd: ROOT, stdio: "ignore" });
   server = createServer(async (req, res) => {
     try {
-      const page = req.url.startsWith("/limen200") ? "limen200.html" : req.url.startsWith("/limenwf") ? "limenwf.html"
+      const page = req.url.startsWith("/context") ? "context.html" : req.url.startsWith("/limen200") ? "limen200.html" : req.url.startsWith("/limenwf") ? "limenwf.html"
         : req.url.startsWith("/limen") ? "limen.html" : "demo.html";
       const body = await readFile(join(dir, page));
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
@@ -451,6 +458,42 @@ test("measurement context stays within phone and desktop viewports and follows t
     assert.deepEqual(errors, []);
     await page.close();
   }
+});
+
+test("measurement context keeps metric scopes distinct in Run, Pocket and the inspector", async () => {
+  const { page, errors } = await open();
+  await page.goto(base + "context");
+  await page.waitForSelector(".pcard");
+  await page.selectOption("#target-pick", "backtest_slippage");
+  await page.keyboard.press("7");
+  await expectContext(page, page.locator('.rn-card[data-outcome="backtest_slippage"] .rn-name'), /quote currency/);
+  await page.selectOption("#target-pick", "recall");
+  await expectContext(page, page.locator('.rn-card[data-outcome="recall"] .rn-name'), /positive examples/);
+  await page.keyboard.press("5");
+  await page.locator("table.trials tbody tr").first().click();
+  await page.keyboard.press("2");
+  await expectContext(page, page.locator("#inspector dt", { hasText: /^Recall$/ }), /positive examples/);
+  await expectContext(page, page.locator("#inspector dt", { hasText: /^Recall \(test window\)$/ }), /test bars/);
+  await expectContext(page, page.locator("#inspector dt", { hasText: /^Precision$/ }), /examples/);
+  await expectContext(page, page.locator("#inspector dt", { hasText: /^Precision \(test window\)$/ }), /test bars/);
+  await expectContext(page, page.locator("#inspector dt", { hasText: /^Slippage$/ }), /quote currency/);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("measurement context describes a gate's recorded Value as its outcome", async () => {
+  const { page, errors } = await open();
+  await page.keyboard.press("6");
+  await page.selectOption(".gt-needle", "mean_mo");
+  await page.locator(".gt-need").fill("2");
+  await page.locator(".gt-maker .btn.primary").click();
+  await page.keyboard.press("5");
+  await page.locator("table.trials tbody tr").first().click();
+  const row = page.locator("#inspector table tbody tr", { has: page.locator("td", { hasText: /^Mean month$/ }) });
+  await expectContext(page, row.locator("td").nth(1), /average monthly return/);
+  assert.doesNotMatch(await page.locator("#tip").innerText(), /parameter value/);
+  assert.deepEqual(errors, []);
+  await page.close();
 });
 
 test("trials on a Limen run: tied rounds share a rank, values as written, the table as notes", async () => {

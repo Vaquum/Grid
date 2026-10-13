@@ -205,7 +205,19 @@ const CONTEXT_NODES = "th, td, dt, dd, h1, h2, h3, h4, label, .num, .count, .sc-
 const contextLookups = new WeakMap();
 
 const contextText = node => (node?.textContent || "").replace(/\s+/g, " ").trim();
-const contextKey = text => text.toLowerCase().replace(/\s*\([^)]*\)\s*$/, "").trim();
+const contextKey = text => text.toLowerCase().replace(/\s+/g, " ").trim();
+
+const GATE_CONTEXT = {
+  m_green: "How many months returned at least −0.5%.",
+  m_avg: METRIC_CONTEXT.mean_mo,
+  m_min: "The return of the worst month, as a percentage.",
+  wr: METRIC_CONTEXT.winday,
+  skew: "The average winning day's profit divided by the average losing day's loss.",
+  top5: "The share of total profit earned on the five best days.",
+  dynsize: "Whether the configuration used different position sizes.",
+  dynexit: "How many positions exited during a holding period, rather than only at its end.",
+  dd: METRIC_CONTEXT.maxDD,
+};
 
 function contextLookup(m) {
   const schema = m?.schema;
@@ -213,8 +225,12 @@ function contextLookup(m) {
   if (!contextLookups.has(schema)) {
     const fields = new Map();
     for (const d of schema.dims || []) for (const key of [d.label, d.id]) fields.set(contextKey(key), dimensionContext(d));
-    for (const t of schema.targets || []) for (const key of [t.label, t.id]) fields.set(contextKey(key), targetContext(t));
-    for (const g of schema.gates || []) for (const key of [g.label, g.id]) fields.set(contextKey(key), `${g.target ? targetContext(g.target) : "A check on the configuration's result."} To pass: ${g.need}.`);
+    for (const t of schema.targets || []) for (const key of [t.label, t.id, `${t.label} (${t.unit})`]) fields.set(contextKey(key), targetContext(t));
+    for (const g of schema.gates || []) {
+      const text = `${g.target ? targetContext(g.target) : GATE_CONTEXT[g.id] || "The recorded measurement used for this check."} To pass: ${g.need}.`;
+      fields.set(contextKey(g.label), text);
+      if (!fields.has(contextKey(g.id))) fields.set(contextKey(g.id), text);
+    }
     contextLookups.set(schema, fields);
   }
   return contextLookups.get(schema);
@@ -223,7 +239,6 @@ function contextLookup(m) {
 export function labelContext(label, m, heading = false) {
   const key = contextKey(label);
   if (heading && LABEL_CONTEXT[key]) return LABEL_CONTEXT[key];
-  if (key === "recall" && m?.state?.view === "pocket") return LABEL_CONTEXT.recall;
   const known = contextLookup(m).get(key);
   if (known) return known;
   if (LABEL_CONTEXT[key]) return LABEL_CONTEXT[key];
@@ -267,7 +282,7 @@ function contextTable(cell, m) {
   const table = cell.closest("table"), row = cell.closest("tr");
   if (!table || !row) return null;
   if (cell.tagName === "TH") {
-    const text = labelContext(contextText(cell), m, true);
+    const text = labelContext(contextText(cell), m, cell.scope === "colgroup" || cell.colSpan > 1);
     return table.matches(".co-table") && /^(First|Second) half/.test(contextText(cell)) ? `${text} ${targetContext(m?.target?.base || m?.target)}` : text;
   }
   const index = contextColumn(cell);
@@ -278,8 +293,9 @@ function contextTable(cell, m) {
   const transposed = /^(Pinned|This pocket)$/i.test(label);
   let text = index === 0 ? labelContext(rowLabel, m) || labelContext(label, m)
     : transposed ? labelContext(rowLabel, m) : labelContext(label, m);
+  if (label === "Value" && contextText(heads.at(-1)?.cells[0]) === "Gate") text = rowField || "The recorded outcome used to decide whether this configuration passes the gate.";
   if (!text) return null;
-  if (rowField && /^(first half|second half|value)/i.test(label)) text = `${text} ${rowField}`;
+  if (rowField && /^(first half|second half)/i.test(label)) text = `${text} ${rowField}`;
   if (table.matches(".co-table") && /^(first|second) half/i.test(label)) text += ` ${targetContext(m?.target?.base || m?.target)}`;
   if (/^95% interval/i.test(label) && heads.some(h => [...h.cells].some(c => contextText(c) === "Ranks agree"))) text = "The uncertainty range for the agreement between the first-half and second-half rankings.";
   const group = heads.length > 1 ? contextText(contextHeader(heads[0], index)) : "";
@@ -293,7 +309,7 @@ export function measurementContext(node, m) {
     let text;
     if (el.matches("td, th")) text = contextTable(el, m);
     else if (el.matches("dd")) text = labelContext(contextText(el.previousElementSibling), m);
-    else if (el.matches("h1, h2, h3, h4, .part-title")) text = labelContext(contextText(el), m, true)
+    else if (el.matches("h1, h2, h3, h4, .part-title")) text = labelContext(contextText(el), m, !el.matches(".rn-name"))
       || labelContext(contextText(el.querySelector(":scope > span:first-child")), m, true);
     else if (el.matches(".pcard")) text = el.dataset.dim ? dimensionContext(m?.schema?.dimById.get(el.dataset.dim)) : "Results with each member of this feature subset included.";
     else if (el.closest(".co-cost")) text = LABEL_CONTEXT[contextKey(contextText(el.closest("label")?.querySelector("span")))];
@@ -307,9 +323,9 @@ export function measurementContext(node, m) {
         : stat ? labelContext(contextText(stat.querySelector(".k, .sc-k")), m) : null;
     } else text = labelContext(contextText(el), m);
     if (!text) {
-      const section = el.closest(".isl-part, .part, .island, .board-sec, .pcard, .brick, .manifest-sec");
+      const section = el.closest(".isl-part, .part, .rn-card, .island, .board-sec, .pcard, .brick, .manifest-sec");
       const name = section?.querySelector("h2, h3, .pc-name");
-      text = name ? labelContext(contextText(name), m, true) || labelContext(contextText(name.querySelector(":scope > span:first-child")), m, true) : null;
+      text = name ? labelContext(contextText(name), m, !name.matches(".rn-name")) || labelContext(contextText(name.querySelector(":scope > span:first-child")), m, true) : null;
       if (!text) {
         const note = section?.querySelector(":scope > .isl-note, :scope > .note, :scope > header .note");
         text = contextText(note) || null;
