@@ -6,6 +6,11 @@ API, a JSON CLI, and a local MCP stdio adapter. Headless analysis needs
 Node.js 18 or later; serving the human page still needs only Python 3.11.
 No browser is needed for agent operations.
 
+Start here for connection and operating semantics. The complete integration
+guide also includes [tool and response reference](agent-reference.md),
+[runnable workflows](agent-workflows.md), and
+[errors, recovery and limits](agent-errors.md).
+
 ## Connect
 
 Start a project server and create a private connection file at a new path:
