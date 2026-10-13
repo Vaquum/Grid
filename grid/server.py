@@ -34,7 +34,8 @@ carries the page's own token (``X-Grid-Token``, in the page's config, which
 another site cannot read) and comes from the page's own origin, as JSON:
 a local server must not run what another site asks of it. And on a
 project, every request must name this server by its address or as
-localhost (its Host header): a name another site's DNS could point here
+localhost, or by an explicitly configured public origin (its Host
+header): a name another site's DNS could point here
 would make that site the page's origin, token and all (DNS rebinding).
 """
 
@@ -90,7 +91,17 @@ class Server:
     def __init__(self, sweep: Sweep, page: PageFn,
                  project: Project | None = None,
                  token: str | None = None,
-                 agent_token: str | None = None) -> None:
+                 agent_token: str | None = None,
+                 public_origin: str | None = None) -> None:
+        self.public_origin = public_origin.rstrip("/") if public_origin else None
+        address = urlparse(self.public_origin or "")
+        if self.public_origin and (
+                address.scheme not in ("http", "https") or not address.hostname
+                or address.username is not None or address.password is not None
+                or address.path or address.params or address.query
+                or address.fragment or address.port == 0):
+            raise ValueError("public origin must be an HTTP(S) origin")
+        self.public_host = address.netloc.lower()
         self.sweep = sweep
         self.page = page
         self.project = project      # the Limen project, with --project
@@ -305,10 +316,13 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
             """On a project, a request that names this server by a name it
             cannot vouch for is refused (DNS rebinding)."""
             if server.project is None or direct_host(
-                    self.headers.get("Host", "")):
+                    self.headers.get("Host", "")) or (
+                    server.public_origin and self.headers.get(
+                        "Host", "").lower() == server.public_host):
                 return False
             self.fail(403, "on a project, this server answers requests to "
-                           "its address or to localhost, not to %r"
+                           "its address, localhost or configured origin, "
+                           "not to %r"
                       % self.headers.get("Host", ""))
             return True
 
@@ -455,7 +469,8 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
                 return "the page's token is missing or wrong"
             origin = self.headers.get("Origin")
             host = self.headers.get("Host", "")
-            if origin is not None and origin != "http://" + host:
+            expected = server.public_origin or "http://" + host
+            if origin is not None and origin != expected:
                 return "a request from another origin (%s)" % origin
             site = self.headers.get("Sec-Fetch-Site")
             if site is not None and site not in ("same-origin", "none"):
@@ -545,8 +560,9 @@ def act(project: Project, action: str, body: dict[str, Any]) -> Any:
 def serve(sweep: Sweep, page: PageFn, host: str, port: int,
           project: Project | None = None,
           token: str | None = None,
-          agent_token: str | None = None) -> ThreadingHTTPServer:
+          agent_token: str | None = None,
+          public_origin: str | None = None) -> ThreadingHTTPServer:
     httpd = ThreadingHTTPServer((host, port), make_handler(
-        Server(sweep, page, project, token, agent_token)))
+        Server(sweep, page, project, token, agent_token, public_origin)))
     httpd.daemon_threads = True
     return httpd

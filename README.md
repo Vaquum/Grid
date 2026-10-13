@@ -211,6 +211,28 @@ checked against scipy, an OLS fit, `chi2_contingency` and pandas on a
 synthetic sweep with planted effects (`tests/golden`, `tools/golden_engine.py`).
 See [docs/statistics.md](docs/statistics.md).
 
+## Deploy
+
+Grid runs on the Explorer/Composer host, `37.27.112.167`, from `/opt/grid`.
+Docker serves only `127.0.0.1:8490`; the host's Caddy, maintained in
+[Vaquum/Portal](https://github.com/Vaquum/Portal), exposes
+`https://grid.vaquum.fi` behind Portal's login and provides its landing card.
+The page, API and event stream all pass through that authentication gate.
+
+The container includes Limen 5.25 and creates an official Limen project
+at `/data/project` on first start. The `grid_project` volume keeps its
+manifests, experiment results and cohorts across image rebuilds and
+redeployments. It runs as an unprivileged user with a read-only image;
+only the project volume and temporary files are writable. The configured
+`--public-origin https://grid.vaquum.fi` permits that exact public Host
+and HTTPS browser Origin, retaining the page token and cross-origin checks.
+
+Every push to main runs the full reusable checks on the same commit, then
+syncs it over SSH and rebuilds the service. Configure `DEPLOY_HOST`,
+`DEPLOY_USER`, `DEPLOY_DIR` and `DEPLOY_KNOWN_HOSTS` as repository variables,
+and `DEPLOY_SSH_KEY` as a secret (or share the organisation's TDW secrets).
+The deploy waits for `/api/health` before reporting success.
+
 ## Develop
 
 ```sh

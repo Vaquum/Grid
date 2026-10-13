@@ -1,0 +1,23 @@
+name: grid
+services:
+  grid:
+    build: .
+    image: grid:latest
+    network_mode: host
+    init: true
+    volumes:
+      - project:/data
+    tmpfs:
+      - /tmp
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8490/api/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+volumes:
+  project:

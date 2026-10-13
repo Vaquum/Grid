@@ -634,6 +634,41 @@ class Routes(unittest.TestCase):
         self.assertEqual(state["limen"]["version"], "5.20.0")
         self.assertEqual(state["experiments"], [])
 
+    def test_configured_https_origin_keeps_host_and_write_protections(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        self.httpd = serve(Sweep("s"), lambda: b"page", "127.0.0.1", 0,
+                           Project(self.tmp, FAKE), "t0ken",
+                           public_origin="https://grid.vaquum.fi")
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        host, port = self.httpd.server_address[:2]
+        self.base = "http://%s:%d" % (host, port)
+        self.assertEqual(self.get("/", "grid.vaquum.fi"), 200)
+        self.assertEqual(self.get("/api/experiment", "grid.vaquum.fi"), 200)
+        self.assertEqual(self.get("/api/health", "localhost"), 200)
+        self.assertEqual(self.get("/", "other.vaquum.fi"), 403)
+        body = {"text": manifest_text()}
+        headers = {"Host": "grid.vaquum.fi",
+                   "Origin": "https://grid.vaquum.fi"}
+        self.assertEqual(self.post("/api/experiment/validate", body,
+                                   **headers), (200, {"errors": []}))
+        for changes in ({"Origin": "http://grid.vaquum.fi"},
+                        {"Origin": "https://other.vaquum.fi"},
+                        {"Host": "other.vaquum.fi"},
+                        {"X-Grid-Token": ""}):
+            self.assertEqual(self.post("/api/experiment/validate", body,
+                                       **(headers | changes))[0], 403)
+
+    def test_public_origin_is_an_origin_not_a_url_with_credentials(self):
+        for origin in ("grid.vaquum.fi", "ftp://grid.vaquum.fi",
+                       "https://user@grid.vaquum.fi",
+                       "https://grid.vaquum.fi/path",
+                       "https://grid.vaquum.fi?query=1",
+                       "https://grid.vaquum.fi#fragment"):
+            with self.assertRaises(ValueError):
+                serve(Sweep("s"), lambda: b"page", "127.0.0.1", 0,
+                      public_origin=origin)
+
 
 class OpenedWhileServing(unittest.TestCase):
     def test_a_run_folder_of_shards_opens_as_one_run(self) -> None:

@@ -1,0 +1,12 @@
+*
+!Dockerfile
+!grid/
+!grid/**
+!web/
+!web/**
+!tools/
+!tools/build.py
+!deploy/
+!deploy/start.sh
+**/__pycache__/
+**/*.pyc

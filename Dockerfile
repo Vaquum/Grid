@@ -1,0 +1,17 @@
+FROM python:3.12-slim
+RUN apt-get update && apt-get install -y --no-install-recommends git libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir 'vaquum-limen[data,boosting,indicators,stats]==5.25.0'
+RUN useradd --create-home --uid 10001 grid \
+    && mkdir /data && chown grid:grid /data
+WORKDIR /app
+COPY grid/ grid/
+COPY web/ web/
+COPY tools/build.py tools/build.py
+RUN python tools/build.py --out dist/grid.html
+COPY deploy/start.sh /app/deploy/start.sh
+USER grid
+RUN git config --global user.name Grid \
+    && git config --global user.email grid@localhost
+ENV PYTHONUNBUFFERED=1
+ENTRYPOINT ["sh", "/app/deploy/start.sh"]

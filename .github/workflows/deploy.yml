@@ -1,0 +1,57 @@
+name: Deploy Grid
+on:
+  push:
+    branches: [main]
+concurrency:
+  group: deploy-main
+permissions:
+  contents: read
+jobs:
+  check:
+    name: Required checks
+    uses: ./.github/workflows/checks.yml
+  deploy:
+    name: Sync to the Origo host and start
+    needs: check
+    if: ${{ needs.check.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      DEPLOY_HOST: ${{ secrets.TDW_IP || vars.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.TDW_USER || vars.DEPLOY_USER }}
+      DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
+      DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: The checks ran on this commit
+        env:
+          CHECKED: ${{ needs.check.outputs.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$CHECKED" = "$GITHUB_SHA"
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_DIR"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+      - name: Configure SSH with the host key pinned
+        env:
+          DEPLOY_KEY: ${{ secrets.TDW_KEY || secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -eu
+          test -n "$DEPLOY_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Sync the checkout
+        run: rsync -az --delete --exclude .git --exclude .env ./ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/"
+      - name: Start and check Grid
+        run: |
+          # DEPLOY_DIR is expanded locally and sent quoted to the host.
+          # shellcheck disable=SC2029
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" "cd '$DEPLOY_DIR' && docker compose up -d --build --wait --wait-timeout 180 --remove-orphans && docker compose ps && curl --fail --show-error http://127.0.0.1:8490/api/health"
