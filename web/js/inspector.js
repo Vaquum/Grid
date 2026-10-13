@@ -8,6 +8,7 @@ import { rowObject } from "./pack.js";
 import { ensureModerators, independence, bestRows, objectiveKeys, effectOf, setName, TOGETHER, together, togetherWhy } from "./model.js";
 import { actsPhrase, strengthText, scopeText, quietText, halvesText } from "./view-board.js";
 import { showsIn, HALF_NAMES } from "./halves.js";
+import { dimensionContext } from "./context.js";
 
 const KIND_TEXT = { cat: "Category", num: "Number", bool: "Switch", member: "Set member", scoped: "Nested number", size: "Subset size" };
 
@@ -130,7 +131,7 @@ function dimDetail(box, m, A, d, levelKey) {
   if (levelKey) {
     const l = d.levels.find(x => x.key === levelKey);
     deg4.append(h("div", { class: "actions" },
-      h("span", { class: "muted", text: `${d.label} = ${l ? l.label : levelKey}` }),
+      tip(h("span", { class: "muted", text: `${d.label} = ${l ? l.label : levelKey}` }), `${dimensionContext(d)} Selected value: ${l ? l.label : levelKey}.`),
       h("button", { class: "btn", onclick: () => A.addContext(d.id, levelKey) }, "Look inside it ", h("kbd", { text: "C" })),
       h("button", { class: "btn", onclick: () => A.addPocket(d.id, levelKey) }, "Add to pocket ", h("kbd", { text: "P" }))));
   } else {
@@ -266,4 +267,3 @@ function rowDetail(box, m, A, i) {
     : "The row, rebuilt from its columns", JSON.stringify(obj, null, 1), A.toast, `Row ${fmtInt(i)} copied.`, "capped"));
   box.append(part("Replay", ...out));
 }
-
