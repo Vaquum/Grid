@@ -332,9 +332,11 @@ export function installTips(root, tipBox, contextFor = () => null) {
     const r = t.getBoundingClientRect();
     show(t, r.left, r.bottom);
   });
-  root.addEventListener("focusout", () => hideTip());
+  root.addEventListener("focusout", e => { if (tipOwner?.contains(e.target)) hideTip(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape") { current = null; hideTip(); } }, true);
-  root.addEventListener("scroll", () => { current = null; hideTip(); }, { capture: true, passive: true });
+  // Scrolling a field into view can finish after pointerover. Keep its pending
+  // dwell; pointerout still cancels it if the field moves away from the pointer.
+  root.addEventListener("scroll", () => { if (tipOwner) { current = null; hideTip(); } }, { capture: true, passive: true });
   window.addEventListener("resize", () => { current = null; hideTip(); });
 }
 
