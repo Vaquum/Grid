@@ -17,6 +17,8 @@ test("unfamiliar outcomes preserve the runner's definition and do not invent one
   assert.equal(targetContext({ id: "custom", label: "Custom", definition: "The user's score." }), "The user's score.");
   assert.match(targetContext({ id: "custom", label: "Custom", unit: "widgets" }), /recorded as “Custom”, in widgets.*no further definition/);
   assert.doesNotThrow(() => targetContext({ kind: "cont", unit: "" }));
+  assert.match(targetContext({ id: "total", label: "total", source: "inferred" }), /no further definition/);
+  assert.doesNotMatch(targetContext({ id: "total", label: "total", source: "inferred" }), /dollars|profit/);
 });
 
 test("window and nested-parameter context use their real scope", () => {

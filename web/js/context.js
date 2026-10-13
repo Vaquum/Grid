@@ -70,11 +70,12 @@ export function targetContext(target) {
   const id = String(target.id || "").replace(/~[12]$/, "");
   const quantile = /^(backtest_edge_bps|backtest_pnl_bps|backtest_cost_bps|backtest_drawdown_bps)_(p5|p50|p95)$/.exec(id);
   const returns = /^confusion_(tp|fp|tn|fn)_mean_return_pct$/.exec(id);
-  let text = METRIC_CONTEXT[id];
-  if (quantile) {
+  const inferred = target.source === "inferred";
+  let text = inferred ? target.definition : METRIC_CONTEXT[id];
+  if (quantile && !inferred) {
     const of = { backtest_edge_bps: "gross return per bar", backtest_pnl_bps: "net return per bar", backtest_cost_bps: "cost per bar", backtest_drawdown_bps: "drawdown" }[quantile[1]];
     text = `${{ p5: "The value 5% of bars fall at or below", p50: "The middle value across bars", p95: "The value 95% of bars fall at or below" }[quantile[2]]} for ${of}, in basis points.`;
-  } else if (returns) {
+  } else if (returns && !inferred) {
     const of = { tp: "correctly called positive", fp: "wrongly called positive", tn: "correctly called negative", fn: "that were positive but missed" }[returns[1]];
     text = `The average market return of test bars ${of}, as a percentage.`;
   }
