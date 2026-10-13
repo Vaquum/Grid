@@ -63,4 +63,6 @@ test("bare statistical readouts explain the measured link and uncertainty", () =
   assert.match(statisticContext("V 0.32 · q < 0.0001"), /0 means no link.*all the comparisons/);
   assert.match(statisticContext("p = 0.01"), /if there were no real difference/);
   assert.equal(statisticContext("Limen 5.24"), null);
+  assert.match(statisticContext("ω² 0.2%", "interaction"), /together.*beyond.*separate effects/);
+  assert.doesNotMatch(statisticContext("ω² 0.2%", "interaction"), /on its own/);
 });

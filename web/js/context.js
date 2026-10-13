@@ -208,9 +208,11 @@ const contextLookups = new WeakMap();
 const contextText = node => (node?.textContent || "").replace(/\s+/g, " ").trim();
 const contextKey = text => text.toLowerCase().replace(/\s+/g, " ").trim();
 
-export function statisticContext(text) {
+export function statisticContext(text, kind = "effect") {
   const parts = [];
-  if (/ω²/.test(text)) parts.push(LABEL_CONTEXT.strength);
+  if (/ω²/.test(text)) parts.push(kind === "interaction"
+    ? "The extra variation in the outcome explained by these settings acting together, beyond their separate effects or smaller combinations."
+    : LABEL_CONTEXT.strength);
   if (/\bV\s+[\d.]/.test(text)) parts.push("How closely two sets of values are linked: 0 means no link; larger means a stronger link.");
   if (/\bq\s*[=<]/.test(text)) parts.push(LABEL_CONTEXT.corrected);
   if (/\bp\s*[=<]/.test(text)) parts.push("How unusual the observed difference would be if there were no real difference. Smaller means less consistent with chance alone.");
@@ -330,7 +332,7 @@ export function measurementContext(node, m) {
       const stat = el.closest(".stat, .sc");
       text = fact ? labelContext(contextText(fact.previousElementSibling), m)
         : cell ? contextTable(cell, m)
-        : stat ? labelContext(contextText(stat.querySelector(".k, .sc-k")), m) : statisticContext(contextText(el));
+        : stat ? labelContext(contextText(stat.querySelector(".k, .sc-k")), m) : statisticContext(contextText(el), el.closest("[data-statistic]")?.dataset.statistic);
     } else text = labelContext(contextText(el), m);
     if (!text) {
       const section = el.closest(".isl-part, .part, .rn-card, .island, .board-sec, .pcard, .brick, .manifest-sec");

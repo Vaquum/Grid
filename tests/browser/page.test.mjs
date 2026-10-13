@@ -48,9 +48,14 @@ before(async () => {
   writeFileSync(contextCsv, contextLines.map((line, i) => `${line},${i ? "1.25" : "backtest_slippage"}`).join("\n") + "\n");
   execFileSync("python3", ["-m", "grid", "pack", "--limen", contextRun, "--out", join(dir, "context.pack.json.gz")], { cwd: ROOT });
   execFileSync("python3", ["tools/build.py", "--pack", join(dir, "context.pack.json.gz"), "--out", join(dir, "context.html")], { cwd: ROOT, stdio: "ignore" });
+  const paramRows = readFileSync(join(dir, "results.jsonl"), "utf8").trimEnd().split("\n")
+    .map((line, i) => JSON.stringify({ ...JSON.parse(line), p: i % 2 ? 2 : 4, q: i % 2 ? 3 : 5 }));
+  writeFileSync(join(dir, "parameter-context.jsonl"), paramRows.join("\n") + "\n");
+  execFileSync("python3", ["-m", "grid", "pack", "--results", join(dir, "parameter-context.jsonl"), "--out", join(dir, "parameter-context.pack.json.gz")], { cwd: ROOT });
+  execFileSync("python3", ["tools/build.py", "--pack", join(dir, "parameter-context.pack.json.gz"), "--out", join(dir, "parameter-context.html")], { cwd: ROOT, stdio: "ignore" });
   server = createServer(async (req, res) => {
     try {
-      const page = req.url.startsWith("/context") ? "context.html" : req.url.startsWith("/limen200") ? "limen200.html" : req.url.startsWith("/limenwf") ? "limenwf.html"
+      const page = req.url.startsWith("/parameter-context") ? "parameter-context.html" : req.url.startsWith("/context") ? "context.html" : req.url.startsWith("/limen200") ? "limen200.html" : req.url.startsWith("/limenwf") ? "limenwf.html"
         : req.url.startsWith("/limen") ? "limen.html" : "demo.html";
       const body = await readFile(join(dir, page));
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
@@ -501,6 +506,30 @@ test("measurement context explains standalone association and p readouts", async
   await page.keyboard.press("7");
   const reading = page.locator(".view .muted.num").filter({ hasText: /V [\d.].*p [=<]/ }).first();
   await expectContext(page, reading, /0 means no link.*if there were no real difference/);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("measurement context distinguishes interactions from one parameter's effect", async () => {
+  const { page, errors } = await open();
+  await page.keyboard.press("3");
+  await expectContext(page, page.locator(".pr-figs .num").filter({ hasText: /ω²/ }).first(), /together.*beyond.*separate effects/);
+  assert.doesNotMatch(await page.locator("#tip").innerText(), /on its own/);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("measurement context treats selected p and q settings as parameters", async () => {
+  const { page, errors } = await open();
+  await page.goto(base + "parameter-context");
+  await page.waitForSelector(".pcard");
+  for (const [name, value] of [["p", 2], ["q", 3]]) {
+    await page.locator(`.pcard[data-dim="${name}"] .col[data-key="${value}"]`).click();
+    const selected = page.locator("#inspector .muted", { hasText: new RegExp(`^${name} = ${value}$`) });
+    await expectContext(page, selected, new RegExp(`Results grouped by ${name}.*Selected value: ${value}`));
+    assert.doesNotMatch(await page.locator("#tip").innerText(), /chance|test result|unusual/);
+    await page.keyboard.press("Escape");
+  }
   assert.deepEqual(errors, []);
   await page.close();
 });

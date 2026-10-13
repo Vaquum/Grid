@@ -283,7 +283,7 @@ function comboList(m, A, chosen, size, plan, combos) {
   const ranked = combos.list.filter(r => r.detectable).sort((a, b) => b.omega2 - a.omega2);
   const row = (r, strongest, quiet) => {
     const on = !!chosen && sameSet(chosen.dims, r.dims);
-    return h("button", { class: "pr-row" + (quiet ? " quiet" : ""), type: "button", role: "listitem", "aria-pressed": on ? "true" : "false", onclick: () => A.set({ pair: r.dims }) },
+    return h("button", { class: "pr-row" + (quiet ? " quiet" : ""), type: "button", role: "listitem", "aria-pressed": on ? "true" : "false", dataset: { statistic: "interaction" }, onclick: () => A.set({ pair: r.dims }) },
       h("span", { class: "pr-name" }, wrapName(setName(m, r.dims))),
       h("span", { class: "pr-meter", "aria-hidden": "true" }, h("i", { style: { width: `${Math.max(4, Math.max(0, r.omega2) / strongest * 100)}%` } })),
       h("span", { class: "pr-fig num", text: `ω² ${omega(r)}` }),
@@ -309,6 +309,7 @@ function comboList(m, A, chosen, size, plan, combos) {
 
 function pairRow(m, A, r, on, share, figure, q, kind) {
   const row = h("button", { class: "pr-row" + (kind ? ` ${kind}` : ""), type: "button", role: "listitem", "aria-pressed": on ? "true" : "false",
+    dataset: { statistic: "interaction" },
     onclick: () => A.set({ pair: [r.a, r.b] }) },
     h("span", { class: "pr-name" }, wrapName(pairName(m, r))),
     h("span", { class: "pr-meter", "aria-hidden": "true" }, h("i", { style: { width: `${Math.max(4, share * 100)}%` } })),
@@ -398,7 +399,7 @@ function pairIsland(m, A, pairs, chosen) {
     h("header", { class: "isl-head pr-pair-head" },
       h("h2", { class: "isl-title mono", id: "pr-pair-title", text: setName(m, chosen.dims) }),
       h("span", { class: "isl-count" }, chosen.why ? `${chosen.why} · ` : "", r && r.detectable ? "they interact" : "no detectable interaction")),
-    h("div", { class: "pr-figs" },
+    h("div", { class: "pr-figs", dataset: { statistic: "interaction" } },
       h("span", null, h("span", { class: "k", text: "Interaction " }), h("b", { class: "num", text: `ω² ${fmtOmega2(pe.omega2)}` })),
       h("span", { class: "muted", text: testLine }),
       r && r.linked ? tip(h("span", { class: "tag warn has-tip", text: `${TOGETHER}, V ${fmtNum(r.V, 3)}` }), togetherWhy(r.V)) : null),
@@ -435,7 +436,7 @@ function comboIsland(m, A, combos, chosen) {
     h("header", { class: "isl-head pr-pair-head" },
       h("h2", { class: "isl-title mono", id: "pr-pair-title", text: setName(m, chosen.dims) }),
       h("span", { class: "isl-count" }, chosen.why ? `${chosen.why} · ` : "", verdict)),
-    h("div", { class: "pr-figs" },
+    h("div", { class: "pr-figs", dataset: { statistic: "interaction" } },
       h("span", null, h("span", { class: "k", text: `All ${k} together ` }), h("b", { class: "num", text: `ω² ${fmtOmega2(r.omega2)}` })),
       h("span", { class: "muted", text: testLine })),
     h("p", { class: "isl-note pr-what", text: `${t.label} in every combination against the base ${fmtT(t, base.mean)}. Their interaction is what is left once ${smaller} is accounted for.${r.table.some(c => c.withheld) ? " Hatched cells hold fewer than 30 rows." : ""}` }),
