@@ -228,9 +228,11 @@ only the project volume and temporary files are writable. The configured
 and HTTPS browser Origin, retaining the page token and cross-origin checks.
 
 Every push to main runs the full reusable checks on the same commit, then
-syncs it over SSH and rebuilds the service. Configure `DEPLOY_HOST`,
-`DEPLOY_USER`, `DEPLOY_DIR` and `DEPLOY_KNOWN_HOSTS` as repository variables,
-and `DEPLOY_SSH_KEY` as a secret (or share the organisation's TDW secrets).
+syncs it over SSH and rebuilds the service. The host, user, deployment
+directory and pinned SSH host key default to this production setup;
+repository variables `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_DIR` and
+`DEPLOY_KNOWN_HOSTS` can override them. Set `DEPLOY_SSH_KEY` as a repository
+secret (or share the organisation's TDW secrets).
 The deploy waits for `/api/health` before reporting success.
 
 ## Develop

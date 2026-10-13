@@ -17,10 +17,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      DEPLOY_HOST: ${{ secrets.TDW_IP || vars.DEPLOY_HOST }}
-      DEPLOY_USER: ${{ secrets.TDW_USER || vars.DEPLOY_USER }}
-      DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
-      DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
+      DEPLOY_HOST: ${{ secrets.TDW_IP || vars.DEPLOY_HOST || '37.27.112.167' }}
+      DEPLOY_USER: ${{ secrets.TDW_USER || vars.DEPLOY_USER || 'root' }}
+      DEPLOY_DIR: ${{ vars.DEPLOY_DIR || '/opt/grid' }}
+      DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS || '37.27.112.167 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIv/0Zuyg5mIwqOIkD/1K7EOUg+XWNTKT2g7PwDQeOzG' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -41,7 +41,10 @@ jobs:
           DEPLOY_KEY: ${{ secrets.TDW_KEY || secrets.DEPLOY_SSH_KEY }}
         run: |
           set -eu
-          test -n "$DEPLOY_KEY"
+          if [ -z "$DEPLOY_KEY" ]; then
+            echo "::error::Set DEPLOY_SSH_KEY or share the organisation's TDW_KEY with Grid."
+            exit 1
+          fi
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
