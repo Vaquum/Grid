@@ -322,7 +322,8 @@ indices. Fitted is the additive mean without interaction. A binary pair adds
 `D` and `dfLR` for its likelihood-ratio test. Higher-order detail has `k`
 (order), `cells`, `minN`, `sparse`, `p`, `omega2`, `N`, `df`, `dfW`, `F`;
 supported fits also have `SSI`, `SST` and binary `G`. Its `table` describes
-combination indices. Sums of squares and degrees of freedom describe the model fit, not
+combination `at` indices, level `keys`, `n`, `mean`, `lo`, `hi`, `withheld`.
+Sums of squares and degrees of freedom describe the model fit, not
 additional independent claims.
 
 ### `features`
@@ -334,7 +335,8 @@ half evidence; `groups` contains level summaries and paired group `contrasts`;
 `dropped`. Missing means dropped columns were not recorded, not zero effects.
 
 `fit` contains `terms`, `rows` (fitted support), `fitted` and `params` (parameter
-count). Terms include column/factor identity, `beta`, `se`, `keep`, `lo`, `hi`,
+count). Terms identify `members` (columns dropped together), `drops` (support)
+and `mi` (member indices), plus `beta`, `se`, `keep`, `lo`, `hi`,
 `p`, `q`, `detectable`, and `reason` (`few`, `aliased` or null). `keep` is the
 negative drop coefficient. Factors adjust the fit for parameter variation;
 the fit is not an unadjusted winner list.
@@ -344,6 +346,11 @@ descriptors, `size` dimension descriptor and `res`. `res.base` is a summary;
 `res.members[]` contains `id`, `name`, `nIn`, `nOut`, `inMean`, `outMean`,
 `delta`, `se`, `lo`, `hi`, `z`, `p`, `share`, `binary`, `q`, `detectable`.
 The delta is adjusted within subset-size strata.
+Feature `design` contains `groups[]` (`name`, feature `funcs`), `always`
+features, `naming` parameter IDs and `ablation` (`countKey`, `seedKey`) or null.
+Group `contrasts[]` name `added`, `from`, `to`, `delta`, `lo`, `hi`, `p`, `q`,
+`detectable`, plus optional half agreement. From/to are level summaries with
+`key`, `label`, `groups` and `rowCount`.
 
 ### `trials`
 
@@ -369,7 +376,8 @@ Each `gates[]` record has `id`, `label`, `need`, `unit`, `n`, `passed`, `rate`,
 `lo`, `hi`, `never`, `always`, `ruleOfThree`, `quantiles`, `values` and
 `correlate`. `quantiles` names `p05`, `p25`, `p50`, `p75`, `p95`, `max`.
 `values` is a count, not a per-row array. `correlate` is an associated
-parameter diagnostic for never-passed gates, otherwise null. The rule of
+numeric needle diagnostic `{target, label, r, n}` for never-passed gates,
+otherwise null. The rule of
 three is the upper rate bound when no known row passed.
 
 `together` is null with no gates. Otherwise it contains `all` (pass all),
@@ -408,6 +416,13 @@ independent evidence that the resulting clusters differ. Tests can therefore
 be null for drawn outcomes or whole-population selection. Binary comparisons
 report `p`, `binary`, `ra`, `rb`; continuous rank comparisons report `p`,
 `shift`, `na`, `nb`.
+
+Composition records contain dimension descriptor `dim`, support `n`, selected
+`inGroup` count, `p`, `G`, `V`, `q`, and `levels[]` of `{level, inGroup, inRef,
+n, hits}`. Level inGroup/inRef are shares, while the record's inGroup is a
+count. Whole selection returns one composition list per cluster; direct or
+complement comparison returns a single list. Scores in `clusters.scores`
+describe candidate k fits rather than separate group tests.
 
 ### `cohort`
 
@@ -451,8 +466,7 @@ as a new experiment. Analysis never saves this result automatically.
 | `rows`, `dirs` | Source row indices and shard labels for evaluated members. |
 
 Both cohort and member windows are `{whole, halves}`. `halves` is a two-element
-array in first/second order, or null when a half is empty. A window can be null
-when empty; otherwise it has:
+array in first/second order, or null when a half is empty. Each window has:
 
 | Window field | Meaning |
 | --- | --- |

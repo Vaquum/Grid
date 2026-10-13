@@ -87,6 +87,7 @@ supported revision. The client must decide whether that revision is acceptable.
 | Analysis pagination | `limit`: 1–1000, default 100; `offset`: 0–run row count. Trials rank only the best 100 before pagination. These fields do not bound other analysis payloads. |
 | Cohort selection/references | 1–100 members, default selection count 5. References must share one run/generation; actual rounds must be distinct and locally recorded. |
 | Pair interaction order | 2–6, default 2. An explicit `pair` must contain that many distinct dimension IDs. Higher orders use the UI's bounded candidate search. |
+| Pair search candidates | At most 26 eligible dimensions. Higher-order plans use a 2,000-set cap and a row-work budget of 400 million (with a minimum plan budget of 50 sets). Read `plan`/`sets` to see actual coverage. |
 | Cluster count | `clusterK`: null (automatic) or 2–7. Small/sparse runs may have no clusters. |
 | Agent run rounds | Integer 1–1,000,000. Shards: at least 1, no more than rounds or the server's cores. Multiple shards require random search. Shares are rounded up, so total planned rounds may exceed the requested total. |
 | Experiment/predictor name | 1–64 characters: first character is ASCII letter, digit or underscore; remaining characters may also be hyphens. |
