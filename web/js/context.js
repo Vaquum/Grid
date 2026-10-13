@@ -211,7 +211,7 @@ const contextKey = text => text.toLowerCase().replace(/\s+/g, " ").trim();
 export function statisticContext(text) {
   const parts = [];
   if (/ω²/.test(text)) parts.push(LABEL_CONTEXT.strength);
-  if (/\bV\s+[\d.]/.test(text)) parts.push("How closely two sets of values are linked: 0 means no link, 1 means a perfect link.");
+  if (/\bV\s+[\d.]/.test(text)) parts.push("How closely two sets of values are linked: 0 means no link; larger means a stronger link.");
   if (/\bq\s*[=<]/.test(text)) parts.push(LABEL_CONTEXT.corrected);
   if (/\bp\s*[=<]/.test(text)) parts.push("How unusual the observed difference would be if there were no real difference. Smaller means less consistent with chance alone.");
   return parts.length ? parts.join(" ") : null;

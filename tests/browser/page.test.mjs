@@ -496,6 +496,15 @@ test("measurement context describes a gate's recorded Value as its outcome", asy
   await page.close();
 });
 
+test("measurement context explains standalone association and p readouts", async () => {
+  const { page, errors } = await open();
+  await page.keyboard.press("7");
+  const reading = page.locator(".view .muted.num").filter({ hasText: /V [\d.].*p [=<]/ }).first();
+  await expectContext(page, reading, /0 means no link.*if there were no real difference/);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("trials on a Limen run: tied rounds share a rank, values as written, the table as notes", async () => {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors = [];
