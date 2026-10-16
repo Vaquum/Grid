@@ -61,6 +61,7 @@ const app = {
   events: [], watch: null,
   // the archive to move the reader to once its rows are here
   stayOn: null,
+  loadingRun: null, loadRequest: 0, loadError: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -83,14 +84,8 @@ function pushState(next, replace = false) {
 
 export function setState(patch, opts = {}) {
   const next = { ...app.state, ...patch };
-  if (app.config.catalog && app.sweep) {
-    const id = next.run || (next.view !== "experiment" ? app.sweep.meta.catalog?.[0]?.id : null);
-    if (id && !app.sweep.runs.some(r => r.id === id)) {
-      loadProjectRun(id, { ...next, run: id }, opts);
-      return;
-    }
-    // A newer selection of the loaded run or view cancels a pending fetch.
-    projectLoad++;
+  if (app.loadingRun && next.run !== app.loadingRun) {
+    app.loadRequest++; app.loadingRun = null;
   }
   pushState(next, opts.replace);
 }
@@ -112,44 +107,32 @@ async function loadEmbedded() {
   return JSON.parse(text);
 }
 
-async function loadLive(cfg, selected) {
-  const state = app.state || decodeState(location.hash);
-  const run = selected ?? (state?.view !== "experiment" ? state?.run : null);
-  const path = cfg.catalog ? `${cfg.pack}?${run ? `run=${encodeURIComponent(run)}` : "catalog=1"}` : cfg.pack;
-  const res = await fetch(path, { cache: "no-store" });
+async function loadLive(cfg, runId) {
+  const url = new URL(cfg.pack, location.href);
+  if (cfg.mode === "live") {
+    const st = app.state || decodeState(location.hash);
+    url.searchParams.set("run", runId ?? (st && st.view !== "experiment" ? st.run || "" : ""));
+  }
+  const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`the server answered ${res.status} for ${cfg.pack}`);
   const body = await res.json();
   return body;
 }
 
-let projectLoad = 0;
-async function loadProjectRun(id, next, opts = {}) {
-  const request = ++projectLoad;
-  try {
-    const body = await loadLive(app.config, id);
-    if (request !== projectLoad) return;
-    app.live?.es.close();
-    installSweep(body.pack, true);
-    app.pendingRun = null;
-    pushState({ ...next, run: body.pack.selectedRun || id }, opts.replace);
-    if (body.cursor) startStream(app.config, body.cursor);
-  } catch (err) {
-    if (request !== projectLoad) return;
-    toast(String(err.message || err));
-  }
-}
-
 function startStream(cfg, cursor) {
+  if (app.live) app.live.es.close();
   const es = new EventSource(`${cfg.stream}?cursor=${encodeURIComponent(cursor)}`);
   app.live = { es, connected: false, lastMessage: Date.now(), cfg };
-  es.onopen = () => { app.live.connected = true; updateTop(); };
+  es.onopen = () => { if (app.live.es === es) { app.live.connected = true; updateTop(); } };
   es.onmessage = (ev) => {
+    if (app.live.es !== es) return;
     app.live.lastMessage = Date.now();
     let msg;
     try { msg = JSON.parse(ev.data); } catch (err) { console.error("bad stream message", err); return; }
     applyMessage(msg);
   };
   es.onerror = () => {
+    if (app.live.es !== es) return;
     // The cursor is single-use: start over from a fresh pack after a pause.
     es.close();
     app.live.connected = false;
@@ -159,8 +142,10 @@ function startStream(cfg, cursor) {
 }
 
 async function reconnect(cfg) {
+  const request = ++app.loadRequest;
   try {
     const body = await loadLive(cfg);
+    if (request !== app.loadRequest) return;
     // the run on screen, and its generation: it may have started over while
     // the stream was down, and its rows kept then are in the pack, not resent
     const was = app.sweep.runs.find(r => r.id === app.state.run);
@@ -169,11 +154,47 @@ async function reconnect(cfg) {
     const now = was && app.sweep.runs.find(r => r.id === was.id);
     if (now && now.meta.generation !== gen && !app.stayOn) app.stayOn = `${was.id}.g${gen}`;
     settleStay();
+    app.loadingRun = null;
+    update();
     startStream(cfg, body.cursor);
     note(null, "Reconnected.", "Rows read again from the server.");
   } catch (err) {
+    if (request !== app.loadRequest) return;
     console.error(err);
     setTimeout(() => reconnect(cfg), 5000);
+  }
+}
+
+// Only the run being analyzed needs its rows. The Experiment view reads
+// its project directly and can open while every run is still deferred.
+async function loadRun(ds) {
+  if (app.loadingRun === ds.id) return;
+  const request = ++app.loadRequest;
+  app.loadingRun = ds.id;
+  app.loadError = null;
+  // Keep the current stream until its replacement is ready: if this
+  // request fails, returning to the cached run must still follow it.
+  try {
+    const body = await loadLive(app.config, ds.id);
+    if (request !== app.loadRequest) return;
+    installSweep(body.pack, true);
+    if (body.pack.selectedRun && app.state.run === ds.id) {
+      app.state = { ...app.state, run: body.pack.selectedRun };
+      try { history.replaceState(null, "", "#" + encodeState(app.state)); } catch (err) { /* host refused */ }
+    }
+    app.loadingRun = null;
+    startStream(app.config, body.cursor);
+    update();
+  } catch (err) {
+    if (request !== app.loadRequest) return;
+    app.loadingRun = null;
+    app.loadError = { run: ds.id, message: String(err.message || err) };
+    update();
+    // A superseded reconnect cannot retry itself. If its stream was
+    // already down, recover it even when the reader leaves this error.
+    if (app.live && app.live.es.readyState === EventSource.CLOSED) {
+      setTimeout(() => { if (request === app.loadRequest) reconnect(app.config); }, 3000);
+    }
   }
 }
 
@@ -198,6 +219,11 @@ function applyMessage(msg) {
       // had, once they are here (they come in the next message, and a
       // draw can fall between the two)
       if (meta.archivedFrom && meta.archivedFrom === app.state.run) app.stayOn = meta.id;
+      if (meta.deferred && app.stayOn === meta.id) {
+        app.stayOn = null;
+        app.state = { ...app.state, run: meta.id };
+        try { history.replaceState(null, "", "#" + encodeState(app.state)); } catch (err) { /* host refused */ }
+      }
       // a run of the project's, opened by the Experiment view
       else if (app.config.experiment && !meta.archivedFrom && meta.id !== app.pendingRun) {
         note("good", `${meta.label} is open.`, "Its rounds are in the views.", () => openRun(meta.id));
@@ -206,6 +232,7 @@ function applyMessage(msg) {
     } else {
       old.meta = meta;
     }
+    if (app.pendingRun === meta.id) settlePending();
   } else if (msg.type === "rows") {
     const ds = sw.runs.find(r => r.id === msg.run);
     if (!ds) { console.error("rows for an unknown run", msg.run); return; }
@@ -219,10 +246,12 @@ function applyMessage(msg) {
     ds.addRounds(msg.entries, msg.reset);
   } else if (msg.type === "log") {
     mergeLog(sw, msg.logId, msg.log);
+  } else if (msg.type === "catalog") {
+    const ids = new Set(msg.runs.map(r => r.id));
+    sw.runs = sw.runs.filter(r => !r.id.startsWith("project:") || ids.has(r.id));
+    for (const meta of msg.runs) if (!sw.runs.some(r => r.id === meta.id)) sw.runs.push(new Dataset({ ...meta, deferred: true }));
   } else if (msg.type === "meta") {
     sw.meta = { ...sw.meta, ...msg.meta };
-  } else if (msg.type === "catalog") {
-    sw.meta.catalog = msg.runs;
   }
   scheduleUpdate();
 }
@@ -232,7 +261,7 @@ function applyMessage(msg) {
 function settleStay() {
   const id = app.stayOn;
   const ds = id && app.sweep.runs.find(r => r.id === id);
-  if (!ds || !ds.n) return;
+  if (!ds || (!ds.n && !ds.meta.deferred)) return;
   app.stayOn = null;
   if (app.state.run !== ds.meta.archivedFrom) return;
   app.state = { ...app.state, run: id };
@@ -242,13 +271,9 @@ function settleStay() {
 // A run the Experiment view asked to analyze: the views show it once its
 // first rows are here.
 function openRun(id) {
-  if (app.config.catalog) {
-    setState({ run: id, view: "board", sel: null, context: [], pocket: [], edge: null, clusters: [], clusterK: null });
-    return;
-  }
   const ds = app.sweep.runs.find(r => r.id === id);
   app.pendingRun = null;
-  if (ds && ds.n) {
+  if (ds && (ds.n || ds.meta.deferred)) {
     setState({ run: id, view: "board", sel: null, context: [], pocket: [], edge: null, clusters: [], clusterK: null });
     return;
   }
@@ -258,7 +283,7 @@ function openRun(id) {
 
 function settlePending() {
   const ds = app.sweep.runs.find(r => r.id === app.pendingRun);
-  if (!ds || !ds.n) return;
+  if (!ds || (!ds.n && !(ds.meta.deferred && ds.meta.rows))) return;
   app.pendingRun = null;
   app.state = { ...app.state, run: ds.id, view: "board", sel: null, context: [], pocket: [], edge: null, clusters: [], clusterK: null };
   try { history.pushState(null, "", "#" + encodeState(app.state)); } catch (err) { /* host refused */ }
@@ -347,21 +372,24 @@ function scheduleUpdate() {
 
 function update() {
   if (!app.sweep) return;
-  const m = app.sweep.runs.length ? model() : null;
+  const ds = currentRun();
+  const experiment = app.state.view === "experiment" && app.config.experiment;
+  const m = ds && !ds.meta.deferred && !experiment ? model() : null;
   app.measurementModel = m;
   updateTop(m);
   updateRail(m);
   const view = app.els.view;
   const sameView = app.lastView === app.state.view;
   app.lastView = app.state.view;
-  if (app.state.view === "experiment" && app.config.experiment) {
+  if (experiment) {
     // the view keeps itself up to date: drawn again only when entered,
     // or when the run in view (a new experiment's source) changes
-    const key = experimentKey(m);
+    const source = ds ? { ds } : null;
+    const key = experimentKey(source);
     if (!sameView || key !== app.lastExperiment) {
       if (!sameView) hideTip();
       try {
-        renderExperiment(view, m, ACTIONS, !sameView);
+        renderExperiment(view, source, ACTIONS, !sameView);
       } catch (err) {
         console.error(err);
         clear(view);
@@ -374,6 +402,15 @@ function update() {
     return;
   }
   hideTip();
+  if (ds && ds.meta.deferred) {
+    const error = app.loadError && app.loadError.run === ds.id ? app.loadError : null;
+    redraw(view, sameView, () => view.append(h("div", { class: "empty", role: "status" },
+      error ? `The run could not be read: ${error.message}` : `Reading ${runName(ds.meta)}…`,
+      error ? h("button", { class: "btn", onclick: () => { loadRun(ds); update(); } }, "Retry") : null)));
+    app.els.root.dataset.insp = "closed";
+    if (!error) loadRun(ds);
+    return;
+  }
   if (!m) {
     redraw(view, sameView, () => renderNoRun(view));
     syncInfo();
@@ -457,7 +494,7 @@ function buildTop() {
   const els = {};
   els.name = h("span", { class: "sweep-name" });
   els.runSel = h("select", { class: "run-pick", id: "run-pick", "aria-label": "Run" });
-  els.runSel.addEventListener("change", () => setState({ run: els.runSel.value, view: app.config.catalog ? "board" : app.state.view, sel: null, context: [], pocket: [], edge: null, clusters: [], clusterK: null }));
+  els.runSel.addEventListener("change", () => setState({ run: els.runSel.value, view: app.config.experiment ? "board" : app.state.view, sel: null, context: [], pocket: [], edge: null, clusters: [], clusterK: null }));
   els.runOne = h("span", { class: "run-one" });
   els.statusLabel = h("b");
   els.statusDetail = h("span", { class: "detail" });
@@ -512,29 +549,36 @@ function updateTop(m0) {
   if (!app.top) buildTop();
   const top = app.top, els = top.els;
   // a project's sweep with no run yet: its name, and nothing of a run
-  const none = !app.sweep.runs.length;
-  const runs = app.config.catalog ? (app.sweep.meta.catalog || []).map(meta => ({ id: meta.id, meta })) : app.sweep.runs;
-  const runsKey = `${none}\n${runs.map(r => `${r.id}\t${runName(r.meta)}`).join("\n")}`;
-  if (runsKey !== top.runsKey) {
-    top.runsKey = runsKey;
-    els.runSel.replaceChildren(...(none ? [h("option", { value: "", text: "Choose a run" })] : []),
-      ...runs.map(r => h("option", { value: r.id, text: runName(r.meta) })));
-  }
+  const none = !app.sweep.runs.length || currentRun().meta.deferred || app.state.view === "experiment";
   for (const el of [els.pill, els.picker, els.chips, els.replay]) el.hidden = none;
   if (none) {
     setText(els.name, app.sweep.meta.name || "sweep");
+    const runs = app.sweep.runs;
+    const runsKey = runs.map(r => `${r.id}\t${runName(r.meta)}`).join("\n");
+    if (runsKey !== top.runsKey) {
+      top.runsKey = runsKey;
+      els.runSel.replaceChildren(...runs.map(r => h("option", { value: r.id, text: runName(r.meta) })));
+    }
     els.runSel.hidden = !runs.length;
+    if (currentRun()) els.runSel.value = currentRun().id;
     els.runOne.hidden = true;
+    els.half.hidden = true;
+    els.whole.hidden = true;
     setText(els.progress, "");
     syncTab(null);
     return;
   }
   const m = m0 || model();
-  const ds = m.ds;
+  const ds = m.ds, runs = app.sweep.runs;
   setText(els.name, app.sweep.meta.name || "sweep");
   // runs: their options change only when a run is added or renamed; a
   // sweep of one run names it in the same place, unless the sweep's name
   // already says it
+  const runsKey = runs.map(r => `${r.id}\t${runName(r.meta)}`).join("\n");
+  if (runsKey !== top.runsKey) {
+    top.runsKey = runsKey;
+    els.runSel.replaceChildren(...runs.map(r => h("option", { value: r.id, text: runName(r.meta) })));
+  }
   els.runSel.hidden = runs.length < 2;
   els.runOne.hidden = runs.length > 1 || ds.meta.label === app.sweep.meta.name;
   setText(els.runOne, runName(ds.meta));
@@ -665,7 +709,7 @@ function updateRail(m) {
 // Replay
 
 function stepEdge(dir) {
-  if (!app.sweep.runs.length) return;
+  if (!app.sweep.runs.length || currentRun().meta.deferred) return;
   const ds = currentRun();
   const cur = app.state.edge === null ? ds.n : app.state.edge;
   const step = Math.max(1, Math.round(ds.n / 100));
@@ -675,7 +719,7 @@ function stepEdge(dir) {
 
 function togglePlay() {
   if (app.playback) { stopPlay(); updateTop(); return; }
-  if (!app.sweep.runs.length) return;
+  if (!app.sweep.runs.length || currentRun().meta.deferred) return;
   const ds = currentRun();
   if (app.state.edge === null || app.state.edge >= ds.n) app.state.edge = Math.floor(ds.n * 0.5);
   startPlay();
@@ -714,7 +758,7 @@ function stopPlay() {
 // New records as rows arrive (live or replay), once a run has rows enough
 // to rank (its first rows each set one), one toast at a time.
 function notifyRecords() {
-  if (!app.sweep || !app.sweep.runs.length) return;
+  if (!app.sweep || !app.sweep.runs.length || currentRun().meta.deferred || app.state.view === "experiment") return;
   const m = model();
   if (!m.schema.objective) return;
   const top = objectiveTop(m, m.allRows, 1)[0];
@@ -940,12 +984,7 @@ async function start() {
     mark("decoded");
     document.getElementById("app").dataset.state = "ready";
     addEventListener("keydown", onKey);
-    addEventListener("popstate", () => {
-      const st = decodeState(location.hash);
-      if (!st) return;
-      if (app.config.catalog && st.run && !app.sweep.runs.some(r => r.id === st.run)) loadProjectRun(st.run, st, { replace: true });
-      else { projectLoad++; app.state = st; update(); }
-    });
+    addEventListener("popstate", () => { const st = decodeState(location.hash); if (st) { app.state = st; update(); } });
     update();
     mark("drawn");
     notifyRecords();

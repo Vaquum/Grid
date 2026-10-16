@@ -542,8 +542,8 @@ or process is created. Native temporal reference resolution depends on
 these fields itself or claim factorized equivalence for unsupported references.
 
 
-Project page loading uses `GET /api/pack` for a lightweight `catalog` with no
-analytical runs. `GET /api/pack?run=ID` returns only the selected run; an unopened
+Project page loading uses `GET /api/pack` for lightweight deferred run metadata and a `catalog`, without
+analytical rows. `GET /api/pack?run=ID` returns analytical data only for the selected run; an unopened
 catalog ID starts with `project:` and resolves to `selectedRun` in that response.
 Its live cursor follows that run and any rollover archives. Catalog updates
 advertise other runs without transferring their outcomes. The Experiment view

@@ -412,11 +412,13 @@ class Sweep:
                 "now": time.time(), "logSources": self.log_sources,
                 "errors": self.errors[-50:]}
 
-    def pack_parts(self, mode: str = "live",
-                   run_ids: set[str] | None = None
+    def pack_parts(self, mode: str = "live", run_id: str | None = None,
+                   *, run_ids: set[str] | None = None
                    ) -> tuple[list[str], Cursor]:
-        """Everything as of now as JSON text in parts (joined, they are
-        one JSON document), and its cursor.
+        """A pack as JSON text parts and a cursor with the same scope.
+
+        With run_id, defer every other run's columns, arrivals and rounds;
+        an empty id returns only metadata. None retains the full pack.
 
         Serialised under the lock (followers keep appending to the same
         arrays), one column at a time to keep memory to one column's worth.
@@ -424,17 +426,23 @@ class Sweep:
         with self.lock:
             parts: list[str] = []
             cursor = Cursor()
+            cursor.run_id = run_id
             cursor.only = run_ids.copy() if run_ids is not None else None
+            log_ids = ({r.log_id for r in self.runs if r.id in run_ids}
+                       if run_ids is not None else self._scope_logs(run_id))
             top = self.meta()
             top["mode"] = mode
             parts.append(json.dumps(top, separators=(",", ":"))[:-1] +
                          ',"runs":[')
-            selected = [r for r in self.runs
-                        if run_ids is None or r.id in run_ids]
-            log_ids = {r.log_id for r in selected}
-            logs = {k: v for k, v in self.logs.items()
-                    if run_ids is None or k in log_ids}
-            for k, r in enumerate(selected):
+            scoped = [r for r in self.runs
+                      if run_ids is None or r.id in run_ids]
+            for k, r in enumerate(scoped):
+                if run_id is not None and r.id != run_id:
+                    meta = {**r.meta(), "deferred": True}
+                    parts.append(("," if k else "") + json.dumps(
+                        meta, separators=(",", ":")))
+                    cursor.runs[r.id] = (r.generation, r.store.rows)
+                    continue
                 head = json.dumps(r.meta(), separators=(",", ":"))[:-1]
                 parts.append(("," if k else "") + head + ',"columns":[')
                 for j, col in enumerate(r.store.export_iter()):
@@ -446,20 +454,28 @@ class Sweep:
                              "}")
                 cursor.runs[r.id] = (r.generation, r.store.rows)
                 cursor.rounds[r.id] = (r.rounds_generation, len(r.rounds))
-            for k, v in logs.items():
+            for k, v in self.logs.items():
+                if log_ids is not None and k not in log_ids:
+                    continue
                 cursor.progress[k] = v.progress_cursor()
                 cursor.log_lines[k] = v.lines
             cursor.version = self.version
             parts.append('],"logs":' +
                          json.dumps({k: v.to_json()
-                                     for k, v in logs.items()},
+                                     for k, v in self.logs.items()
+                                     if log_ids is None or k in log_ids},
                                     separators=(",", ":")) + "}")
             return parts, cursor
 
-    def pack_text(self, mode: str = "live",
-                  run_ids: set[str] | None = None) -> tuple[str, Cursor]:
-        parts, cursor = self.pack_parts(mode, run_ids)
+    def pack_text(self, mode: str = "live", run_id: str | None = None,
+                   *, run_ids: set[str] | None = None
+                  ) -> tuple[str, Cursor]:
+        parts, cursor = self.pack_parts(mode, run_id, run_ids=run_ids)
         return "".join(parts), cursor
+
+    def _scope_logs(self, run_id: str | None) -> set[str | None] | None:
+        return None if run_id is None else {
+            r.log_id for r in self.runs if r.id == run_id}
 
     def delta_text(self, cursor: Cursor) -> list[str]:
         """Messages (JSON text) that bring a page at ``cursor`` up to date;
@@ -474,6 +490,12 @@ class Sweep:
                         continue
                     cursor.only.add(r.id)
                 gen, rows = cursor.runs.get(r.id, (-1, 0))
+                if cursor.run_id is not None and r.id != cursor.run_id:
+                    if gen != r.generation or rows != r.store.rows:
+                        msgs.append({"type": "run", "run": {
+                            **r.meta(), "deferred": True}, "known": False})
+                    cursor.runs[r.id] = (r.generation, r.store.rows)
+                    continue
                 rgen, sent = cursor.rounds.get(r.id, (-1, 0))
                 if gen != r.generation:
                     msgs.append({"type": "run", "run": r.meta(),
@@ -497,10 +519,11 @@ class Sweep:
                     msgs.append({"type": "rounds", "run": r.id,
                                  "reset": reset, "entries": r.rounds[sent:]})
                 cursor.rounds[r.id] = (r.rounds_generation, len(r.rounds))
+            log_ids = ({r.log_id for r in self.runs if r.id in cursor.only}
+                       if cursor.only is not None
+                       else self._scope_logs(cursor.run_id))
             for k, log in self.logs.items():
-                if cursor.only is not None and not any(
-                        r.id in cursor.only and r.log_id == k
-                        for r in self.runs):
+                if log_ids is not None and k not in log_ids:
                     continue
                 if log.lines == cursor.log_lines.get(k, -1):
                     continue
@@ -525,6 +548,8 @@ class Cursor:
     generation, rounds), per log what it has read."""
 
     def __init__(self) -> None:
+        # None sends everything; an empty id sends only the run catalog.
+        self.run_id: str | None = None
         self.only: set[str] | None = None
         self.runs: dict[str, tuple[int, int]] = {}
         self.rounds: dict[str, tuple[int, int]] = {}

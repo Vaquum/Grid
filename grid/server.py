@@ -411,29 +411,45 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
                 return self.send_bytes(server.page(),
                                        "text/html; charset=utf-8")
             if url.path == "/api/pack":
-                selected: set[str] | None = None
-                requested = ""
-                if "run" in q:
-                    requested = q["run"]
-                    if requested.startswith("project:") and server.project:
+                requested = q.get("run", "")
+                if server.project is None:
+                    text, cursor = server.sweep.pack_text(
+                        run_id=q.get("run"))
+                elif requested:
+                    if requested.startswith("project:"):
                         try:
                             requested = server.project.open(requested[8:])
                         except (ValueError, OSError) as exc:
                             return self.fail(400, str(exc))
-                    selected = {requested}
                     with server.sweep.lock:
                         found = any(r.id == requested
                                     for r in server.sweep.runs)
                     if not found:
                         return self.fail(404, "unknown analysis run")
-                elif server.project is not None and q.get("all") != "1":
-                    selected = set()
-                text, cursor = server.sweep.pack_text(run_ids=selected)
+                    text, cursor = server.sweep.pack_text(
+                        run_ids={requested})
+                else:
+                    text, cursor = server.sweep.pack_text(run_id="")
                 if server.project is not None:
+                    catalog = server.catalog()
+                    if not requested:
+                        # Unopened histories have identities without CSV reads.
+                        data: Json = json.loads(text)
+                        data["runs"] = [{**r, "deferred": True}
+                                        for r in catalog]
+                        text = json.dumps(data, separators=(",", ":"))
+                    if requested:
+                        deferred = [{**r, "deferred": True} for r in catalog
+                                    if r["id"] != requested]
+                        if deferred:
+                            at = text.rfind('],"logs":')
+                            text = text[:at] + "," + ",".join(
+                                json.dumps(r, separators=(",", ":"))
+                                for r in deferred) + text[at:]
                     text = text[:-1] + ',"catalog":' + json.dumps(
-                        server.catalog(), separators=(",", ":")) + (
+                        catalog, separators=(",", ":")) + (
                             ',"selectedRun":' + json.dumps(requested)
-                            if "run" in q else "") + "}"
+                            if requested else "") + "}"
                 token = server.save_cursor(cursor)
                 body = ('{"cursor":%s,"pack":%s}' % (json.dumps(token), text))
                 return self.send_bytes(body.encode(), "application/json")

@@ -126,7 +126,8 @@ def main() -> None:
                 with urllib.request.urlopen(
                         "http://127.0.0.1:8499/api/pack") as response:
                     visible = json.load(response)
-                assert visible["pack"]["runs"] == [], visible
+                assert all(r["deferred"]
+                           for r in visible["pack"]["runs"]), visible
                 assert any(r["id"] == run_id
                            for r in visible["pack"]["catalog"]), visible
                 with urllib.request.urlopen(

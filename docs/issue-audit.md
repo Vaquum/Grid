@@ -2,8 +2,9 @@
 
 The initial 37 issues were reviewed against main (`023df44`) and merged PRs.
 The 24 closed issues already have merged implementations; none needs reopening.
-This change addresses the initial 13 open issues and ten requests filed
-during implementation (#78, #80, #81, #82, #83, #84, #85, #87, #89, #90), in one PR.
+This audit covers the initial 13 open issues and ten requests filed during
+implementation (#78, #80, #81, #82, #83, #84, #85, #87, #89, #90). Remaining
+changes share this PR; merged work and existing PRs are recorded below.
 
 | Issue | Disposition |
 | --- | --- |
@@ -16,7 +17,7 @@ during implementation (#78, #80, #81, #82, #83, #84, #85, #87, #89, #90), in one
 | [#81](https://github.com/Vaquum/Grid/issues/81) | Prefer recorded timestamps; otherwise recover exact test bars through the original manifest in Limen, supporting native Parquet/Arrow sources and rejecting missing or inconsistent timestamps. |
 | [#82](https://github.com/Vaquum/Grid/issues/82) | Remains open: native factorized random traversal requires [Limen #924](https://github.com/Vaquum/Limen/issues/924). Advertise the missing capability and reject random/shuffled factorized manifests. This PR does not claim randomized factorial levels satisfy random candidate sampling. |
 | [#83](https://github.com/Vaquum/Grid/issues/83) | Reject unresolved `recency_n`/`persistence_n` references and invalid constants before starting a run. Constant positive integers remain supported; native reference resolution is tracked in [Limen #925](https://github.com/Vaquum/Limen/issues/925). |
-| [#84](https://github.com/Vaquum/Grid/issues/84) | Return a lightweight project catalog before analytical rows; read historical runs only on selection, scope live cursors to the selected run and its archives, and retain navigation and recorded snapshots. |
+| [#84](https://github.com/Vaquum/Grid/issues/84) | Merged in [PR #86](https://github.com/Vaquum/Grid/pull/86). Integrate its deferred run loading with shared-project discovery: enumerate unopened histories without counting CSV rows, resolve selected project IDs, and preserve its retry/reconnect behavior. |
 | [#85](https://github.com/Vaquum/Grid/issues/85) | Rank cohorts exclusively on finite first-half evidence, regardless of second-half values or availability; preserve unavailable held-out results. |
 | [#87](https://github.com/Vaquum/Grid/issues/87) | Already implemented in [PR #88](https://github.com/Vaquum/Grid/pull/88), with passing local and CI checks. Omit duplicate Trials changes from this PR. |
 | [#89](https://github.com/Vaquum/Grid/issues/89) | Capture only the selected run for agent analysis and pinned snapshots; avoid a full-pack parse/serialize pass, defer Board effects for schema/gates/cohort/manifest queries, and report capture/envelope/worker times and retained bytes. Compare identical evidence with an unrelated 5,000-row telemetry run. |

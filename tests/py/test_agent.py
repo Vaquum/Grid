@@ -285,7 +285,8 @@ class TestAgent(unittest.TestCase):
             with urllib.request.urlopen(self.url + "/api/pack") as response:
                 raw = response.read()
             body = json.loads(raw)
-            self.assertEqual(body["pack"]["runs"], [])
+            self.assertTrue(all(r["deferred"]
+                                for r in body["pack"]["runs"]))
             self.assertEqual(body["pack"]["catalog"][0]["projectRun"],
                              "results/dev/history")
             self.assertLess(len(raw), 10000)
@@ -293,7 +294,8 @@ class TestAgent(unittest.TestCase):
             self.assertIsNone(state["runs"][0]["rows"])
         with urllib.request.urlopen(self.url + "/api/pack?run=r0") as response:
             selected = json.load(response)["pack"]
-        self.assertEqual([r["id"] for r in selected["runs"]], ["r0"])
+        self.assertEqual([r["id"] for r in selected["runs"]
+                          if not r.get("deferred")], ["r0"])
         self.assertGreater(selected["runs"][0]["rows"], 0)
 
     def test_agent_run_is_visible_live_to_shared_human_service(self):
