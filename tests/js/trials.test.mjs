@@ -103,16 +103,3 @@ test("a target's values are shown no finer than they were written", () => {
   assert.equal(fmtRowValue({ kind: "binary", unit: "share of rows", digits: 1 }, 0), "no");
   assert.equal(fmtRowValue(pnl, NaN), "–");
 });
-
-
-test("column sorting uses raw values, keeps missing values last and preserves runner ranks", async () => {
-  const { sortTrials } = await import("../../web/js/view-trials.js");
-  const rows = [{ i: 0, rank: 1 }, { i: 1, rank: 2 }, { i: 2, rank: 3 }, { i: 3, rank: 4 }];
-  const numbers = [12, 2, NaN, 2], params = ["z", "a", null, "b"];
-  const cols = [{ key: "number", value: x => numbers[x.i] }, { key: "param", value: x => params[x.i] }];
-  assert.deepEqual(sortTrials(rows, cols, { key: "number", dir: 1 }).map(x => x.i), [1, 3, 0, 2]);
-  assert.deepEqual(sortTrials(rows, cols, { key: "number", dir: -1 }).map(x => x.i), [0, 1, 3, 2]);
-  assert.deepEqual(sortTrials(rows, cols, { key: "param", dir: 1 }).map(x => x.i), [1, 3, 0, 2]);
-  assert.deepEqual(sortTrials(rows, cols, { key: "param", dir: -1 }).map(x => x.i), [0, 3, 1, 2]);
-  assert.deepEqual(rows.map(x => x.rank), [1, 2, 3, 4]);
-});

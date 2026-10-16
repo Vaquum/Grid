@@ -10,12 +10,12 @@ import { halfTargets, twice, firstHalfOnly } from "./halves.js";
 export const DEFAULT_STATE = {
   run: null, view: "board", target: null, context: [], pocket: [], pocketB: null,
   sel: null, edge: null, show: { flat: true }, pair: null, order: 2, featSort: "effect",
-  trialCols: ["movers", "halves"], trialSort: null, gates: [], clusters: [], compare: false, clusterK: null, firstHalf: false, found: null,
+  trialCols: ["movers", "halves"], gates: [], clusters: [], compare: false, clusterK: null, firstHalf: false, found: null,
 };
 
 export function encodeState(st) {
   const o = { v: st.view, r: st.run, t: st.target, c: st.context, p: st.pocket, pb: st.pocketB, s: st.sel, e: st.edge, pr: st.pair, po: st.order, sh: st.show, fs: st.featSort, tc: st.trialCols, g: st.gates,
-    ts: st.trialSort || undefined, cl: st.clusters, cm: st.compare, ck: st.clusterK, fh: st.firstHalf ? 1 : undefined, fo: st.found || undefined };
+    cl: st.clusters, cm: st.compare, ck: st.clusterK, fh: st.firstHalf ? 1 : undefined, fo: st.found || undefined };
   const json = JSON.stringify(o);
   const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(json)));
   return "s1." + b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -31,7 +31,6 @@ export function decodeState(hash) {
     return { ...DEFAULT_STATE, view: o.v, run: o.r, target: o.t, context: o.c || [], pocket: o.p || [], pocketB: Array.isArray(o.pb) ? o.pb : null, sel: o.s || null,
       edge: o.e ?? null, pair: o.pr || null, order: o.po || 2, show: o.sh || DEFAULT_STATE.show, featSort: o.fs || "effect",
       trialCols: Array.isArray(o.tc) ? o.tc : DEFAULT_STATE.trialCols, gates: Array.isArray(o.g) ? o.g : [],
-      trialSort: o.ts && typeof o.ts.key === "string" && [1, -1].includes(o.ts.dir) ? o.ts : null,
       clusters: Array.isArray(o.cl) ? o.cl : [], compare: !!o.cm, clusterK: Number.isInteger(o.ck) ? o.ck : null, firstHalf: o.fh === 1,
       found: o.fo === "first" || o.fo === "whole" ? o.fo : null };
   } catch (err) {

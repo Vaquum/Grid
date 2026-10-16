@@ -1733,7 +1733,7 @@ test("cohort: a Limen run's pool chosen on the first half, judged on the second,
     const { page, errors } = await limenPage();
     await page.goto(url);
     // Historical results are selected on demand from the project catalog.
-    await page.waitForSelector("#run-pick option[value^=\"project:\"]");
+    await page.waitForSelector("#run-pick option[value^=\"project:\"]", { state: "attached" });
     await page.locator("#run-pick").selectOption({ index: 1 });
     await page.waitForSelector(".rail button[aria-label=Cohort]", { timeout: 20000 });
     // the project's predictors cannot be read at first: the view says so,
@@ -1955,7 +1955,7 @@ test("project catalog loads before history; selected runs stream and survive nav
     const packs = [];
     page.on("response", async response => { if (response.url().includes("/api/pack")) packs.push(await response.json()); });
     await page.goto(url);
-    await page.waitForSelector(".ex-make");
+    await page.waitForSelector(".ex-table");
     assert.equal(packs[0].pack.runs.length, 0);
     assert.equal(packs[0].pack.catalog.length, 2);
     assert.ok(JSON.stringify(packs[0]).length < 10000);
@@ -1982,8 +1982,9 @@ test("project catalog loads before history; selected runs stream and survive nav
     await page.waitForTimeout(1200);
     assert.equal(await page.locator("#run-pick").inputValue(), firstId);
     const secondNow = await page.locator("#run-pick option").evaluateAll(xs => xs.find(x => /second$/.test(x.textContent)).value);
+    const firstHash = new URL(page.url()).hash;
     await page.selectOption("#run-pick", secondNow);
-    await page.waitForFunction(id => document.querySelector("#run-pick").value !== id, firstId);
+    await page.waitForURL(url => url.hash !== firstHash);
     assert.equal(packs.at(-1).pack.runs.length, 1);
     await page.goBack();
     await page.waitForFunction(id => document.querySelector("#run-pick").value === id, firstId);
@@ -1998,28 +1999,4 @@ test("project catalog loads before history; selected runs stream and survive nav
     assert.deepEqual(errors, []);
     await page.close();
   } finally { proc.kill(); }
-});
-
-test("Trials headings sort numeric and parameter columns with accessible direction", async () => {
-  const { page, errors } = await open();
-  await page.keyboard.press("6");
-  await page.waitForSelector("table.trials");
-  const rows = () => page.locator("table.trials tbody tr").evaluateAll(xs => xs.map(x => ({ rank: x.querySelector(".rk").textContent, row: Number(x.querySelector(".ri").textContent.replaceAll(",", "")) })));
-  const original = await rows();
-  const rowHead = page.getByRole("button", { name: "Sort by Row", exact: true });
-  await rowHead.click();
-  assert.equal(await rowHead.locator("..").getAttribute("aria-sort"), "ascending");
-  let sorted = await rows();
-  assert.deepEqual(sorted.map(x => x.row), original.map(x => x.row).sort((a, b) => a - b));
-  await rowHead.click();
-  assert.equal(await rowHead.locator("..").getAttribute("aria-sort"), "descending");
-  sorted = await rows();
-  assert.deepEqual(sorted.map(x => x.row), original.map(x => x.row).sort((a, b) => b - a));
-  assert.deepEqual(new Map(sorted.map(x => [x.row, x.rank])), new Map(original.map(x => [x.row, x.rank])));
-  const parameter = page.locator("table.trials th.g-start .tr-sort").first();
-  await parameter.focus();
-  await page.keyboard.press("Enter");
-  assert.equal(await parameter.locator("..").getAttribute("aria-sort"), "ascending");
-  assert.deepEqual(errors, []);
-  await page.close();
 });
