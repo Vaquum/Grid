@@ -134,7 +134,8 @@ class TestAgent(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "shards.*uel.workers"):
             self.project.start("workers", 12, 3, True, True)
         self.assertEqual(self.project.runs(), [])
-        with patch.object(self.project, "_spawn", side_effect=OSError("test")), \
+        with patch.object(self.project, "_spawn",
+                          side_effect=OSError("test")), \
                 self.assertRaisesRegex(ValueError, "could not be started"):
             self.project.start("workers", 12, 2, True, True)
         run = self.project.runs()[0]

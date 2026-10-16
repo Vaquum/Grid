@@ -108,7 +108,7 @@ def bar_times(rec: Json, step: int | None) -> list[int]:
         if not isinstance(exact, list):
             raise ValueError("test_datetimes must be a list of timestamps")
         source = [_epoch(t, "a test datetime") for t in cast(list[Any], exact)]
-        if any(b <= a for a, b in zip(source, source[1:])):
+        if any(b <= a for a, b in zip(source, source[1:], strict=False)):
             raise ValueError("test timestamps must be unique and increasing")
         times = [t for t in source if first <= t <= last and t not in gone]
         if not times or times[0] != first or times[-1] != last:

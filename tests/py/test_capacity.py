@@ -30,7 +30,8 @@ class Capacity(unittest.TestCase):
 
     def test_missing_unlimited_and_malformed_metadata(self):
         for value in ("", "max 100000", "bad", "800000 0", "-1 100000"):
-            self.assertEqual(self.budget({"/sys/fs/cgroup/cpu.max": value}), 48)
+            self.assertEqual(self.budget({"/sys/fs/cgroup/cpu.max": value}),
+                             48)
         with patch("grid.capacity.os.cpu_count", return_value=None), \
                 patch("grid.capacity.os.sched_getaffinity", create=True,
                       side_effect=OSError), \

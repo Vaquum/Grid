@@ -36,7 +36,8 @@ def main() -> None:
             try:
                 deadline = time.monotonic() + 90
                 while not connection.exists():
-                    if server.poll() is not None or time.monotonic() > deadline:
+                    if server.poll() is not None or \
+                            time.monotonic() > deadline:
                         raise RuntimeError(log.read_text())
                     time.sleep(0.1)
                 client = Client(str(connection))
@@ -140,7 +141,8 @@ def main() -> None:
                 # kline_size. Its source bars must also evaluate exactly.
                 arrow_root = project / "arrow"
                 subprocess.run([
-                    "python", "/fixtures/generate_rule_run.py", str(arrow_root),
+                    "python", "/fixtures/generate_rule_run.py",
+                    str(arrow_root),
                     "arrow"], check=True)
                 call("grid_create", name="arrow", text=(arrow_root /
                      "rule_smoke.yaml").read_text(), requestId="arrow-create")

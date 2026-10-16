@@ -191,7 +191,8 @@ class ProjectRuns(unittest.TestCase):
             human.discovery_stop.set()
         restarted = Project(self.root, FAKE)
         reopened: list[str] = []
-        restarted.opener = lambda key, dirs, planned: reopened.append(key) or key
+        restarted.opener = lambda key, dirs, planned: (
+            reopened.append(key) or key)
         restarted.follow()
         try:
             wait(lambda: len(reopened) == 2)
@@ -680,7 +681,8 @@ class Routes(unittest.TestCase):
         headers = {"Host": "grid.vaquum.fi",
                    "Origin": "https://grid.vaquum.fi"}
         self.assertEqual(self.post("/api/experiment/validate", body,
-                                   **headers), (200, {"errors": [], "schemaErrors": [],
+                                   **headers), (200, {
+                                "errors": [], "schemaErrors": [],
                                 "executionErrors": [],
                                 "executionChecked": True}))
         self.assertEqual(self.post("/api/experiment/validate", body),
