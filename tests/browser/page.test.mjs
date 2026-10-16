@@ -1852,12 +1852,11 @@ test("first half: every needle measured on each half reads its first half only, 
     await page.reload();
     await page.waitForSelector(".pcard");
     assert.equal(await page.locator(".half-pick").getAttribute("aria-pressed"), "true");
-    // Grid's gates read their needles as read: entries on the first half,
-    // named so; per-trade t, which needs 30 trades and here has no half
-    // with them, over the whole window, as before
+    // Both gates read their first halves. With fewer than 30 trades,
+    // per-trade t stays unavailable instead of using whole-window values.
     await page.keyboard.press("6");
     await page.waitForSelector("article.gt-card");
-    assert.deepEqual(await page.locator("article.gt-card .gt-title").allInnerTexts(), ["Entries, first half ≥ 30", "Per-trade t ≥ 2"]);
+    assert.deepEqual(await page.locator("article.gt-card .gt-title").allInnerTexts(), ["Entries, first half ≥ 30", "Per-trade t, first half ≥ 2"]);
     // Trials has no halves; the Run view no halves of the test window, nor
     // a reliability across them
     await page.keyboard.press("5");
