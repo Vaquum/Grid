@@ -391,7 +391,8 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
             if self.misaddressed():
                 return
             url = urlparse(self.path)
-            q = {k: v[-1] for k, v in parse_qs(url.query).items()}
+            q = {k: v[-1] for k, v in parse_qs(
+                url.query, keep_blank_values=True).items()}
             if url.path == "/api/agent" and server.agent:
                 return self.send_json(server.agent.discovery())
             if url.path == "/api/agent/snapshot" and server.agent:
