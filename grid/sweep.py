@@ -412,7 +412,8 @@ class Sweep:
                 "now": time.time(), "logSources": self.log_sources,
                 "errors": self.errors[-50:]}
 
-    def pack_parts(self, mode: str = "live") -> tuple[list[str], Cursor]:
+    def pack_parts(self, mode: str = "live", run_id: str | None = None
+                   ) -> tuple[list[str], Cursor]:
         """Everything as of now as JSON text in parts (joined, they are
         one JSON document), and its cursor.
 
@@ -422,11 +423,18 @@ class Sweep:
         with self.lock:
             parts: list[str] = []
             cursor = Cursor()
+            cursor.run_id = run_id
             top = self.meta()
             top["mode"] = mode
             parts.append(json.dumps(top, separators=(",", ":"))[:-1] +
                          ',"runs":[')
             for k, r in enumerate(self.runs):
+                if run_id is not None and r.id != run_id:
+                    meta = {**r.meta(), "deferred": True}
+                    parts.append(("," if k else "") + json.dumps(
+                        meta, separators=(",", ":")))
+                    cursor.runs[r.id] = (r.generation, r.store.rows)
+                    continue
                 head = json.dumps(r.meta(), separators=(",", ":"))[:-1]
                 parts.append(("," if k else "") + head + ',"columns":[')
                 for j, col in enumerate(r.store.export_iter()):
@@ -448,8 +456,9 @@ class Sweep:
                                     separators=(",", ":")) + "}")
             return parts, cursor
 
-    def pack_text(self, mode: str = "live") -> tuple[str, Cursor]:
-        parts, cursor = self.pack_parts(mode)
+    def pack_text(self, mode: str = "live", run_id: str | None = None
+                  ) -> tuple[str, Cursor]:
+        parts, cursor = self.pack_parts(mode, run_id)
         return "".join(parts), cursor
 
     def delta_text(self, cursor: Cursor) -> list[str]:
@@ -461,6 +470,12 @@ class Sweep:
                 return []
             for r in self.runs:
                 gen, rows = cursor.runs.get(r.id, (-1, 0))
+                if cursor.run_id is not None and r.id != cursor.run_id:
+                    if gen != r.generation or rows != r.store.rows:
+                        msgs.append({"type": "run", "run": {
+                            **r.meta(), "deferred": True}, "known": False})
+                    cursor.runs[r.id] = (r.generation, r.store.rows)
+                    continue
                 rgen, sent = cursor.rounds.get(r.id, (-1, 0))
                 if gen != r.generation:
                     msgs.append({"type": "run", "run": r.meta(),
@@ -508,6 +523,8 @@ class Cursor:
     generation, rounds), per log what it has read."""
 
     def __init__(self) -> None:
+        # None sends everything; an empty id sends only the run catalog.
+        self.run_id: str | None = None
         self.runs: dict[str, tuple[int, int]] = {}
         self.rounds: dict[str, tuple[int, int]] = {}
         self.progress: dict[str, dict[int, int]] = {}

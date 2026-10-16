@@ -338,7 +338,8 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
             if self.misaddressed():
                 return
             url = urlparse(self.path)
-            q = {k: v[-1] for k, v in parse_qs(url.query).items()}
+            q = {k: v[-1] for k, v in parse_qs(
+                url.query, keep_blank_values=True).items()}
             if url.path == "/api/agent" and server.agent:
                 return self.send_json(server.agent.discovery())
             if url.path == "/api/agent/snapshot" and server.agent:
@@ -358,7 +359,7 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
                 return self.send_bytes(server.page(),
                                        "text/html; charset=utf-8")
             if url.path == "/api/pack":
-                text, cursor = server.sweep.pack_text()
+                text, cursor = server.sweep.pack_text(run_id=q.get("run"))
                 token = server.save_cursor(cursor)
                 body = ('{"cursor":%s,"pack":%s}' % (json.dumps(token), text))
                 return self.send_bytes(body.encode(), "application/json")

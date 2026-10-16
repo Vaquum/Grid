@@ -5,6 +5,14 @@ import { decodePack, rowObject, Dataset } from "../../web/js/pack.js";
 
 const G = JSON.parse(readFileSync(new URL("../golden/pack.json", import.meta.url)));
 
+test("a deferred run retains its metadata without allocating its rows", () => {
+  const { runs } = decodePack({ grid: 1, runs: [{ id: "r0", rows: 10000000, deferred: true }] });
+  assert.equal(runs[0].meta.rows, 10000000);
+  assert.equal(runs[0].n, 0);
+  assert.equal(runs[0].arrivals.length, 0);
+  assert.equal(runs[0].cols.size, 0);
+});
+
 // Python writes non-finite numbers as strings in the golden rows.
 function portable(v) {
   if (typeof v === "number" && !Number.isFinite(v)) return Number.isNaN(v) ? "NaN" : v > 0 ? "Infinity" : "-Infinity";

@@ -1485,6 +1485,51 @@ test("live: a relaunch keeps the reader on the rows they had, and the Run view t
   }
 });
 
+test("experiment: catalog opens before results, and analysis loads only its chosen run", async () => {
+  const project = mkdtempSync(join(tmpdir(), "grid-fast-project-"));
+  writeFileSync(join(project, "limen.toml"), "[store]\n");
+  mkdirSync(join(project, "manifests"));
+  const proc = spawn("python3", ["-m", "grid", "serve", "--project", project,
+    "--limen", join(ROOT, "tests/fixtures/limen_run_200"),
+    "--limen-cli", join(ROOT, "tests/fixtures/fake_limen.py"), "--port", "0"], { cwd: ROOT });
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  try {
+    const url = await serverUrl(proc);
+    const { page, errors } = await limenPage();
+    const requests = [];
+    await page.route("**/api/pack?*", async route => {
+      const run = new URL(route.request().url()).searchParams.get("run");
+      requests.push(run);
+      if (run) await held;
+      await route.continue();
+    });
+    await page.goto(url);
+    await page.waitForSelector(".ex-make");
+    assert.deepEqual(requests, [""], "Experiment fetches no result rows");
+    assert.equal(await page.locator("#app").getAttribute("data-state"), "ready");
+    await page.keyboard.press("1");
+    await page.waitForSelector("#view [role=status]");
+    assert.match(await page.locator("#view").innerText(), /Reading/);
+    await page.keyboard.press("0");
+    await page.waitForSelector(".ex-make");
+    release();
+    await page.keyboard.press("1");
+    await page.waitForSelector(".pcard");
+    assert.deepEqual(requests, ["", "r0"], "navigation reuses the in-flight selected run request");
+    const timings = await page.evaluate(() => window.__gridTimings);
+    assert.ok(timings.drawn - timings.start < 1000, JSON.stringify(timings));
+    await page.reload();
+    await page.waitForSelector(".pcard");
+    assert.deepEqual(requests, ["", "r0", "r0"], "a deep link fetches its selected run directly");
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    release();
+    proc.kill();
+  }
+});
+
 test("experiment: on a Limen project, one is made, checked as it is typed, run in shards, analyzed, and the next made from its run", async () => {
   // a project with no experiment yet, served with a stand-in limen
   const project = mkdtempSync(join(tmpdir(), "grid-project-"));

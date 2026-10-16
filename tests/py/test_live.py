@@ -116,6 +116,47 @@ class FollowerTest(unittest.TestCase):
 
 
 class SweepTest(unittest.TestCase):
+    def test_catalog_and_selected_run_keep_streams_scoped(self):
+        sweep = Sweep("t")
+        first = Run("r0", "first", "a", None, True)
+        other = Run("r1", "other", "b", None, True)
+        for run in (first, other):
+            sweep.add_run(run)
+            sweep.run_line(run, '{"x":1}', True)
+        text, catalog_cursor = sweep.pack_text(run_id="")
+        catalog = json.loads(text)
+        self.assertEqual([r["rows"] for r in catalog["runs"]], [1, 1])
+        self.assertTrue(all(r["deferred"] for r in catalog["runs"]))
+        self.assertTrue(all("columns" not in r for r in catalog["runs"]))
+        text, cursor = sweep.pack_text(run_id="r0")
+        runs = json.loads(text)["runs"]
+        self.assertEqual(len(runs[0]["columns"]), 1)
+        self.assertTrue(runs[1]["deferred"])
+        sweep.run_line(first, '{"x":2}', False)
+        sweep.run_line(other, '{"x":2}', False)
+        messages = [json.loads(m) for m in sweep.delta_text(cursor)]
+        rows = [m for m in messages if m["type"] == "rows"]
+        self.assertEqual([(m["run"], m["lo"], m["hi"]) for m in rows],
+                         [("r0", 1, 2)])
+        deferred = [m["run"] for m in messages if m["type"] == "run"]
+        self.assertEqual(deferred[0]["id"], "r1")
+        self.assertEqual(deferred[0]["rows"], 2)
+        self.assertTrue(deferred[0]["deferred"])
+        messages = [json.loads(m) for m in sweep.delta_text(catalog_cursor)]
+        self.assertFalse(any(m["type"] in ("rows", "rounds")
+                             for m in messages))
+        sweep.run_reset(first, "truncated")
+        sweep.run_line(first, '{"x":3}', False)
+        messages = [json.loads(m) for m in sweep.delta_text(cursor)]
+        archive = next(m["run"] for m in messages
+                       if m["type"] == "run" and
+                       m["run"]["id"] == "r0.g0")
+        self.assertTrue(archive["deferred"])
+        text, _ = sweep.pack_text(run_id=archive["id"])
+        archived = json.loads(text)["runs"][0]
+        self.assertEqual(archived["rows"], 2)
+        self.assertEqual(len(archived["columns"]), 1)
+
     def test_bad_lines_are_counted_and_kept(self):
         s = Sweep("t")
         run = Run("r0", "current", "x", None, True)
@@ -211,6 +252,10 @@ class ServerTest(unittest.TestCase):
             body = json.loads(gzip.decompress(raw) if raw[:2] == b"\x1f\x8b"
                               else raw)
             self.assertEqual(body["pack"]["runs"][0]["rows"], 1)
+            catalog = json.loads(urllib.request.urlopen(
+                base + "/api/pack?run=").read())
+            self.assertTrue(catalog["pack"]["runs"][0]["deferred"])
+            self.assertNotIn("columns", catalog["pack"]["runs"][0])
             row = json.loads(urllib.request.urlopen(
                 base + "/api/row?run=r0&i=0").read())
             self.assertEqual(row["row"], {"a": 1, "hp": {"d": 2}})
