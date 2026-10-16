@@ -51,15 +51,25 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
-      - name: Verify the hard storage boundary before writing
+      - name: Upgrade the storage guard after validating the boundary
+        run: |
+          bootstrap=$(python3 -c 'import pathlib, shlex; print(shlex.quote(pathlib.Path("deploy/bootstrap_storage_guard.py").read_text()))')
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" "if [ \"\$(id -u)\" -eq 0 ]; then python3 -c $bootstrap; else sudo -n python3 -c $bootstrap; fi" < deploy/grid-storage-check
+      - name: Verify the hard storage boundary before writing the checkout
         run: |
           ssh "$DEPLOY_USER@$DEPLOY_HOST" "/usr/local/libexec/grid-storage-check && test \"\$(readlink -f '$DEPLOY_DIR')\" = /srv/grid/checkout"
       - name: Sync the checkout
         # The receiver pins its cwd before checking it, then writes relative
         # to that cwd. Even lazy unmounts cannot redirect it to the host root.
         run: rsync -az --delete --exclude .git --exclude .env --rsync-path='/usr/local/libexec/grid-runtime /usr/bin/rsync' ./ "$DEPLOY_USER@$DEPLOY_HOST:checkout/"
+      - name: Apply isolated runtime and repair the primary Docker bridge
+        run: |
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" "cd '$DEPLOY_DIR' && if [ \"\$(id -u)\" -eq 0 ]; then sh deploy/apply-runtime.sh; else sudo -n sh deploy/apply-runtime.sh; fi"
       - name: Start and check Grid
         run: |
           # DEPLOY_DIR is expanded locally and sent quoted to the host.
           # shellcheck disable=SC2029
           ssh "$DEPLOY_USER@$DEPLOY_HOST" "/usr/local/libexec/grid-storage-check && cd '$DEPLOY_DIR' && export DOCKER_HOST=unix:///run/grid-docker.sock && docker compose up -d --build --wait --wait-timeout 180 --remove-orphans && docker compose ps && curl --fail --show-error http://127.0.0.1:8490/api/health"
+      - name: Verify primary bridge connectivity and restored services
+        run: |
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" "cd '$DEPLOY_DIR' && if [ \"\$(id -u)\" -eq 0 ]; then sh deploy/verify-recovery.sh; else sudo -n sh deploy/verify-recovery.sh; fi"
