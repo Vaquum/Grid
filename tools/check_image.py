@@ -115,7 +115,7 @@ def main() -> None:
                         "http://127.0.0.1:8499/api/pack") as response:
                     visible = json.load(response)
                 assert any(r["id"] == run_id and r["rows"] == 40
-                           for r in visible["runs"]), visible
+                           for r in visible["pack"]["runs"]), visible
                 evidence = os.environ.get("GRID_RULE_EVIDENCE")
                 if evidence:
                     shutil.copytree(project / rid / "s1", evidence,
