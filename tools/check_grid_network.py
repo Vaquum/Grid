@@ -58,11 +58,15 @@ def isolated() -> None:
                         stdout=log, stderr=subprocess.STDOUT)
                     processes.append(daemon)
                     client = ["docker", "--host", config["hosts"][0]]
-                    for _ in range(150):
+                    deadline = time.monotonic() + 30
+                    while time.monotonic() < deadline:
                         assert daemon.poll() is None, "Grid daemon exited"
-                        ready = subprocess.run(
-                            [*client, "info"], stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL, timeout=3)
+                        try:
+                            ready = subprocess.run(
+                                [*client, "info"], stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, timeout=2)
+                        except subprocess.TimeoutExpired:
+                            continue
                         if ready.returncode == 0:
                             break
                         time.sleep(0.1)

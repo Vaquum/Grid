@@ -66,3 +66,6 @@ jobs:
           # DEPLOY_DIR is expanded locally and sent quoted to the host.
           # shellcheck disable=SC2029
           ssh "$DEPLOY_USER@$DEPLOY_HOST" "/usr/local/libexec/grid-storage-check && cd '$DEPLOY_DIR' && export DOCKER_HOST=unix:///run/grid-docker.sock && docker compose up -d --build --wait --wait-timeout 180 --remove-orphans && docker compose ps && curl --fail --show-error http://127.0.0.1:8490/api/health"
+      - name: Verify primary bridge connectivity and restored services
+        run: |
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" "cd '$DEPLOY_DIR' && if [ \"\$(id -u)\" -eq 0 ]; then sh deploy/verify-recovery.sh; else sudo -n sh deploy/verify-recovery.sh; fi"

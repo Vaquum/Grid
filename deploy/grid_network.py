@@ -88,10 +88,50 @@ def restore_primary_bridge():
                     "flush", "to", gateway, "dev", interface["ifname"])
 
 
+def verify_primary_bridge():
+    network = json.loads(run(*PRIMARY, "network", "inspect", "bridge"))[0]
+    bridge = next(x for x in links() if x["ifname"] == "docker0")
+    if bridge.get("linkinfo", {}).get("info_kind") != "bridge":
+        raise RuntimeError("docker0 is not a bridge")
+    host_links = {x["ifindex"]: x for x in links()}
+    for cid, endpoint in network.get("Containers", {}).items():
+        container = json.loads(run(*PRIMARY, "inspect", cid))[0]
+        if not container["State"]["Running"]:
+            continue
+        health = container["State"].get("Health", {}).get("Status")
+        if health == "unhealthy":
+            raise RuntimeError(f'Primary endpoint {container["Name"]} is unhealthy')
+        pid = str(container["State"]["Pid"])
+        interfaces = json.loads(run("nsenter", "--target", pid, "--net",
+                                    "ip", "-j", "link", "show"))
+        interface = next(x for x in interfaces if x.get("address", "").lower()
+                         == endpoint["MacAddress"].lower())
+        if host_links[interface["link_index"]].get("master") != "docker0":
+            raise RuntimeError("Primary endpoint is not attached to docker0")
+        for config in network["IPAM"]["Config"]:
+            gateway = config.get("Gateway")
+            if gateway and ipaddress.ip_address(gateway).version == 4:
+                run("nsenter", "--target", pid, "--net", "ping", "-c", "1",
+                    "-W", "3", gateway)
+        print(f'Primary endpoint {container["Name"]}: attached, gateway reachable')
+    # Exercise the exact path that failed when docker0 disappeared: a new
+    # container on the primary bridge, including DNS and outbound HTTPS.
+    run(*PRIMARY, "run", "--rm", "--pull=never", "--network", "bridge",
+        "--read-only", "--entrypoint", "python", "python:3.12-slim", "-c",
+        "import urllib.request; "
+        "urllib.request.urlopen('https://pypi.org/simple/pip/',timeout=15).read(1)")
+    print("Primary Docker bridge: container startup, DNS and HTTPS passed")
+    print(run(*PRIMARY, "ps", "--format", "{{.Names}} {{.Status}}"))
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--restore-primary", action="store_true")
+    parser.add_argument("--verify-primary", action="store_true")
     args = parser.parse_args()
-    if args.restore_primary:
-        restore_primary_bridge()
-    ensure_grid_bridge()
+    if args.verify_primary:
+        verify_primary_bridge()
+    else:
+        if args.restore_primary:
+            restore_primary_bridge()
+        ensure_grid_bridge()
