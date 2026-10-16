@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 
 def _read(path: Path) -> str:
@@ -30,9 +32,12 @@ def _quota(folder: Path, version: int) -> int | None:
 
 def effective_cpus() -> int:
     limits = [os.cpu_count() or 1]
+    affinity = cast(Callable[[int], set[int]] | None,
+                    getattr(os, "sched_getaffinity", None))
     try:
-        limits.append(len(os.sched_getaffinity(0)))
-    except (AttributeError, OSError):
+        if affinity is not None:
+            limits.append(len(affinity(0)))
+    except OSError:
         pass
     groups: list[tuple[str, str]] = []
     for line in _read(Path("/proc/self/cgroup")).splitlines():
