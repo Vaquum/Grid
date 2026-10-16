@@ -1,0 +1,27 @@
+[Unit]
+Description=Grid isolated Docker engine
+BindsTo=srv-grid.mount
+After=srv-grid.mount network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStartPre=/usr/local/libexec/grid-storage-check
+ExecStart=/usr/bin/dockerd --config-file=/etc/docker/grid.json
+ExecReload=/bin/kill -s HUP $MAINPID
+Environment=TMPDIR=/srv/grid/tmp DOCKER_TMPDIR=/srv/grid/tmp
+StandardOutput=append:/srv/grid/dockerd.log
+StandardError=append:/srv/grid/dockerd.log
+Restart=always
+RestartSec=5
+TimeoutStartSec=0
+TimeoutStopSec=120
+Delegate=yes
+KillMode=process
+TasksMax=infinity
+LimitNOFILE=1048576
+LimitCORE=0
+OOMScoreAdjust=-500
+
+[Install]
+WantedBy=multi-user.target

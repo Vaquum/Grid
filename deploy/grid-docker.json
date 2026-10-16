@@ -1,0 +1,14 @@
+{
+  "data-root": "/srv/grid/docker",
+  "exec-root": "/run/grid-docker",
+  "pidfile": "/run/grid-docker.pid",
+  "hosts": ["unix:///run/grid-docker.sock"],
+  "bridge": "none",
+  "iptables": false,
+  "ip6tables": false,
+  "ip-masq": false,
+  "storage-driver": "overlay2",
+  "log-driver": "local",
+  "log-opts": {"max-size": "10m", "max-file": "3"},
+  "default-ulimits": {"core": {"Name": "core", "Hard": 0, "Soft": 0}}
+}

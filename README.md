@@ -214,7 +214,8 @@ See [docs/statistics.md](docs/statistics.md).
 
 ## Deploy
 
-Grid runs on the Explorer/Composer host, `37.27.112.167`, from `/opt/grid`.
+Grid runs on the Explorer/Composer host, `37.27.112.167`, from
+`/srv/grid/checkout` (`/opt/grid` remains an administration symlink).
 Docker serves only `127.0.0.1:8490`; the host's Caddy, maintained in
 [Vaquum/Portal](https://github.com/Vaquum/Portal), exposes
 `https://grid.vaquum.fi` behind Portal's login and provides its landing card.
@@ -224,7 +225,15 @@ The container includes Limen 5.25 and creates an official Limen project
 at `/data/project` on first start. The `grid_project` volume keeps its
 manifests, experiment results and cohorts across image rebuilds and
 redeployments. It runs as an unprivileged user with a read-only image;
-only the project volume and temporary files are writable. The configured
+only the project volume and temporary files are writable.
+Production confines the checkout and all Docker data (images, builds, project
+data and logs) to a fixed 199,000,000,000-byte filesystem mounted at `/srv/grid`.
+The isolated engine uses `unix:///run/grid-docker.sock`; temporary runtime
+state stays in RAM. The kernel refuses writes at capacity; research data is
+never automatically deleted. The 1 GB margin keeps host bookkeeping below
+the 200 GB decimal ceiling. Startup and deployment reject a missing or
+resized mount. See [storage setup and migration](docs/storage.md).
+The configured
 `--public-origin https://grid.vaquum.fi` permits that exact public Host
 and HTTPS browser Origin, retaining the page token and cross-origin checks.
 
