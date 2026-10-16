@@ -182,6 +182,11 @@ async function loadRun(ds) {
     app.loadingRun = null;
     app.loadError = { run: ds.id, message: String(err.message || err) };
     update();
+    // A superseded reconnect cannot retry itself. If its stream was
+    // already down, recover it even when the reader leaves this error.
+    if (app.live && app.live.es.readyState === EventSource.CLOSED) {
+      setTimeout(() => { if (request === app.loadRequest) reconnect(app.config); }, 3000);
+    }
   }
 }
 
