@@ -58,6 +58,9 @@ jobs:
         # The receiver pins its cwd before checking it, then writes relative
         # to that cwd. Even lazy unmounts cannot redirect it to the host root.
         run: rsync -az --delete --exclude .git --exclude .env --rsync-path='/usr/local/libexec/grid-runtime /usr/bin/rsync' ./ "$DEPLOY_USER@$DEPLOY_HOST:checkout/"
+      - name: Apply isolated runtime and repair the primary Docker bridge
+        run: |
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" "cd '$DEPLOY_DIR' && if [ \"\$(id -u)\" -eq 0 ]; then sh deploy/apply-runtime.sh; else sudo -n sh deploy/apply-runtime.sh; fi"
       - name: Start and check Grid
         run: |
           # DEPLOY_DIR is expanded locally and sent quoted to the host.

@@ -18,6 +18,7 @@ test "$(stat -c %s "$image")" -eq 199000000000
 install -d /srv/grid /usr/local/libexec /etc/docker
 install -m 755 grid-storage-check /usr/local/libexec/grid-storage-check
 install -m 755 grid-runtime /usr/local/libexec/grid-runtime
+install -m 755 grid_network.py /usr/local/libexec/grid-network
 install -m 644 srv-grid.mount grid-docker.service \
     grid-logrotate.service grid-logrotate.timer /etc/systemd/system/
 install -m 644 grid-docker.json /etc/docker/grid.json

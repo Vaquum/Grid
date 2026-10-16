@@ -9,6 +9,13 @@ Grid has its own containerd process, namespace, socket and persistent root
 under `/srv/grid/containerd`; it never uses the host's shared runtime root.
 Docker launches this process in its pinned mount namespace so both see
 the same overlay mounts. The unit stops both processes together.
+Grid uses its own user-managed `grid0` bridge at `169.254.254.1/30`.
+It never disables the default bridge: Docker's `bridge=none` deletes the
+host's `docker0` even when used by a second daemon. IP forwarding and
+iptables management are disabled for the Grid engine. Merged deployments
+apply runtime configuration with root or noninteractive sudo, restore the
+primary bridge and reattach its recorded veth endpoints without restarting
+other services. Subsequent Grid starts only prepare `grid0`.
 Grid's isolated data and execution roots follow Docker's
 [multiple-daemon configuration](https://docs.docker.com/reference/cli/dockerd/#run-multiple-daemons).
 

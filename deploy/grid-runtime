@@ -5,6 +5,7 @@ set -eu
 cd /srv/grid
 /usr/local/libexec/grid-storage-check --cwd
 if [ "$1" = /usr/bin/dockerd ]; then
+    /usr/bin/python3 /usr/local/libexec/grid-network
     # Docker's overlay mounts and containerd must share this namespace.
     /usr/bin/containerd --config /etc/docker/grid-containerd.toml \
         >> /srv/grid/containerd.log 2>&1 &
