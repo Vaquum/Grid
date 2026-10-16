@@ -412,6 +412,7 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
                                        "text/html; charset=utf-8")
             if url.path == "/api/pack":
                 selected: set[str] | None = None
+                requested = ""
                 if "run" in q:
                     requested = q["run"]
                     if requested.startswith("project:") and server.project:

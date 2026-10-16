@@ -110,9 +110,11 @@ def bar_times(rec: Json, step: int | None) -> list[int]:
         source = [_epoch(t, "a test datetime") for t in cast(list[Any], exact)]
         if any(b <= a for a, b in zip(source, source[1:], strict=False)):
             raise ValueError("test timestamps must be unique and increasing")
-        times = [t for t in source if first <= t <= last and t not in gone]
-        if not times or times[0] != first or times[-1] != last:
+        bounded = [t for t in source if first <= t <= last]
+        if not bounded or (first not in gone and bounded[0] != first) or \
+                (last not in gone and bounded[-1] != last):
             raise ValueError("test timestamps do not match recorded alignment")
+        times = [t for t in bounded if t not in gone]
     elif step is not None:
         times = [t for t in range(first, last + step, step) if t not in gone]
     else:

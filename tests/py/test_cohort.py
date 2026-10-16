@@ -184,6 +184,28 @@ class Execution(unittest.TestCase):
 
 
 class Alignment(unittest.TestCase):
+    def test_exact_timestamps_allow_explicitly_dropped_endpoints(self) -> None:
+        stamps = ["2024-01-01T0%d:00:00+00:00" % i for i in range(5)]
+        for dropped in ([stamps[0]], [stamps[-1]],
+                        [stamps[0], stamps[-1]]):
+            for source_key in ("test_datetimes", "_grid_source_datetimes"):
+                rec = synthetic("edges", [0.6] * (5 - len(dropped)))
+                rec["alignment"] = {
+                    "first_test_datetime": stamps[0],
+                    "last_test_datetime": stamps[-1],
+                    "missing_datetimes": dropped}
+                target = rec["alignment"] if source_key == \
+                    "test_datetimes" else rec
+                target[source_key] = stamps
+                times = bar_times(rec, None)
+                self.assertEqual(len(times), 5 - len(dropped))
+                self.assertEqual(judge([rec], None, 0, 0)["bars"], len(times))
+                # An unrecorded missing endpoint still fails closed.
+                rec["alignment"]["missing_datetimes"] = []
+                target[source_key] = stamps[1:-1]
+                with self.assertRaisesRegex(ValueError, "alignment"):
+                    bar_times(rec, None)
+
     def test_exact_timestamps_support_irregular_file_bars(self) -> None:
         rec = synthetic("file", [0.6] * 3)
         stamps = ["2024-01-01T00:00:00+00:00",

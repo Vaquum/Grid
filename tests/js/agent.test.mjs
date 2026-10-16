@@ -168,6 +168,7 @@ test("first-half cohort membership is invariant to held-out masks and values", (
     for (const held of [[null, null, null, null], [1000, -1, null, 999], [-100, 20, 40, null]]) {
       const pack = structuredClone(original);
       pack.runs[0].rounds.forEach((entry, i) => {
+        entry[4].whole[field] = 4;
         entry[4].halves[0][field] = [3, 7, null, 1][i];
         entry[4].halves[1][field] = held[i];
       });
