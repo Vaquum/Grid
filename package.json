@@ -8,6 +8,7 @@
     "test": "node --test --test-reporter=spec \"tests/js/**/*.test.mjs\"",
     "test:browser": "node --test --test-reporter=spec \"tests/browser/*.test.mjs\"",
     "typecheck": "pyright",
-    "build": "python3 tools/build.py --out dist/grid.html"
+    "build": "python3 tools/build.py --out dist/grid.html",
+    "test:catalog": "npm run build && node --test --test-reporter=spec --test-name-pattern='experiment: catalog|cohort: a Limen|project catalog' tests/browser/page.test.mjs"
   }
 }

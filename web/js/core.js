@@ -42,7 +42,7 @@ export function decodeState(hash) {
 
 export const NO_NEEDLE = { id: "none", label: "Needle", kind: "cont", unit: "", better: 0, digits: 2, values: new Float64Array(0) };
 
-export function createModel(sweep, st, c = {}) {
+export function createModel(sweep, st, c = {}, { effects = true } = {}) {
   const ds = sweep.runs.find(r => r.id === st.run) || sweep.runs[0];
   if (!ds) throw new Error("no run is loaded");
   if (c.ds !== ds || c.version !== ds.version) {
@@ -83,6 +83,10 @@ export function createModel(sweep, st, c = {}) {
     c.rows = rowsIn(schema, ctx, edge);
     c.allRows = rowsIn(schema, [], edge);
     c.base = summarize(target, c.rows);
+    c.board = null; c.order = [];
+    c.record = null;
+  }
+  if (effects && !c.board) {
     const dims = boardDims(schema);
     c.board = board(schema, target, c.rows, dims);
     // a needle measured on each half of the test window (a Limen run that
@@ -90,7 +94,6 @@ export function createModel(sweep, st, c = {}) {
     const halves = halfTargets(target);
     if (halves) twice(c.board, halves.map(ht => board(schema, ht, c.rows, dims)));
     c.order = boardOrder(c.board.effects);
-    c.record = null;
   }
   return { sweep, ds, schema, target, edge, rows: c.rows, allRows: c.allRows, base: c.base,
     board: c.board, order: c.order, state: st, context: ctx, cache: c };

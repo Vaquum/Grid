@@ -101,6 +101,41 @@ test("a run with no target returns a reusable question", () => {
   assert.deepEqual(again.state, first.state);
 });
 
+test("sparse recorded halves never use whole-window gate evidence", () => {
+  const out = join(agentTemp, "sparse.json");
+  execFileSync("python3", ["-m", "grid", "pack", "--limen", "tests/fixtures/limen_cohort", "--out", out]);
+  const original = JSON.parse(readFileSync(out));
+  for (const [first, second] of [[3, null], [null, 3], [null, null]]) {
+    const pack = structuredClone(original);
+    for (const entry of pack.runs[0].rounds) {
+      const summary = entry[4];
+      summary.whole.tradeMean = 1;
+      summary.halves[0].tradeMean = 1;
+      summary.halves[1].tradeMean = 1;
+      summary.whole.tradeT = 9;
+      summary.halves[0].tradeT = first;
+      summary.halves[1].tradeT = second;
+    }
+    const state = { firstHalf: true, target: "backtest_pnl_per_bar_bps", gates: [{ id: "t", target: "trade_t", op: ">=", value: 2 }] };
+    const gates = analyzePack(structuredClone(pack), { analysis: "gates", state });
+    const cohort = analyzePack(structuredClone(pack), { analysis: "cohort", state });
+    assert.equal(cohort.result.gates[0].firstHalf, true);
+    assert.equal(cohort.result.firstHalfSelection, true);
+    if (first === null) {
+      assert.equal(cohort.result.pool, 0);
+      assert.deepEqual(cohort.result.members, []);
+      assert.ok(gates.warnings.some(w => w.includes("no first-half measurements")));
+    } else {
+      assert.ok(cohort.result.pool > 0);
+      assert.deepEqual(cohort.warnings, []);
+    }
+  }
+  const mixed = analyzePack(structuredClone(original), { analysis: "cohort", state: {
+    firstHalf: true, target: "backtest_pnl_per_bar_bps", gates: [{ id: "auc", target: "auc", op: ">", value: 0 }] } });
+  assert.equal(mixed.result.firstHalfSelection, false);
+  assert.ok(mixed.warnings.some(w => w.includes("selection is not isolated")));
+});
+
 test("walk-forward trials do not offer cohort selection", () => {
   const out = join(agentTemp, "walk-forward.json");
   execFileSync("python3", ["-m", "grid", "pack", "--limen", "tests/fixtures/limen_walk_forward", "--out", out]);
@@ -121,4 +156,43 @@ test("trial parameters retain names that resemble engine internals", () => {
   const r = analyzePack(pack, { analysis: "trials", limit: 1 });
   const trial = r.result.list[0];
   for (const name of names) assert.equal(trial.parameters[name], trial.i % 2 ? "b" : "a", name);
+});
+
+
+test("first-half cohort membership is invariant to held-out masks and values", () => {
+  const out = join(agentTemp, "isolated-cohort.json");
+  execFileSync("python3", ["-m", "grid", "pack", "--limen", "tests/fixtures/limen_cohort", "--out", out]);
+  const original = JSON.parse(readFileSync(out));
+  for (const [target, field] of [["trade_t", "tradeT"], ["trade_mean", "tradeMean"], ["backtest_pnl_per_bar_bps", "pnl"]]) {
+    let expected;
+    for (const held of [[null, null, null, null], [1000, -1, null, 999], [-100, 20, 40, null]]) {
+      const pack = structuredClone(original);
+      pack.runs[0].rounds.forEach((entry, i) => {
+        entry[4].whole[field] = 4;
+        entry[4].halves[0][field] = [3, 7, null, 1][i];
+        entry[4].halves[1][field] = held[i];
+      });
+      const result = analyzePack(pack, { analysis: "cohort", members: 100, state: { firstHalf: true, target } });
+      assert.equal(result.result.firstHalfSelection, true);
+      assert.deepEqual(result.warnings, []);
+      const selection = { pool: result.result.pool, ranked: result.result.ranked, members: result.result.members };
+      assert.equal(selection.ranked, 3, target);
+      if (expected) assert.deepEqual(selection, expected, target);
+      expected = selection;
+    }
+  }
+});
+
+
+test("schema and selection models defer Board effects without changing evidence", () => {
+  const sweep = decodePack(structuredClone(agentFixture));
+  const state = { ...DEFAULT_STATE, run: sweep.runs[0].id };
+  const cache = {};
+  const lean = createModel(sweep, state, cache, { effects: false });
+  assert.equal(lean.board, null);
+  const full = createModel(sweep, state, cache);
+  assert.ok(full.board);
+  assert.deepEqual(lean.rows, full.rows);
+  assert.deepEqual(lean.base, full.base);
+  assert.equal(lean.schema, full.schema);
 });

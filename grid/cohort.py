@@ -40,7 +40,7 @@ import math
 import os
 import re
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, cast
 
 from .limen import windows
@@ -75,12 +75,15 @@ def _epoch(text: object, what: str) -> int:
     if not isinstance(text, str):
         raise ValueError("%s is not a time" % what)
     try:
-        return int(datetime.fromisoformat(text).timestamp())
+        value = datetime.fromisoformat(text)
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return int(value.timestamp())
     except ValueError as err:
         raise ValueError("%s is not a time: %r" % (what, text)) from err
 
 
-def bar_times(rec: Json, step: int) -> list[int]:
+def bar_times(rec: Json, step: int | None) -> list[int]:
     """The times of a round's test bars (seconds since the epoch): every
     bar from its window's first to its last at the data's bar interval,
     less those it dropped; refused when they do not number its arrays."""
@@ -100,7 +103,24 @@ def bar_times(rec: Json, step: int) -> list[int]:
                          % _rid(rec))
     gone = {_epoch(t, "a missing datetime")
             for t in cast(list[Any], dropped)}
-    times = [t for t in range(first, last + step, step) if t not in gone]
+    exact: Any = a.get("test_datetimes", rec.get("_grid_source_datetimes"))
+    if exact is not None:
+        if not isinstance(exact, list):
+            raise ValueError("test_datetimes must be a list of timestamps")
+        source = [_epoch(t, "a test datetime") for t in cast(list[Any], exact)]
+        if any(b <= a for a, b in zip(source, source[1:], strict=False)):
+            raise ValueError("test timestamps must be unique and increasing")
+        bounded = [t for t in source if first <= t <= last]
+        if not bounded or (first not in gone and bounded[0] != first) or \
+                (last not in gone and bounded[-1] != last):
+            raise ValueError("test timestamps do not match recorded alignment")
+        times = [t for t in bounded if t not in gone]
+    elif step is not None:
+        times = [t for t in range(first, last + step, step) if t not in gone]
+    else:
+        raise ValueError("no recorded test timestamps; evaluate with a "
+                         "Limen project and its original file source, or "
+                         "record alignment.test_datetimes")
     n = len(_preds(rec))
     if len(times) != n:
         raise ValueError("round %s: its %d test bars are not the %d bars "
@@ -277,7 +297,7 @@ def line_features(rec: Json, manifest: Json | None) -> bool:
     return False
 
 
-def judge(records: list[Json], step: int, fee_bps: float,
+def judge(records: list[Json], step: int | None, fee_bps: float,
           slip_bps: float, manifest: Json | None = None,
           sfd_module: str | None = None) -> Json:
     """The cohort of ``records`` (round lines of one run, whose manifest is
@@ -398,7 +418,7 @@ def judge(records: list[Json], step: int, fee_bps: float,
             "cohort": cohort, "members": members, "notes": notes}
 
 
-def bar_step(experiment: Json) -> int:
+def bar_step(experiment: Json) -> int | None:
     """The data's bar interval in seconds, from the manifest's data
     source (``kline_size``)."""
     manifest: Any = experiment.get("manifest")
@@ -413,8 +433,7 @@ def bar_step(experiment: Json) -> int:
     size: Any = cast(Json, params).get("kline_size") if isinstance(
         params, dict) else None
     if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
-        raise ValueError("the manifest names no bar interval "
-                         "(sfd.manifest.data_source.params.kline_size)")
+        return None
     return size
 
 

@@ -627,10 +627,11 @@ def cmd_serve(a: argparse.Namespace) -> int:
         config.update(experiment="api/experiment", token=token)
         project.opener = w.open_limen
         project.python = limen_python(a.project, project.cli, a.limen_python)
-        project.follow()
     page = LivePage(config)
     page()  # fail now, not on the first request, when the page is missing
     w.start()
+    if project is not None:
+        project.follow()
     agent_file = getattr(a, "agent_file", None)
     agent_token = secrets.token_urlsafe(32) if agent_file else None
     httpd = serve(sweep, page, a.bind, a.port, project, token, agent_token,
@@ -654,6 +655,9 @@ def cmd_serve(a: argparse.Namespace) -> int:
         httpd.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        if project is not None:
+            project.discovery_stop.set()
     return 0
 
 

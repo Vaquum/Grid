@@ -1,0 +1,8 @@
+{
+  "rounds": 40,
+  "observed_rounds": 40,
+  "unavailable_rounds": 0,
+  "convergence_warning_rounds": 0,
+  "convergence_warning_pct": 0.0,
+  "parameter_patterns": []
+}

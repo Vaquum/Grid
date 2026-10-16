@@ -1,0 +1,88 @@
+schema_version: '1.0'
+metadata:
+  name: "rule"
+  limen_version: 5.27.0
+  mode: development
+  description: Offline Grid proof
+sfd:
+  manifest:
+    type: rule_based
+    data_source:
+      method: limen.data.HistoricalData.get_any_file
+      params:
+        file_path_or_url: /tmp/grid-image-o8ihmutk/project/market.parquet
+    split_dates:
+      train_start: '2026-01-01'
+      train_end: '2026-01-04'
+      val_start: '2026-01-05'
+      val_end: '2026-01-08'
+      test_start: '2026-01-09'
+      test_end: '2026-01-12'
+    strategy:
+      conditions:
+      - id: enter
+        name: Up bar
+        type: relative
+        column: close
+        operator: '>'
+        other_column: open
+      entry: enter
+    reference_architecture: 
+      limen.sfd.reference_architecture.rule_based.rule_based
+    backtest:
+      fee_bps: '{fee}'
+      slip_bps: 0.0
+      notional_rate: 1.0
+  params:
+    fee:
+    - 0
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+    - 8
+    - 9
+    - 10
+    - 11
+    - 12
+    - 13
+    - 14
+    - 15
+    - 16
+    - 17
+    - 18
+    - 19
+    - 20
+    - 21
+    - 22
+    - 23
+    - 24
+    - 25
+    - 26
+    - 27
+    - 28
+    - 29
+    - 30
+    - 31
+    - 32
+    - 33
+    - 34
+    - 35
+    - 36
+    - 37
+    - 38
+    - 39
+uel:
+  n_permutations: 40
+  search_strategy:
+    type: grid
+  prep_each_round: true
+  factorize: true
+  workers: 1
+  record_execution: true
+  record_model_outputs: true
+  output_format: csv
+  output_path: "rule/20261016_204227/s1"

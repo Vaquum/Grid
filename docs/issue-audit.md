@@ -1,0 +1,38 @@
+# Issue audit — 16 October 2026
+
+The initial 37 issues were reviewed against main (`023df44`) and merged PRs.
+The 24 closed issues already have merged implementations; none needs reopening.
+This audit covers the initial 13 open issues and eleven requests filed during
+implementation (#78, #80, #81, #82, #83, #84, #85, #87, #89, #90, #92). Remaining
+changes share this PR; merged work and existing PRs are recorded below.
+
+| Issue | Disposition |
+| --- | --- |
+| [#73](https://github.com/Vaquum/Grid/issues/73) | Include Node 24, the analysis worker and ES-module metadata in the final image; exercise the agent against recorded data in that image. |
+| [#74](https://github.com/Vaquum/Grid/issues/74) | Derive parameter roles exclusively from the Limen manifest, recognize native rule metrics and map supported test metrics to recorded halves. |
+| [#75](https://github.com/Vaquum/Grid/issues/75) | Expose execution preflight separately from schema validation and reject unsupported worker combinations before creating a run. Advertise the restrictions. |
+| [#76](https://github.com/Vaquum/Grid/issues/76) | Use affinity and cgroup quotas for capacity, shard admission and native thread allocation, including manifest workers. |
+| [#78](https://github.com/Vaquum/Grid/issues/78) | Automatically discover all project runs across shared services and restart; enable a private agent connection on the production service and identify the UI origin/instance. |
+| [#80](https://github.com/Vaquum/Grid/issues/80) | Preserve sparse/all-null half arrays, fail closed on unavailable first-half gates, and report mixed-scope selection without certifying isolation. |
+| [#81](https://github.com/Vaquum/Grid/issues/81) | Prefer recorded timestamps; otherwise recover exact test bars through the original manifest in Limen, supporting native Parquet/Arrow sources and rejecting missing or inconsistent timestamps. |
+| [#82](https://github.com/Vaquum/Grid/issues/82) | Remains open: native factorized random traversal requires [Limen #924](https://github.com/Vaquum/Limen/issues/924). Advertise the missing capability and reject random/shuffled factorized manifests. This PR does not claim randomized factorial levels satisfy random candidate sampling. |
+| [#83](https://github.com/Vaquum/Grid/issues/83) | Reject unresolved `recency_n`/`persistence_n` references and invalid constants before starting a run. Constant positive integers remain supported; native reference resolution is tracked in [Limen #925](https://github.com/Vaquum/Limen/issues/925). |
+| [#84](https://github.com/Vaquum/Grid/issues/84) | Merged in [PR #86](https://github.com/Vaquum/Grid/pull/86). Integrate its deferred run loading with shared-project discovery: enumerate unopened histories without counting CSV rows, resolve selected project IDs, and preserve its retry/reconnect behavior. |
+| [#85](https://github.com/Vaquum/Grid/issues/85) | Rank cohorts exclusively on finite first-half evidence, regardless of second-half values or availability; preserve unavailable held-out results. |
+| [#87](https://github.com/Vaquum/Grid/issues/87) | Already implemented in [PR #88](https://github.com/Vaquum/Grid/pull/88), with passing local and CI checks. Omit duplicate Trials changes from this PR. |
+| [#89](https://github.com/Vaquum/Grid/issues/89) | Capture only the selected run for agent analysis and pinned snapshots; avoid a full-pack parse/serialize pass, defer Board effects for schema/gates/cohort/manifest queries, and report capture/envelope/worker times and retained bytes. Compare identical evidence with an unrelated 5,000-row telemetry run. |
+| [#90](https://github.com/Vaquum/Grid/issues/90) | Already has [PR #91](https://github.com/Vaquum/Grid/pull/91): a bounded 199 GB filesystem, dedicated Docker engine, migration and fail-closed deployment checks. Its production migration and validation remain owned by that PR; do not duplicate or claim its deployment here. |
+| [#92](https://github.com/Vaquum/Grid/issues/92) | Already implemented in [PR #93](https://github.com/Vaquum/Grid/pull/93), covering non-root storage checks while preserving the kernel boundary. Omit duplicate deployment changes. |
+| [#54](https://github.com/Vaquum/Grid/issues/54), v5.24.1 | Upstream documentation update. Grid already invokes the documented CLI/Python routes. No feature change. |
+| [#57](https://github.com/Vaquum/Grid/issues/57), v5.25.0 | Already installed in the image. Native workers remain distinct from Grid shards; admission and CPU budgeting are covered by #75/#76. |
+| [#66](https://github.com/Vaquum/Grid/issues/66), v5.25.1 | Captured aggregates and nullable CSV fixes are upstream. Grid already reads CSV aggregates and preserves nulls. Included in the new image pin. |
+| [#67](https://github.com/Vaquum/Grid/issues/67), v5.25.2 | Preparation reuse is upstream execution behavior. Included in the new image pin; no Grid analysis contract change. |
+| [#68](https://github.com/Vaquum/Grid/issues/68), v5.25.3 | Polars/sklearn conversions belong to upstream fitting. Included in the new image pin. |
+| [#69](https://github.com/Vaquum/Grid/issues/69), v5.25.4 | Calibration decision preservation is upstream. Included in the new image pin. |
+| [#70](https://github.com/Vaquum/Grid/issues/70), v5.26.0 | Target source exclusions are applied by Limen during preparation/inference. Grid preserves the manifest and delegates both routes. Included in the new image pin. |
+| [#71](https://github.com/Vaquum/Grid/issues/71), v5.26.1 | Fixed trade-source reuse is upstream. Included in the new image pin. |
+| [#72](https://github.com/Vaquum/Grid/issues/72), v5.27.0 | Declared column shims are prepared by Limen. Grid preserves their declarations; no separate transform implementation is needed. Pin the image to this release. |
+
+Release dispositions use the linked upstream PRs and the corresponding
+[Limen releases](https://github.com/Vaquum/Limen/releases). They do not imply
+new upstream support for combining factorization and parallel rounds.

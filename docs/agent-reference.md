@@ -57,7 +57,7 @@ Unknown fields fail. Writes require a new `requestId` for each new intent.
 | `grid_row` | `reference`* | `reference` (echo) and `row` (recorded row object). Column names and value types belong to that run; missing fields are not equivalent to null values. |
 | `grid_reports` | `run`* (analysis ID) | `reports`: array of report entries; see reports below. |
 | `grid_manifest` | `name`* | `name`, working YAML `text`, opaque content `version`. |
-| `grid_validate` | `text`* | `errors`: array of `{line, path, message}`. Empty means valid; line may be null and path may be empty. A nonempty list is a validation failure even with envelope `ok: true`. |
+| `grid_validate` | `text`* | `errors`: array of `{line, path, message}`. Also returns `schemaErrors`, `executionErrors` and `executionChecked`. Empty means the schema and known worker compatibility checks passed; line may be null and path may be empty. A nonempty list is a validation failure even with envelope `ok: true`. |
 | `grid_diff` | `name`*, `text`* | `against`: previous project run ID or null; `diff`: unified diff against that run's recorded manifest. No previous run means null/empty string. |
 | `grid_create` | `name`*, `requestId`*; `template` or `text` | `name` of the created experiment. At least one source is needed operationally. If both are supplied, template takes precedence. |
 | `grid_save` | `name`*, `text`*, `version`*, `requestId`* | New manifest `version`. Save fails if the supplied version differs from the working file; reread and reconcile before a new intent. |
@@ -77,6 +77,32 @@ mode. `grid_open` changes the loaded analysis set even though it is advertised
 as read-only and does not use a write receipt.
 
 ### Discovery
+
+`ui` identifies the configured public `origin` and this service
+`instance`; `projectRuns` describes automatic shared-project discovery.
+Status also returns `uiOrigin`; analysis returns `ui`, including
+`snapshotInstanceLocal`. Run analysis IDs and pinned snapshots belong to
+one service, while recorded project runs are discovered by every service
+sharing the project, including after restart.
+
+`execution` is null without a project, otherwise the same capabilities exposed
+in `project.limen.capabilities`: `parallelRounds`, `parallelFactorize` (false),
+`parallelRequiresPrepEachRound`, `shardsRequireRandomSearch`, `cpuBudget`,
+`factorizedRandom` (false), `factorizedGridRequiresUnshuffled` (true),
+`ruleTemporalReferences` (false), and
+`preflight` (scope). The effective CPU budget accounts for affinity and cgroup
+quotas; fractional quotas round down to whole worker slots, with a minimum
+of one. `shards * uel.workers` cannot exceed this budget. Native parallel
+workers each use one native thread; serial shards divide the budget.
+
+`grid_validate` distinguishes upstream schema errors from Grid execution
+preflight. Preflight checks declarative worker/version/CPU compatibility; it
+does not certify data availability or custom runner code. `uel.factorize: true`
+requires `uel.workers: 1`. Parallel workers require `prep_each_round: true`
+and Limen >= 5.25.0. Factorization requires an unshuffled grid; seeded
+factorized random traversal depends on Limen #924 and is not available.
+Grid edits/preflights `uel` as a block mapping. Start
+repeats these checks before making a run directory or spawning a process.
 
 | Field | Meaning |
 | --- | --- |
@@ -113,7 +139,7 @@ change without advancing that cursor. Poll status for job completion.
 | `experiment` | Profile/recorded manifest metadata, or null. Contains run-specific Limen information rather than a fixed agent schema. |
 | `roundsBadCount`, `roundsBad` | Round-log ingestion failures and samples. |
 
-`project` nests `project: {root, name}`, `limen: {cli, version}`, `cores`,
+`project` nests `project: {root, name}`, `limen: {cli, version, capabilities}`, `cores`,
 `templates`, `experiments`, `runs`, and `cohorts`. Template entries contain
 `name` and their Limen-provided `about` description. Experiments contain `name`,
 manifest `file`/`version` (null for run-only experiments), and project `runs`
@@ -216,6 +242,7 @@ every analysis population automatically.
 | `apiVersion` | Inner payload version, currently 1. |
 | `snapshot` | `id`, `instance`, `run`, `generation`, `datasetVersion`, `edge`, `rows`, `expiresIn`. Dataset version is captured data revision; `rows` is context population support and `expiresIn` is remaining whole seconds. |
 | `state` | Full resolved public state above. Reuse it to preserve the question. |
+| `performance` | `captured`, `captureMs` (run-scoped pack creation, including column serialization), `serializationMs` (worker envelope), `workerMs` (child process), `snapshotBytes` (retained UTF-8 pack). Pinned reuse sets `captured` false. |
 | `viewLink` | Relative pinned human UI link. Resolve against the connection URL; its snapshot ID grants access to the read-only capture. |
 | `target` | Target descriptor below. |
 | `summary` | Base context statistics below. |
@@ -484,3 +511,55 @@ not a new backtest of the trained artifact. Read the returned notes: recorded
 take-profit/stop-loss exits are not recreated, and differing test windows can
 leave bars outside both halves. Use the second-half windows to judge a
 first-half selection. Predictor training is a separate asynchronous operation.
+
+## Sparse halves and file-source cohort evaluation
+
+Recorded half arrays retain unavailable values independently. An unavailable
+second half never substitutes a whole-window gate for first-half evidence.
+A gate without first-half measurements admits no rows and produces a warning.
+`firstHalfSelection` is false if any selection gate reads the whole window.
+
+Cohort selection reports `evaluation: {available, reason?}` after probing the
+selected members. Evaluation prefers recorded `alignment.test_datetimes`.
+For manifests without `kline_size`, a project uses its configured Limen Python
+to rebuild the exact test-bar timestamps from the original source and recorded
+manifest/parameters, including native Parquet and Arrow loaders. It performs
+no model fitting. Missing, duplicate, reordered or mismatched timestamps fail
+with an actionable error. Keep the original source available and unchanged;
+Grid does not invent regular bars for an irregular file. Evaluation reports
+`timestampSource` and a null `step` when no regular interval is declared.
+
+## Native rule parameter references
+
+Limen 5.27.0 resolves references in predicate `column`, `other_column`,
+threshold `value`, slope `lookback`, and SQL `expr` fields. Operators,
+directions, condition IDs and temporal modifiers are not templated by that
+implementation. Write `recency_n` and `persistence_n` as block fields with
+constant positive integers. Grid preflight rejects their unresolved references
+and invalid constants with the field path and line before any run directory
+or process is created. Native temporal reference resolution depends on
+[Limen #925](https://github.com/Vaquum/Limen/issues/925); Grid does not resolve
+these fields itself or claim factorized equivalence for unsupported references.
+
+
+Project page loading uses `GET /api/pack` for lightweight deferred run metadata and a `catalog`, without
+analytical rows. `GET /api/pack?run=ID` returns analytical data only for the selected run; an unopened
+catalog ID starts with `project:` and resolves to `selectedRun` in that response.
+Its live cursor follows that run and any rollover archives. Catalog updates
+advertise other runs without transferring their outcomes. The Experiment view
+uses `GET /api/experiment?catalog=1`; unknown historical row counts are null until
+read. Explicit full packs, CLI exports and pinned agent snapshots retain their
+recorded data. Cohort ranking uses first-half availability and values alone;
+missing held-out statistics do not remove candidates or become zero.
+
+Agent captures include only `state.run` (or the first open run when omitted),
+with canonical IDs, generation, rows, rounds and associated logs. Another run
+requires a new capture. Four captures per server and ten-minute expiry remain
+unchanged; each pinned pack is immutable across arrivals and resets. Schema,
+gates, cohort and manifest queries defer Board effect calculations. Performance
+measurements describe processing stages, not network latency or financial evidence.
+
+Rule preflight requires condition items as block mappings with their first
+key on the sequence-dash line, for example `- id: signal`. Flow mappings,
+sequence aliases and anchored items must be expanded into this form before
+launch. Both plain and single/double-quoted temporal keys are checked.
