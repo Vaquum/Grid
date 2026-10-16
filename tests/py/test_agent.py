@@ -186,6 +186,14 @@ class TestAgent(unittest.TestCase):
             self.assertTrue(error["path"].endswith(field))
             self.assertIsNotNone(error["line"])
             self.assertIn("constant positive integer", error["message"])
+            for quote in ("'", '"'):
+                quoted = candidate.replace(field + ":", quote + field +
+                                           quote + ":")
+                # Quoted mapping keys must not bypass the path lookup either.
+                quoted = quoted.replace("  manifest:", '  "manifest":')
+                checked = self.call("grid_validate", text=quoted)
+                self.assertTrue(any(e["path"].endswith(field) for e in
+                                    checked["executionErrors"]))
             self.call("grid_create", name=field, text=candidate,
                       requestId=field)
             manifest = self.call("grid_manifest", name=field)

@@ -65,7 +65,8 @@ MAX_ROUNDS = 10_000_000
 # ---------------------------------------------------------------------------
 # A manifest's plain values, as text
 
-_KEY = re.compile(r"^(?P<indent> *)(?P<key>[A-Za-z_][A-Za-z0-9_.-]*)[ \t]*:"
+_KEY = re.compile(r"^(?P<indent> *)(?P<quote>['\"]?)"
+                  r"(?P<key>[A-Za-z_][A-Za-z0-9_.-]*)(?P=quote)[ \t]*:"
                   r"(?P<rest>(?:[ \t].*)?)$")
 
 
@@ -600,12 +601,21 @@ class Project:
                         "; use block fields for rule preflight")
                 span = None
             for i in range(span[0], span[1]) if span else range(0):
+                key = _KEY.match(lines[i])
+                if (key and key["key"] == "conditions" and
+                        _written(key["rest"])) or \
+                        lines[i].lstrip().startswith("- {"):
+                    problem("sfd.manifest.strategy.conditions",
+                            "use block condition fields for execution "
+                            "preflight", i + 1)
                 temporal = re.match(
-                    r"^\s*(?:-\s+)?(recency_n|persistence_n)\s*:(.*)$",
+                    r"^\s*(?:-\s+)?(?P<quote>['\"]?)"
+                    r"(?P<field>recency_n|persistence_n)(?P=quote)\s*:"
+                    r"(?P<rest>.*)$",
                     lines[i])
                 if temporal is None:
                     continue
-                field, rest = temporal.groups()
+                field, rest = temporal["field"], temporal["rest"]
                 value = _scalar(_written(rest))
                 try:
                     count = int(value)
