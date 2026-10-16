@@ -223,7 +223,8 @@ class TestAgent(unittest.TestCase):
                         "type: relative, column: close, operator: '>', "
                         "other_column: open, " + field +
                         ": '{hold_bars}'}\n")
-                candidate = text[:start] + flow + text[end:]
+                candidate = (text[:start] + flow + text[end:]).replace(
+                    "\n  params:\n", "\n  params:\n    hold_bars: [1, 3]\n")
                 checked = self.call("grid_validate", text=candidate)
                 self.assertTrue(checked["executionErrors"])
                 self.assertEqual(checked["executionErrors"][0]["path"],
