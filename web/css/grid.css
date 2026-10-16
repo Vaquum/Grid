@@ -721,6 +721,10 @@ table.pr-combos th.iv, table.pr-combos td.iv { width: 30%; min-width: 96px; }
 :is(.icon-btn, .seg button)[aria-disabled="true"] { color: var(--muted); opacity: 0.45; cursor: default; }
 :is(.icon-btn, .seg button)[aria-disabled="true"]:hover { background: transparent; color: var(--muted); }
 table.trials th { vertical-align: bottom; }
+table.trials .tr-sort { display: inline-flex; align-items: baseline; gap: 4px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: inherit; cursor: pointer; }
+table.trials .tr-sort:hover, table.trials th[aria-sort] .tr-sort { color: var(--ink); }
+table.trials .tr-sort-mark { color: var(--muted); font-size: var(--fs-s); }
+table.trials th[aria-sort] .tr-sort-mark { color: var(--ink); }
 /* a head wraps only past a set width, so no column is squeezed below it */
 table.trials th .lbl { display: inline-block; width: max-content; max-width: 112px; white-space: normal; }
 table.trials th .u { font-weight: 400; white-space: nowrap; }

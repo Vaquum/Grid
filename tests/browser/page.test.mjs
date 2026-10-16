@@ -326,6 +326,49 @@ test("trials: a strip, and column sets that toggle, join the table under their n
   await page.close();
 });
 
+test("trials: headings sort both ways, survive reload and copy the displayed order", async () => {
+  const { page, errors } = await open();
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: base });
+  await page.keyboard.press("5");
+  await page.waitForSelector("table.trials");
+  const ids = () => page.locator("table.trials tbody tr").evaluateAll(rs => rs.map(r => Number(r.children[1].textContent.replaceAll(",", ""))));
+  const original = await ids();
+  const best = await page.locator(".strip").innerText();
+  const rowHeading = page.locator('[data-sort="base:row"]');
+  await rowHeading.click();
+  assert.deepEqual(await ids(), [...original].sort((a, b) => a - b));
+  assert.equal(await rowHeading.locator("..").getAttribute("aria-sort"), "ascending");
+  await rowHeading.press("Enter");
+  const descending = [...original].sort((a, b) => b - a);
+  assert.deepEqual(await ids(), descending);
+  assert.equal(await rowHeading.locator("..").getAttribute("aria-sort"), "descending");
+  assert.equal(await page.locator(".strip").innerText(), best, "the best row still uses runner rank");
+  await page.reload();
+  await page.waitForSelector("table.trials");
+  assert.deepEqual(await ids(), descending);
+  await page.locator(".strip-copy").click();
+  await page.waitForSelector("text=Best rows copied.");
+  const notes = await page.evaluate(() => navigator.clipboard.readText());
+  const copied = notes.split("\n").filter(l => /^\| \d/.test(l)).map(l => Number(l.split("|")[2].trim().replaceAll(",", "")));
+  assert.deepEqual(copied, descending);
+  await page.locator('[data-sort="base:#"]').click();
+  assert.deepEqual(await ids(), original);
+  // Every available column set supplies working sort buttons with unique keys.
+  for (const toggle of await page.locator('.tr-tools [aria-pressed="false"]:not([aria-disabled="true"])').all()) await toggle.click();
+  const keys = await page.locator(".tr-sort").evaluateAll(bs => bs.map(b => b.dataset.sort));
+  assert.equal(new Set(keys).size, keys.length);
+  for (const key of keys.filter(k => k !== "base:#")) {
+    const button = page.locator(`[data-sort=${JSON.stringify(key)}]`);
+    await button.click();
+    assert.equal(await button.locator("..").getAttribute("aria-sort"), "ascending", key);
+    await button.press("Space");
+    assert.equal(await button.locator("..").getAttribute("aria-sort"), "descending", key);
+    assert.deepEqual((await ids()).sort((a, b) => a - b), [...original].sort((a, b) => a - b));
+  }
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("trials: a toggle names itself and its key after half a second of rest", async () => {
   const { page, errors } = await open();
   await page.keyboard.press("5");
