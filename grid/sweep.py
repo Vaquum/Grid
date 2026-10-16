@@ -414,8 +414,10 @@ class Sweep:
 
     def pack_parts(self, mode: str = "live", run_id: str | None = None
                    ) -> tuple[list[str], Cursor]:
-        """Everything as of now as JSON text in parts (joined, they are
-        one JSON document), and its cursor.
+        """A pack as JSON text parts and a cursor with the same scope.
+
+        With run_id, defer every other run's columns, arrivals and rounds;
+        an empty id returns only metadata. None retains the full pack.
 
         Serialised under the lock (followers keep appending to the same
         arrays), one column at a time to keep memory to one column's worth.

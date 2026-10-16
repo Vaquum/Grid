@@ -4,7 +4,10 @@ Routes:
 
 - ``/``             the page, told to read the live sweep from this server;
 - ``/api/pack``     everything as of now (gzip when accepted), with a cursor
-                    token for the stream;
+                    token for the stream; ``?run=ID`` includes only that
+                    run's rows, ``?run=`` only the catalog. Other runs'
+                    metadata is marked deferred; the cursor keeps this
+                    scope for subsequent events;
 - ``/api/stream``   server-sent events that bring a page holding the cursor
                     up to date, as rows and log lines arrive;
 - ``/api/row``      one row rebuilt from its columns (``?run=ID&i=N``);

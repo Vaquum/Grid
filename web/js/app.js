@@ -242,7 +242,7 @@ function applyMessage(msg) {
 function settleStay() {
   const id = app.stayOn;
   const ds = id && app.sweep.runs.find(r => r.id === id);
-  if (!ds || !ds.n) return;
+  if (!ds || (!ds.n && !ds.meta.deferred)) return;
   app.stayOn = null;
   if (app.state.run !== ds.meta.archivedFrom) return;
   app.state = { ...app.state, run: id };
