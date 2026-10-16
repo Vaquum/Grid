@@ -207,6 +207,10 @@ class Server:
         manifest: Any = exp.get("manifest")
         sfd_module: Any = exp.get("sfdModule")
         step = bar_step(exp)
+        if any(not isinstance(rec.get("alignment"), dict) for rec in records):
+            raise ValueError("a selected round recorded no alignment; "
+                             "record model outputs and execution before "
+                             "selecting cohort members")
         if step is None and any(not isinstance(rec.get("alignment"), dict)
                                 or "test_datetimes" not in rec["alignment"]
                                 for rec in records):
@@ -230,7 +234,7 @@ class Server:
                 raise ValueError("source timestamp recovery exceeded 180 s") \
                     from exc
             for rec in records:
-                if "test_datetimes" not in rec.get("alignment", {}):
+                if "test_datetimes" not in rec["alignment"]:
                     rec["_grid_source_datetimes"] = times.get(rec["round_id"])
         out = judge(records, step, fee, slip,
                     cast(Json, manifest) if isinstance(manifest, dict)

@@ -178,6 +178,20 @@ class TestAgent(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertNotIn("private worker detail", json.dumps(result))
 
+    def test_missing_file_alignment_is_an_operation_error(self):
+        refs = self.agent.call("grid_analyze", {
+            "analysis": "trials", "limit": 1})["result"]["result"]["list"]
+        members = [r["reference"] for r in refs]
+        exp = {"manifest": {"sfd": {"manifest": {"data_source": {
+            "method": "limen.data.HistoricalData.get_any_file",
+            "params": {"file_path_or_url": "missing.parquet"}}}}}}
+        with patch.object(self.server, "members", return_value=(
+                exp, [{"round_id": "bad", "alignment": None}], [])):
+            result = self.agent.call("grid_cohort_evaluate", {
+                "members": members, "fee": 0, "slip": 0})
+        self.assertFalse(result["ok"])
+        self.assertIn("no alignment", result["error"]["message"])
+
     def test_native_rule_and_ml_profiles_through_public_analysis(self):
         run_id = self.wiring.open_limen("native-rule", [
             str(ROOT / "tests/fixtures/limen_rule")], 40)
