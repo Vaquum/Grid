@@ -78,6 +78,15 @@ def main() -> None:
                     "python", "/fixtures/generate_rule_run.py", str(project)],
                     check=True)
                 rule_text = (project / "rule_smoke.yaml").read_text()
+                for field in ("recency_n", "persistence_n"):
+                    temporal = rule_text.replace("      entry: enter", (
+                        "        %s: '{hold_bars}'\n      entry: enter" % field))
+                    temporal = temporal.replace("  params:\n", (
+                        "  params:\n    hold_bars: [1, 3, 6, 12]\n"))
+                    checked = call("grid_validate", text=temporal)
+                    assert checked["schemaErrors"] == [], checked
+                    assert any(e["path"].endswith(field)
+                               for e in checked["executionErrors"]), checked
                 bad = rule_text.replace("workers: 1", "workers: 2")
                 preflight = call("grid_validate", text=bad)
                 assert preflight["schemaErrors"] == [], preflight

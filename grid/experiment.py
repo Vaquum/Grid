@@ -543,17 +543,18 @@ class Project:
                 "parallelFactorize": False,
                 "factorizedRandom": False,
                 "factorizedGridRequiresUnshuffled": True,
+                "ruleTemporalReferences": False,
                 "parallelRequiresPrepEachRound": True,
                 "shardsRequireRandomSearch": True,
                 "cpuBudget": self.cores,
-                "preflight": "declarative worker compatibility; data and "
+                "preflight": "declarative execution compatibility; data and "
                              "custom runner code are checked by Limen"}
 
     def execution_errors(self, text: str) -> list[Json]:
         errors: list[Json] = []
 
-        def problem(path: str, message: str) -> None:
-            errors.append({"line": None, "path": path, "message": message})
+        def problem(path: str, message: str, line: int | None = None) -> None:
+            errors.append({"line": line, "path": path, "message": message})
 
         try:
             _mapping(text.splitlines(), ["uel"], create=False)
@@ -589,6 +590,34 @@ class Project:
                     != "true":
                 problem("uel.prep_each_round", "uel.workers > 1 requires "
                         "uel.prep_each_round: true; otherwise use workers: 1")
+        if get_value(text, "sfd.manifest.type") == "rule_based":
+            lines = text.splitlines()
+            try:
+                span = _mapping(lines, ["sfd", "manifest", "strategy"],
+                                create=False)
+            except ValueError as exc:
+                problem("sfd.manifest.strategy", str(exc) +
+                        "; use block fields for rule preflight")
+                span = None
+            for i in range(span[0], span[1]) if span else []:
+                temporal = re.match(
+                    r"^\s*(?:-\s+)?(recency_n|persistence_n)\s*:(.*)$",
+                    lines[i])
+                if temporal is None:
+                    continue
+                field, rest = temporal.groups()
+                value = _scalar(_written(rest))
+                try:
+                    count = int(value)
+                except ValueError:
+                    count = 0
+                if count < 1:
+                    reason = ("parameter references require upstream Limen "
+                              "support; use a constant positive integer"
+                              if "{" in value else
+                              "must be a constant positive integer")
+                    problem("sfd.manifest.strategy.conditions." + field,
+                            field + " " + reason, i + 1)
         return errors
 
     def validation(self, text: str) -> Json:

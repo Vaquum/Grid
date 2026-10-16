@@ -88,7 +88,8 @@ sharing the project, including after restart.
 `execution` is null without a project, otherwise the same capabilities exposed
 in `project.limen.capabilities`: `parallelRounds`, `parallelFactorize` (false),
 `parallelRequiresPrepEachRound`, `shardsRequireRandomSearch`, `cpuBudget`,
-`factorizedRandom` (false), `factorizedGridRequiresUnshuffled` (true), and
+`factorizedRandom` (false), `factorizedGridRequiresUnshuffled` (true),
+`ruleTemporalReferences` (false), and
 `preflight` (scope). The effective CPU budget accounts for affinity and cgroup
 quotas; fractional quotas round down to whole worker slots, with a minimum
 of one. `shards * uel.workers` cannot exceed this budget. Native parallel
@@ -526,3 +527,15 @@ no model fitting. Missing, duplicate, reordered or mismatched timestamps fail
 with an actionable error. Keep the original source available and unchanged;
 Grid does not invent regular bars for an irregular file. Evaluation reports
 `timestampSource` and a null `step` when no regular interval is declared.
+
+## Native rule parameter references
+
+Limen 5.27.0 resolves references in predicate `column`, `other_column`,
+threshold `value`, slope `lookback`, and SQL `expr` fields. Operators,
+directions, condition IDs and temporal modifiers are not templated by that
+implementation. Write `recency_n` and `persistence_n` as block fields with
+constant positive integers. Grid preflight rejects their unresolved references
+and invalid constants with the field path and line before any run directory
+or process is created. Native temporal reference resolution depends on
+[Limen #925](https://github.com/Vaquum/Limen/issues/925); Grid does not resolve
+these fields itself or claim factorized equivalence for unsupported references.

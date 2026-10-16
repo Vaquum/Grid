@@ -26,7 +26,8 @@ with source.open("w", newline="") as stream:
         writer.writerow([(dt.datetime(2026, 1, 1) + dt.timedelta(hours=i))
                          .isoformat(), opened, max(opened, closed) + 0.2,
                          min(opened, closed) - 0.2, closed, 100])
-frame = pl.read_csv(source, try_parse_dates=True)
+frame = pl.read_csv(source, try_parse_dates=True).with_columns(
+    pl.col("datetime").dt.replace_time_zone("UTC"))
 source_format = sys.argv[2] if len(sys.argv) > 2 else "parquet"
 if source_format == "arrow":
     source = root / "market.arrow"

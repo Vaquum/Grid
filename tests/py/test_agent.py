@@ -170,6 +170,39 @@ class TestAgent(unittest.TestCase):
         self.assertFalse(self.call("grid_discover")["execution"][
             "factorizedRandom"])
 
+    def test_rule_temporal_references_fail_before_run_creation(self):
+        text = (ROOT / "tests/fixtures/limen_rule/s1.yaml").read_text()
+        self.project.version = "5.27.0"
+        for field in ("recency_n", "persistence_n"):
+            candidate = text.replace("      entry: enter", (
+                "        %s: '{hold_bars}'\n      entry: enter" % field))
+            candidate = candidate.replace("  params:\n", (
+                "  params:\n    hold_bars: [1, 3, 6, 12]\n"))
+            checked = self.call("grid_validate", text=candidate)
+            self.assertEqual(checked["schemaErrors"], [])
+            error = checked["executionErrors"][0]
+            self.assertTrue(error["path"].endswith(field))
+            self.assertIsNotNone(error["line"])
+            self.assertIn("constant positive integer", error["message"])
+            self.call("grid_create", name=field, text=candidate,
+                      requestId=field)
+            manifest = self.call("grid_manifest", name=field)
+            with patch.object(self.project, "_spawn") as spawn:
+                rejected = self.client.call("grid_start", {
+                    "name": field, "rounds": 40, "shards": 1,
+                    "version": manifest["version"], "execution": True,
+                    "outputs": True, "requestId": field + "-start"})
+            self.assertFalse(rejected["ok"])
+            spawn.assert_not_called()
+            self.assertEqual(self.project.runs(), [])
+            for value in ("0", "-1", "true", "1.5"):
+                invalid = candidate.replace("'{hold_bars}'", value)
+                self.assertTrue(self.call("grid_validate", text=invalid)[
+                    "executionErrors"])
+            constant = candidate.replace("'{hold_bars}'", "6")
+            self.assertEqual(self.call("grid_validate", text=constant)[
+                "errors"], [])
+
     def test_worker_diagnostics_stay_in_private_logs(self):
         assert self.agent is not None
         proc = subprocess.CompletedProcess([], 1, "", "private worker detail")
