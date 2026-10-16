@@ -4,7 +4,10 @@ Routes:
 
 - ``/``             the page, told to read the live sweep from this server;
 - ``/api/pack``     everything as of now (gzip when accepted), with a cursor
-                    token for the stream;
+                    token for the stream; ``?run=ID`` includes only that
+                    run's rows, ``?run=`` only the catalog. Other runs'
+                    metadata is marked deferred; the cursor keeps this
+                    scope for subsequent events;
 - ``/api/stream``   server-sent events that bring a page holding the cursor
                     up to date, as rows and log lines arrive;
 - ``/api/row``      one row rebuilt from its columns (``?run=ID&i=N``);
@@ -338,7 +341,8 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
             if self.misaddressed():
                 return
             url = urlparse(self.path)
-            q = {k: v[-1] for k, v in parse_qs(url.query).items()}
+            q = {k: v[-1] for k, v in parse_qs(
+                url.query, keep_blank_values=True).items()}
             if url.path == "/api/agent" and server.agent:
                 return self.send_json(server.agent.discovery())
             if url.path == "/api/agent/snapshot" and server.agent:
@@ -358,7 +362,7 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
                 return self.send_bytes(server.page(),
                                        "text/html; charset=utf-8")
             if url.path == "/api/pack":
-                text, cursor = server.sweep.pack_text()
+                text, cursor = server.sweep.pack_text(run_id=q.get("run"))
                 token = server.save_cursor(cursor)
                 body = ('{"cursor":%s,"pack":%s}' % (json.dumps(token), text))
                 return self.send_bytes(body.encode(), "application/json")
