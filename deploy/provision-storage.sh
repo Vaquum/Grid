@@ -3,6 +3,8 @@
 # Never resize an existing image or touch the shared Docker engine.
 set -eu
 test "$(id -u)" -eq 0
+command -v python3 >/dev/null
+command -v logrotate >/dev/null
 cd "$(dirname "$0")"
 image=/var/lib/grid.ext4
 if [ ! -e "$image" ]; then
@@ -17,13 +19,15 @@ install -d /srv/grid /usr/local/libexec /etc/docker
 install -m 755 grid-storage-check /usr/local/libexec/grid-storage-check
 install -m 755 grid-runtime /usr/local/libexec/grid-runtime
 install -m 644 srv-grid.mount grid-docker.service grid-containerd.service \
-    /etc/systemd/system/
+    grid-logrotate.service grid-logrotate.timer /etc/systemd/system/
 install -m 644 grid-docker.json /etc/docker/grid.json
 install -m 644 grid-containerd.toml /etc/docker/grid-containerd.toml
+install -m 644 grid-runtime.logrotate /etc/docker/grid-runtime.logrotate
 systemctl daemon-reload
 systemctl enable --now srv-grid.mount
 /usr/local/libexec/grid-storage-check
 install -d /srv/grid/tmp /srv/grid/checkout
 systemctl enable --now grid-containerd.service
 systemctl enable --now grid-docker.service
+systemctl enable --now grid-logrotate.timer
 docker --host unix:///run/grid-docker.sock info --format '{{.DockerRootDir}}'

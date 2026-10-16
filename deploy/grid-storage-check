@@ -9,5 +9,10 @@ test "$(losetup -n -O BACK-FILE "$device")" = "$image"
 test "$(blockdev --getsize64 "$device")" -eq 199000000000
 test "$(findmnt -n -o FSTYPE --target /srv/grid | tail -n 1)" = ext4
 if [ "${1:-}" = --cwd ]; then
-    test "$(stat -c %d .)" = "$(stat -c %r "$device")"
+    python3 - "$device" <<'PY'
+import os
+import sys
+
+sys.exit(os.stat(".").st_dev != os.stat(sys.argv[1]).st_rdev)
+PY
 fi
