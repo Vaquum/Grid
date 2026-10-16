@@ -11,6 +11,7 @@ import math
 import sys
 from pathlib import Path
 
+import polars as pl
 from ruamel.yaml import YAML
 
 root = Path(sys.argv[1]).resolve()
@@ -25,15 +26,25 @@ with source.open("w", newline="") as stream:
         writer.writerow([(dt.datetime(2026, 1, 1) + dt.timedelta(hours=i))
                          .isoformat(), opened, max(opened, closed) + 0.2,
                          min(opened, closed) - 0.2, closed, 100])
+frame = pl.read_csv(source, try_parse_dates=True)
+source_format = sys.argv[2] if len(sys.argv) > 2 else "parquet"
+if source_format == "arrow":
+    source = root / "market.arrow"
+    frame.write_ipc(source, compression="uncompressed")
+    loader = "limen.data.HistoricalData.get_arrow_file"
+    source_params = {"file_path": str(source)}
+else:
+    source = root / "market.parquet"
+    frame.write_parquet(source)
+    loader = "limen.data.HistoricalData.get_any_file"
+    source_params = {"file_path_or_url": str(source)}
 config = {
     "schema_version": "1.0",
     "metadata": {"name": "rule_smoke", "limen_version": "5.27.0",
                  "mode": "development", "description": "Offline Grid proof"},
     "sfd": {"manifest": {
         "type": "rule_based",
-        "data_source": {"method": "polars.read_csv",
-                        "params": {"source": str(source),
-                                   "try_parse_dates": True}},
+        "data_source": {"method": loader, "params": source_params},
         "split_dates": {"train_start": "2026-01-01", "train_end": "2026-01-04",
                         "val_start": "2026-01-05", "val_end": "2026-01-08",
                         "test_start": "2026-01-09", "test_end": "2026-01-12"},

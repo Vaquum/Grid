@@ -180,12 +180,19 @@ export function analyzePack(pack, args = {}) {
       const pool = poolOf(m.schema, m.rows, state.pocket, m.edge, reads);
       const ranked = rankedOf(t, pool), count = queryInteger(args.members, 5, 1, 100, "members");
       const chosen = membersOf(ranked, count, new Set(), new Set());
-      result = { pool: pool.length, ranked: ranked.length, members: chosen.map(i => rowReference(m, i)), warning: touchedBy(t, reads), firstHalfSelection: !!t.halves, gates: reads.map(r => ({ id: r.gate.id, label: r.label, firstHalf: r.firstHalf })), state };
+      result = { pool: pool.length, ranked: ranked.length, members: chosen.map(i => rowReference(m, i)), warning: touchedBy(t, reads), firstHalfSelection: !!t.halves && reads.every(r => r.firstHalf), gates: reads.map(r => ({ id: r.gate.id, label: r.label, firstHalf: r.firstHalf })), state };
       break;
     }
     case "manifest": result = queryManifest(m); break;
   }
+  const warnings = state.firstHalf && needleReadsWhole(m.cache.schema, state) ? ["This target reads the whole window despite firstHalf."] : [];
+  if (state.firstHalf) {
+    for (const gate of m.schema.gatesSet || []) {
+      if (!gate.target?.base) warnings.push(`The gate ${gate.label} reads the whole window despite firstHalf; selection is not isolated.`);
+      else if (!gate.target.values.some(Number.isFinite)) warnings.push(`The gate ${gate.label} has no first-half measurements; no row can pass it.`);
+    }
+  }
   return portableQuery({ apiVersion: 1, snapshot: { run: ds.id, generation: ds.meta.generation, datasetVersion: ds.version, edge: m.edge, rows: m.rows.length },
     state: Object.fromEntries([...QUERY_STATE_KEYS].map(k => [k, state[k]])), viewLink: `/#${encodeState(state)}`, target: describeTarget(m.target), summary: m.base,
-    warnings: needleReadsWhole(m.cache.schema, state) ? ["This target reads the whole window despite firstHalf."] : [], result });
+    warnings, result });
 }

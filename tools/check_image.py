@@ -102,6 +102,16 @@ def main() -> None:
                 assert not native["warnings"], native["warnings"]
                 assert {d["id"] for d in native["result"]["dimensions"]} \
                     <= {"fee"}, native
+                selected = call("grid_analyze", analysis="cohort",
+                                state={"run": run_id, "firstHalf": True})
+                assert selected["result"]["evaluation"]["available"], selected
+                evaluated = call("grid_cohort_evaluate",
+                                 members=selected["result"]["members"],
+                                 fee=0, slip=0)
+                assert evaluated["bars"] > 0 and \
+                    evaluated["cohort"]["halves"][0]["bars"] > 0, evaluated
+                assert evaluated["timestampSource"] \
+                    == "original source through Limen", evaluated
                 evidence = os.environ.get("GRID_RULE_EVIDENCE")
                 if evidence:
                     shutil.copytree(project / rid / "s1", evidence,

@@ -225,6 +225,10 @@ class Agent:
                 "project": self.server.project is not None,
                 "execution": self.server.project.capabilities()
                 if self.server.project else None,
+                "ui": {"origin": self.server.public_origin,
+                       "instance": self.instance,
+                       "projectRuns": "automatically discovered from "
+                                      "shared project storage"},
                 "semantics": {"confidence": 0.95, "minimumSupport": 30,
                               "missing": None, "writes": "requestId",
                               "references": ["run", "generation", "i"],
@@ -303,6 +307,7 @@ class Agent:
                 s.wait_change(args["afterVersion"], args.get("timeout", 0))
             with s.lock:
                 state: Json = {"instance": self.instance, "version": s.version,
+                               "uiOrigin": self.server.public_origin,
                                "runs": [r.meta() for r in s.runs],
                                "errors": s.errors[-10:]}
             state["project"] = self.server.project.state() \
@@ -362,6 +367,26 @@ class Agent:
                 0, int(600 - (time.monotonic() - created)))
             result["result"]["viewLink"] = "/?snapshot=%s%s" % (
                 snapshot, result["result"]["viewLink"][1:])
+            result["result"]["ui"] = {
+                "origin": self.server.public_origin, "instance": self.instance,
+                "snapshotInstanceLocal": True}
+            if args["analysis"] == "cohort":
+                selection = result["result"]["result"]
+                refs = selection.get("members")
+                if refs:
+                    try:
+                        body = self.members(refs)
+                        self.server.cohort({
+                            "run": body["run"],
+                            "generation": str(body["generation"]),
+                            "rows": ",".join(str(i) for i in body["rows"])})
+                        selection["evaluation"] = {"available": True}
+                    except (ValueError, OSError) as exc:
+                        selection["evaluation"] = {
+                            "available": False, "reason": str(exc)}
+                else:
+                    selection["evaluation"] = {
+                        "available": False, "reason": "no eligible members"}
             return result["result"]
         if operation == "grid_row":
             return {"reference": args["reference"],

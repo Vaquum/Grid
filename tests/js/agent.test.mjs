@@ -101,6 +101,38 @@ test("a run with no target returns a reusable question", () => {
   assert.deepEqual(again.state, first.state);
 });
 
+test("sparse recorded halves never use whole-window gate evidence", () => {
+  const out = join(agentTemp, "sparse.json");
+  execFileSync("python3", ["-m", "grid", "pack", "--limen", "tests/fixtures/limen_cohort", "--out", out]);
+  const original = JSON.parse(readFileSync(out));
+  for (const [first, second] of [[3, null], [null, 3], [null, null]]) {
+    const pack = structuredClone(original);
+    for (const entry of pack.runs[0].rounds) {
+      const summary = entry[4];
+      summary.whole.tradeT = 9;
+      summary.halves[0].tradeT = first;
+      summary.halves[1].tradeT = second;
+    }
+    const state = { firstHalf: true, target: "trade_mean", gates: [{ id: "t", target: "trade_t", op: ">=", value: 2 }] };
+    const gates = analyzePack(structuredClone(pack), { analysis: "gates", state });
+    const cohort = analyzePack(structuredClone(pack), { analysis: "cohort", state });
+    assert.equal(cohort.result.gates[0].firstHalf, true);
+    assert.equal(cohort.result.firstHalfSelection, true);
+    if (first === null) {
+      assert.equal(cohort.result.pool, 0);
+      assert.deepEqual(cohort.result.members, []);
+      assert.ok(gates.warnings.some(w => w.includes("no first-half measurements")));
+    } else {
+      assert.ok(cohort.result.pool > 0);
+      assert.deepEqual(cohort.warnings, []);
+    }
+  }
+  const mixed = analyzePack(structuredClone(original), { analysis: "cohort", state: {
+    firstHalf: true, target: "trade_mean", gates: [{ id: "auc", target: "auc", op: ">", value: 0 }] } });
+  assert.equal(mixed.result.firstHalfSelection, false);
+  assert.ok(mixed.warnings.some(w => w.includes("selection is not isolated")));
+});
+
 test("walk-forward trials do not offer cohort selection", () => {
   const out = join(agentTemp, "walk-forward.json");
   execFileSync("python3", ["-m", "grid", "pack", "--limen", "tests/fixtures/limen_walk_forward", "--out", out]);

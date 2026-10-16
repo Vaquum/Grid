@@ -483,6 +483,7 @@ class Project:
         # manifest -> (mtime_ns, size, version)
         self.versions: dict[str, tuple[int, int, str]] = {}
         self.names: dict[str, tuple[float, str | None, int | None]] = {}
+        self.discovery_stop = threading.Event()
         self._adopt()
 
     # -- the command line ---------------------------------------------------
@@ -1329,23 +1330,27 @@ class Project:
         return sweep_id
 
     def follow(self) -> None:
-        """Once the server can open runs: each run Grid started that is
-        still running opens once its shards have written a round, as it
-        would have had this server started it; and the newest run, when
-        it is not running, opens now."""
-        runs = self.runs()
-        for r in runs:
-            if r["kind"] == "grid" and r["state"] == "running":
-                threading.Thread(target=self._open_when_written,
-                                 args=(r["id"], self._folder(r["id"])),
-                                 daemon=True).start()
-        if runs and runs[0]["state"] != "running":
-            rid = str(runs[0]["id"])
-            try:
-                self.open(rid)
-            except ValueError as err:
-                with self.open_lock:
-                    self.notes[rid] = str(err)
+        """Discover every recorded project run, including those started
+        by another service sharing the volume, and rediscover on restart.
+        A transient partially written directory is retried on the next scan.
+        """
+        def scan() -> None:
+            while not self.discovery_stop.is_set():
+                try:
+                    runs = self.runs()
+                except (OSError, ValueError):
+                    runs = []
+                for run in runs:
+                    rid = str(run["id"])
+                    if rid in self.opened:
+                        continue
+                    try:
+                        self.open(rid)
+                    except (OSError, ValueError) as exc:
+                        with self.open_lock:
+                            self.notes[rid] = str(exc)
+                self.discovery_stop.wait(1.0)
+        threading.Thread(target=scan, daemon=True).start()
 
     def stop(self, rid: object) -> None:
         """Ask each running shard to stop as Limen stops: the round in hand

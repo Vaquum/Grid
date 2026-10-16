@@ -224,7 +224,16 @@ The container includes Limen 5.27.0 and creates an official Limen project
 at `/data/project` on first start. The `grid_project` volume keeps its
 manifests, experiment results and cohorts across image rebuilds and
 redeployments. It runs as an unprivileged user with a read-only image;
-only the project volume and temporary files are writable. The configured
+only the project volume and temporary files are writable.
+The production service also writes a private mode-0600 agent connection to
+`/tmp/grid-agent.json`, usable over an SSH tunnel to the loopback listener.
+Retrieve it through the host/container administration channel and protect the
+local copy; it is regenerated on container restart. Agent requests still require
+a localhost/IP Host header and their separate bearer token. Portal protects
+the public page; no credential is included in it.
+Every service discovers recorded runs from shared project storage within a
+second and after restart. Analysis IDs and pinned snapshots remain local to
+each service; agent discovery/status identify its UI origin and instance. The configured
 `--public-origin https://grid.vaquum.fi` permits that exact public Host
 and HTTPS browser Origin, retaining the page token and cross-origin checks.
 

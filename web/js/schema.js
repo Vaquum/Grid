@@ -295,8 +295,8 @@ export function buildSchema(ds, opts = {}) {
     else if (Object.hasOwn(P.params, name)) { role = "param"; family = P.params[name]; }
     else if (P.authoritativeParams && Object.keys(P.params).some(k => name.startsWith(k + "."))) role = "param";
     else if (nestedOf(name)) { role = "nested"; family = P.nested[nestedOf(name)].family; }
-    else if (P.effective[name] !== undefined) { role = "effective"; family = P.effective[name]; }
-    else if (P.alias[name] !== undefined) { role = "alias"; note = P.alias[name]; }
+    else if (Object.hasOwn(P.effective, name)) { role = "effective"; family = P.effective[name]; }
+    else if (Object.hasOwn(P.alias, name)) { role = "alias"; note = P.alias[name]; }
     else if (P.ids.includes(name)) role = "id";
     else if (P.text.includes(name)) role = "text";
     else if (P.diagnostic.includes(name)) role = "diagnostic";
@@ -437,7 +437,9 @@ export function buildSchema(ds, opts = {}) {
       const key = Object.hasOwn(P.execution.halves, t.id) ? P.execution.halves[t.id] : null;
       if (!key) continue;
       const halves = [0, 1].map(k => spanValues(s => (s.halves ? s.halves[k] : null), key));
-      if (halves.every(v => v.some(Number.isFinite))) t.halves = halves;
+      // Missing evidence is local to a half. Never substitute the whole
+      // window when either (or both) halves has only unavailable values.
+      t.halves = halves;
     }
     standingGates = P.execution.gates;
   }

@@ -5,6 +5,7 @@ services:
     image: grid:latest
     network_mode: host
     init: true
+    command: ["python", "-m", "grid", "serve", "--project", "/data/project", "--bind", "127.0.0.1", "--port", "8490", "--public-origin", "https://grid.vaquum.fi", "--limen-cli", "/usr/local/bin/limen", "--limen-python", "/usr/local/bin/python", "--agent-file", "/tmp/grid-agent.json"]
     volumes:
       - project:/data
     tmpfs:

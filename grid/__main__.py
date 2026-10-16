@@ -654,6 +654,9 @@ def cmd_serve(a: argparse.Namespace) -> int:
         httpd.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        if project is not None:
+            project.discovery_stop.set()
     return 0
 
 

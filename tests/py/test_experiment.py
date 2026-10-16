@@ -153,6 +153,7 @@ class ProjectRuns(unittest.TestCase):
         return "p%d" % len(self.opened)
 
     def tearDown(self) -> None:
+        self.p.discovery_stop.set()
         for proc in self.p.procs.values():
             if proc.poll() is None:
                 proc.kill()
@@ -170,6 +171,33 @@ class ProjectRuns(unittest.TestCase):
     def test_a_project_needs_its_limen_toml(self) -> None:
         with self.assertRaisesRegex(ValueError, "no limen.toml"):
             Project(self.tmp, FAKE)
+
+    def test_shared_project_runs_discover_live_and_after_restart(self) -> None:
+        human = Project(self.root, FAKE)
+        seen: list[str] = []
+        human.opener = lambda key, dirs, planned: seen.append(key) or key
+        human.follow()
+        try:
+            self.p.create("shared", template="lightgbm_binary")
+            rid = self.p.start("shared", 80, 1, True, True)
+            wait(lambda: rid in seen)
+            self.assertEqual(self.run_of(rid)["state"], "running")
+            self.p.stop(rid)
+            wait(lambda: self.run_of(rid)["state"] == "stopped")
+            second = self.p.start("shared", 3, 1, True, True)
+            wait(lambda: self.run_of(second)["state"] == "finished")
+            wait(lambda: second in seen)
+        finally:
+            human.discovery_stop.set()
+        restarted = Project(self.root, FAKE)
+        reopened: list[str] = []
+        restarted.opener = lambda key, dirs, planned: reopened.append(key) or key
+        restarted.follow()
+        try:
+            wait(lambda: len(reopened) == 2)
+            self.assertEqual(set(reopened), {rid, second})
+        finally:
+            restarted.discovery_stop.set()
 
     def test_limens_version_templates_and_validation(self) -> None:
         self.assertEqual(self.p.version, "5.20.0")

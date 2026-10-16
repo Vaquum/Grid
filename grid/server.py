@@ -44,8 +44,10 @@ from __future__ import annotations
 import gzip
 import ipaddress
 import json
+import os
 import re
 import secrets
+import subprocess
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -204,10 +206,41 @@ class Server:
                 raise ValueError("fee and slip are basis points") from err
         manifest: Any = exp.get("manifest")
         sfd_module: Any = exp.get("sfdModule")
-        out = judge(records, bar_step(exp), fee, slip,
+        step = bar_step(exp)
+        if step is None and any(not isinstance(rec.get("alignment"), dict)
+                                or "test_datetimes" not in rec["alignment"]
+                                for rec in records):
+            if self.project is None or self.project.python is None:
+                raise ValueError("file-source cohort evaluation needs "
+                                 "--project and --limen-python, or recorded "
+                                 "alignment.test_datetimes")
+            worker = os.path.join(os.path.dirname(__file__), "limen_times.py")
+            try:
+                proc = subprocess.run([
+                    self.project.python, worker], input=json.dumps({
+                        "manifest": manifest, "records": records}),
+                    cwd=self.project.root, text=True, capture_output=True,
+                    timeout=180, check=False)
+                if proc.returncode:
+                    raise ValueError("Limen could not recover source "
+                                     "timestamps; keep the original file "
+                                     "accessible with its datetime column")
+                times: Json = json.loads(proc.stdout)
+            except subprocess.TimeoutExpired as exc:
+                raise ValueError("source timestamp recovery exceeded 180 s") \
+                    from exc
+            for rec in records:
+                if "test_datetimes" not in rec.get("alignment", {}):
+                    rec["_grid_source_datetimes"] = times.get(rec["round_id"])
+        out = judge(records, step, fee, slip,
                     cast(Json, manifest) if isinstance(manifest, dict)
                     else None,
                     sfd_module if isinstance(sfd_module, str) else None)
+        if step is None:
+            out["timestampSource"] = ("original source through Limen"
+                                      if any("_grid_source_datetimes" in r
+                                             for r in records)
+                                      else "recorded test_datetimes")
         out["rows"] = rows
         shards: Any = exp.get("shards")
         labels = ({str(p[1]): str(p[0])

@@ -165,6 +165,26 @@ class TestAgent(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertNotIn("private worker detail", json.dumps(result))
 
+    def test_native_rule_and_ml_profiles_through_public_analysis(self):
+        run_id = self.wiring.open_limen("native-rule", [
+            str(ROOT / "tests/fixtures/limen_rule")], 40)
+        self.wiring.read_once()
+        native = self.call("grid_analyze", analysis="schema",
+                           state={"run": run_id, "firstHalf": True})
+        self.assertEqual(native["target"]["id"], "pnl_per_bar_bps_test")
+        self.assertEqual(native["warnings"], [])
+        self.assertEqual([d["id"] for d in native["result"]["dimensions"]],
+                         ["fee"])
+        board = self.call("grid_analyze", analysis="board",
+                          state={"run": run_id, "firstHalf": True})
+        self.assertTrue(all(e["dim"] == "fee"
+                            for e in board["result"]["effects"]))
+        ml = self.call("grid_analyze", analysis="schema",
+                       state={"run": "r0", "firstHalf": True})
+        self.assertEqual(ml["target"]["id"], "backtest_pnl_per_bar_bps")
+        self.assertTrue(all(d["id"] not in ("num_trades_train", "auc")
+                            for d in ml["result"]["dimensions"]))
+
     def test_documented_inspection_and_predictor_workflow(self):
         inspected = self.example("inspect", "--run", "r0")
         ids = {q["snapshot"]["id"] for q in inspected.values()}
