@@ -14,11 +14,12 @@ At capacity, Linux refuses writes with ENOSPC. Runs may fail and need resuming
 after space is freed. No automatic deletion or image growth occurs. Actual
 allocated bytes grow with use; the backing host must still have free space.
 Runtime temporary files use RAM; build temporary files use `/srv/grid/tmp`.
-Docker logs rotate at 10 MB with three files. The mount starts at boot;
+Docker logs rotate at 10 MB with three files.
 Daemon logs also rotate at 10 MB with three compressed archives, checked
 every minute; their state file and temporary rotation copies stay inside
 the same cap. Provisioning requires Python 3 and logrotate on the host.
-its loss stops the engine. Startup checks the exact loop device and size.
+The mount starts at boot; its loss stops the engine. Startup checks the
+exact loop device and size.
 
 ## Initial setup and migration
 
