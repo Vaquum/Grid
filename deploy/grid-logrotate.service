@@ -1,0 +1,9 @@
+[Unit]
+Description=Rotate Grid runtime logs inside capped storage
+BindsTo=srv-grid.mount
+After=srv-grid.mount
+
+[Service]
+Type=oneshot
+BindPaths=/srv/grid
+ExecStart=/usr/local/libexec/grid-runtime /usr/sbin/logrotate --state /srv/grid/logrotate.status /etc/docker/grid-runtime.logrotate

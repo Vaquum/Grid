@@ -1,0 +1,10 @@
+[Unit]
+Description=Check Grid runtime log sizes every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+Unit=grid-logrotate.service
+
+[Install]
+WantedBy=timers.target
