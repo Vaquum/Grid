@@ -1,0 +1,9 @@
+/srv/grid/dockerd.log /srv/grid/containerd.log {
+    size 10M
+    rotate 3
+    missingok
+    notifempty
+    copytruncate
+    compress
+    su root root
+}

@@ -1,7 +1,9 @@
 name: grid
 services:
   grid:
-    build: .
+    build:
+      context: .
+      network: host
     image: grid:latest
     network_mode: host
     init: true
@@ -14,6 +16,11 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8490/api/health', timeout=5)"]
       interval: 30s

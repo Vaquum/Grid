@@ -19,7 +19,7 @@ jobs:
     env:
       DEPLOY_HOST: ${{ secrets.TDW_IP || vars.DEPLOY_HOST || '37.27.112.167' }}
       DEPLOY_USER: ${{ secrets.TDW_USER || vars.DEPLOY_USER || 'root' }}
-      DEPLOY_DIR: ${{ vars.DEPLOY_DIR || '/opt/grid' }}
+      DEPLOY_DIR: ${{ vars.DEPLOY_DIR || '/srv/grid/checkout' }}
       DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS || '37.27.112.167 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIv/0Zuyg5mIwqOIkD/1K7EOUg+XWNTKT2g7PwDQeOzG' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -51,10 +51,15 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
+      - name: Verify the hard storage boundary before writing
+        run: |
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" "/usr/local/libexec/grid-storage-check && test \"\$(readlink -f '$DEPLOY_DIR')\" = /srv/grid/checkout"
       - name: Sync the checkout
-        run: rsync -az --delete --exclude .git --exclude .env ./ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/"
+        # The receiver pins its cwd before checking it, then writes relative
+        # to that cwd. Even lazy unmounts cannot redirect it to the host root.
+        run: rsync -az --delete --exclude .git --exclude .env --rsync-path='/usr/local/libexec/grid-runtime /usr/bin/rsync' ./ "$DEPLOY_USER@$DEPLOY_HOST:checkout/"
       - name: Start and check Grid
         run: |
           # DEPLOY_DIR is expanded locally and sent quoted to the host.
           # shellcheck disable=SC2029
-          ssh "$DEPLOY_USER@$DEPLOY_HOST" "cd '$DEPLOY_DIR' && docker compose up -d --build --wait --wait-timeout 180 --remove-orphans && docker compose ps && curl --fail --show-error http://127.0.0.1:8490/api/health"
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" "/usr/local/libexec/grid-storage-check && cd '$DEPLOY_DIR' && export DOCKER_HOST=unix:///run/grid-docker.sock && docker compose up -d --build --wait --wait-timeout 180 --remove-orphans && docker compose ps && curl --fail --show-error http://127.0.0.1:8490/api/health"

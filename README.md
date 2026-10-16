@@ -214,7 +214,8 @@ See [docs/statistics.md](docs/statistics.md).
 
 ## Deploy
 
-Grid runs on the Explorer/Composer host, `37.27.112.167`, from `/opt/grid`.
+Grid runs on the Explorer/Composer host, `37.27.112.167`, from
+`/srv/grid/checkout` (`/opt/grid` remains an administration symlink).
 Docker serves only `127.0.0.1:8490`; the host's Caddy, maintained in
 [Vaquum/Portal](https://github.com/Vaquum/Portal), exposes
 `https://grid.vaquum.fi` behind Portal's login and provides its landing card.
@@ -235,7 +236,15 @@ Every service discovers active runs from shared project storage within a
 second. Historical runs appear in the catalog after restart and load when
 selected for analysis. The project page opens with this lightweight catalog,
 independent of historical trial data; only the selected run streams rows. Analysis IDs and pinned snapshots remain local to
-each service; agent discovery/status identify its UI origin and instance. The configured
+each service; agent discovery/status identify its UI origin and instance.
+Production confines the checkout and all Docker data (images, builds, project
+data and logs) to a fixed 199,000,000,000-byte filesystem mounted at `/srv/grid`.
+The isolated engine uses `unix:///run/grid-docker.sock`; temporary runtime
+state stays in RAM. The kernel refuses writes at capacity; research data is
+never automatically deleted. The 1 GB margin keeps host bookkeeping below
+the 200 GB decimal ceiling. Startup and deployment reject a missing or
+resized mount. See [storage setup and migration](docs/storage.md).
+The configured
 `--public-origin https://grid.vaquum.fi` permits that exact public Host
 and HTTPS browser Origin, retaining the page token and cross-origin checks.
 

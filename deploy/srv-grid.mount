@@ -1,0 +1,12 @@
+[Unit]
+Description=Grid persistent storage, hard limited below 200 GB
+Before=grid-docker.service
+
+[Mount]
+What=/var/lib/grid.ext4
+Where=/srv/grid
+Type=ext4
+Options=loop,nosuid,nodev
+
+[Install]
+WantedBy=multi-user.target
