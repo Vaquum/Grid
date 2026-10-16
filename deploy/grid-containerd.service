@@ -6,7 +6,8 @@ Before=grid-docker.service
 
 [Service]
 ExecStartPre=/usr/local/libexec/grid-storage-check
-ExecStart=/usr/bin/containerd --config /etc/docker/grid-containerd.toml
+ExecStart=/usr/local/libexec/grid-runtime /usr/bin/containerd --config /etc/docker/grid-containerd.toml
+BindPaths=/srv/grid
 StandardOutput=append:/srv/grid/containerd.log
 StandardError=append:/srv/grid/containerd.log
 Restart=always

@@ -56,8 +56,12 @@ DOCKER_HOST=unix:///run/grid-docker.sock docker system df
 DOCKER_HOST=unix:///run/grid-docker.sock docker compose -f /srv/grid/checkout/docker-compose.yml ps
 ```
 
-GitHub deployment verifies the mount and checkout before rsync, then uses
-only the isolated engine. `DEPLOY_DIR` overrides must resolve to
+GitHub deployment pins the receiver's working directory before checking
+its device, then writes to a relative checkout path. A lazy unmount leaves
+the receiver on the capped filesystem. Each runtime service also binds
+the filesystem into its own mount namespace and checks inside that namespace
+before executing. GitHub then uses only the isolated engine.
+`DEPLOY_DIR` overrides must resolve to
 `/srv/grid/checkout`. Never build deployment images on the shared engine.
 Free space through deliberate cleanup of obsolete Grid data or unused Grid
 images/cache, within the same engine.

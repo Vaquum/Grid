@@ -8,7 +8,8 @@ Wants=network-online.target
 [Service]
 Type=notify
 ExecStartPre=/usr/local/libexec/grid-storage-check
-ExecStart=/usr/bin/dockerd --config-file=/etc/docker/grid.json
+ExecStart=/usr/local/libexec/grid-runtime /usr/bin/dockerd --config-file=/etc/docker/grid.json
+BindPaths=/srv/grid
 ExecReload=/bin/kill -s HUP $MAINPID
 Environment=TMPDIR=/srv/grid/tmp DOCKER_TMPDIR=/srv/grid/tmp
 StandardOutput=append:/srv/grid/dockerd.log

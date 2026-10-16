@@ -1,0 +1,7 @@
+#!/bin/sh
+# Pin the filesystem before checking it. Relative rsync destinations stay on
+# this filesystem even after a lazy unmount detaches its host pathname.
+set -eu
+cd /srv/grid
+/usr/local/libexec/grid-storage-check --cwd
+exec "$@"

@@ -21,6 +21,10 @@ truncate -s 199000000000 /var/lib/grid.ext4
 mkfs.ext4 -q -F -b 4096 -m 0 /var/lib/grid.ext4 16384
 mount -o loop /var/lib/grid.ext4 /srv/grid
 sh deploy/grid-storage-check
+if sh deploy/grid-storage-check --cwd; then
+    echo 'FAIL: uncapped working directory accepted' >&2
+    exit 1
+fi
 if dd if=/dev/zero of=/srv/grid/full bs=1M count=80 2>/dev/null; then
     echo 'FAIL: writes escaped the filesystem boundary' >&2
     exit 1
@@ -32,7 +36,18 @@ if sh deploy/grid-storage-check; then
     exit 1
 fi
 truncate -s 199000000000 /var/lib/grid.ext4
-umount /srv/grid
+(
+    cd /srv/grid
+    sh "$OLDPWD/deploy/grid-storage-check" --cwd
+    umount -l /srv/grid
+    # A detached mount must still constrain the pinned receiver's writes.
+    if dd if=/dev/zero of=detached-full bs=1M count=80 2>/dev/null; then
+        echo 'FAIL: detached receiver escaped the cap' >&2
+        exit 1
+    fi
+    test ! -e /srv/grid/detached-full
+    rm detached-full
+)
 if sh deploy/grid-storage-check; then
     echo 'FAIL: unmounted host directory accepted' >&2
     exit 1

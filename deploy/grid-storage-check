@@ -8,3 +8,6 @@ device=$(findmnt -n -o SOURCE --target /srv/grid)
 test "$(losetup -n -O BACK-FILE "$device")" = "$image"
 test "$(blockdev --getsize64 "$device")" -eq 199000000000
 test "$(findmnt -n -o FSTYPE --target /srv/grid)" = ext4
+if [ "${1:-}" = --cwd ]; then
+    test "$(stat -c %d .)" = "$(stat -c %r "$device")"
+fi

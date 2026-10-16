@@ -55,7 +55,9 @@ jobs:
         run: |
           ssh "$DEPLOY_USER@$DEPLOY_HOST" "/usr/local/libexec/grid-storage-check && test \"\$(readlink -f '$DEPLOY_DIR')\" = /srv/grid/checkout"
       - name: Sync the checkout
-        run: rsync -az --delete --exclude .git --exclude .env ./ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/"
+        # The receiver pins its cwd before checking it, then writes relative
+        # to that cwd. Even lazy unmounts cannot redirect it to the host root.
+        run: rsync -az --delete --exclude .git --exclude .env --rsync-path='/usr/local/libexec/grid-runtime /usr/bin/rsync' ./ "$DEPLOY_USER@$DEPLOY_HOST:checkout/"
       - name: Start and check Grid
         run: |
           # DEPLOY_DIR is expanded locally and sent quoted to the host.
