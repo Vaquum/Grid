@@ -34,7 +34,8 @@ class GridNetworkTest(unittest.TestCase):
         primary = {"Options": {"com.docker.network.bridge.name": "docker0"},
                    "IPAM": {"Config": [{"Subnet": "172.17.0.0/16",
                                         "Gateway": "172.17.0.1"}]},
-                   "Containers": {"primary": {"MacAddress": "02:42:ac:11:00:02"}}}
+                   "Containers": {"primary": {
+                       "MacAddress": "02:42:ac:11:00:02"}}}
 
         def execute(*args):
             if args[0] == "docker" and "network" in args:

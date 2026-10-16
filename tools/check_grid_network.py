@@ -41,7 +41,8 @@ def isolated() -> None:
         runtime_config = runtime_config.replace(
             "/srv/grid/containerd", str(tmp / "containerd"))
         runtime_config = runtime_config.replace(
-            "/run/grid-containerd/containerd.sock", str(tmp / "containerd.sock"))
+            "/run/grid-containerd/containerd.sock",
+            str(tmp / "containerd.sock"))
         runtime_config = runtime_config.replace(
             "/run/grid-containerd", str(tmp / "runtime-state"))
         (tmp / "containerd.toml").write_text(runtime_config)
@@ -71,7 +72,7 @@ def isolated() -> None:
                             break
                         time.sleep(0.1)
                     else:
-                        raise AssertionError("Grid daemon did not become ready")
+                        raise AssertionError("Grid daemon readiness timed out")
                     assert before == (snapshot("docker0"),
                                       snapshot("primary-port"))
                     network = json.loads(output(
