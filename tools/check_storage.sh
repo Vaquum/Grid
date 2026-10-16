@@ -7,7 +7,6 @@ if [ "${1:-}" != --namespace ]; then
     exec unshare --mount --propagation private sh "$0" --namespace
 fi
 cd "$(dirname "$0")/.."
-repo_dir=$PWD
 test ! -e /var/lib/grid.ext4
 test ! -e /srv/grid
 mkdir /srv/grid
@@ -23,8 +22,9 @@ mkfs.ext4 -q -F -b 4096 -m 0 /var/lib/grid.ext4 16384
 mount -o loop /var/lib/grid.ext4 /srv/grid
 sh deploy/grid-storage-check
 chmod 600 /var/lib/grid.ext4
+install -m 755 deploy/grid-storage-check /srv/grid/.test-guard
 su -s /bin/sh nobody -c \
-    "cd /srv/grid && sh '$repo_dir/deploy/grid-storage-check' --cwd"
+    'cd /srv/grid && sh .test-guard --cwd'
 # systemd BindPaths adds a second mount entry for the same filesystem.
 mount --bind /srv/grid /srv/grid
 sh deploy/grid-storage-check
