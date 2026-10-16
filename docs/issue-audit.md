@@ -2,8 +2,8 @@
 
 The initial 37 issues were reviewed against main (`023df44`) and merged PRs.
 The 24 closed issues already have merged implementations; none needs reopening.
-This change addresses the initial 13 open issues and three defects filed
-during implementation (#78, #80, #81), in one PR.
+This change addresses the initial 13 open issues and four requests filed
+during implementation (#78, #80, #81, #82), in one PR.
 
 | Issue | Disposition |
 | --- | --- |
@@ -14,6 +14,7 @@ during implementation (#78, #80, #81), in one PR.
 | [#78](https://github.com/Vaquum/Grid/issues/78) | Automatically discover all project runs across shared services and restart; enable a private agent connection on the production service and identify the UI origin/instance. |
 | [#80](https://github.com/Vaquum/Grid/issues/80) | Preserve sparse/all-null half arrays, fail closed on unavailable first-half gates, and report mixed-scope selection without certifying isolation. |
 | [#81](https://github.com/Vaquum/Grid/issues/81) | Prefer recorded timestamps; otherwise recover exact test bars through the original manifest in Limen, supporting native Parquet/Arrow sources and rejecting missing or inconsistent timestamps. |
+| [#82](https://github.com/Vaquum/Grid/issues/82) | Remains open: native factorized random traversal requires [Limen #924](https://github.com/Vaquum/Limen/issues/924). Advertise the missing capability and reject random/shuffled factorized manifests. This PR does not claim randomized factorial levels satisfy random candidate sampling. |
 | [#54](https://github.com/Vaquum/Grid/issues/54), v5.24.1 | Upstream documentation update. Grid already invokes the documented CLI/Python routes. No feature change. |
 | [#57](https://github.com/Vaquum/Grid/issues/57), v5.25.0 | Already installed in the image. Native workers remain distinct from Grid shards; admission and CPU budgeting are covered by #75/#76. |
 | [#66](https://github.com/Vaquum/Grid/issues/66), v5.25.1 | Captured aggregates and nullable CSV fixes are upstream. Grid already reads CSV aggregates and preserves nulls. Included in the new image pin. |

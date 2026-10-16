@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -101,7 +102,24 @@ def main() -> None:
                 record = json.loads((project / rid / "grid-run.json")
                                     .read_text())
                 assert record["threads"] == cores, record
-                run_id = call("grid_open", run=rid)["sweepRun"]
+                # Discovery must put the native run in the human pack
+                # before any explicit agent Open operation.
+                deadline = time.monotonic() + 30
+                while not run.get("open"):
+                    assert time.monotonic() < deadline, run
+                    time.sleep(0.1)
+                    run = next(r for r in call("grid_status")["project"][
+                        "runs"] if r["id"] == rid)
+                run_id = run["open"]
+                with urllib.request.urlopen(
+                        "http://127.0.0.1:8499/api/pack") as response:
+                    visible = json.load(response)
+                assert any(r["id"] == run_id and r["rows"] == 40
+                           for r in visible["runs"]), visible
+                evidence = os.environ.get("GRID_RULE_EVIDENCE")
+                if evidence:
+                    shutil.copytree(project / rid / "s1", evidence,
+                                    dirs_exist_ok=True)
                 native = call("grid_analyze", analysis="schema",
                               state={"run": run_id, "firstHalf": True})
                 assert native["target"]["id"] == "pnl_per_bar_bps_test", native
@@ -118,10 +136,6 @@ def main() -> None:
                     evaluated["cohort"]["halves"][0]["bars"] > 0, evaluated
                 assert evaluated["timestampSource"] \
                     == "original source through Limen", evaluated
-                evidence = os.environ.get("GRID_RULE_EVIDENCE")
-                if evidence:
-                    shutil.copytree(project / rid / "s1", evidence,
-                                    dirs_exist_ok=True)
                 print(json.dumps({"imageAgent": "passed", "cores": cores,
                                   "node": subprocess.check_output([
                                       "node", "--version"], text=True).strip(),

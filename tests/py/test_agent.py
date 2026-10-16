@@ -156,6 +156,19 @@ class TestAgent(unittest.TestCase):
         self.assertTrue(bad["schemaErrors"])
         self.assertFalse(bad["executionChecked"])
 
+    def test_factorized_random_and_shuffled_grids_report_dependency(self):
+        text = (ROOT / "tests/fixtures/limen_run/"
+                "lightgbm_binary_full.yaml").read_text()
+        for strategy, shuffle in (("random", False), ("grid", True)):
+            candidate = set_values(text, {"uel.factorize": True,
+                "uel.search_strategy.type": strategy,
+                "uel.search_strategy.shuffle": shuffle})
+            checked = self.call("grid_validate", text=candidate)
+            self.assertIn("upstream Limen support",
+                          checked["executionErrors"][0]["message"])
+        self.assertFalse(self.call("grid_discover")["execution"][
+            "factorizedRandom"])
+
     def test_worker_diagnostics_stay_in_private_logs(self):
         proc = subprocess.CompletedProcess([], 1, "", "private worker detail")
         with patch("grid.agent.subprocess.run", return_value=proc), \

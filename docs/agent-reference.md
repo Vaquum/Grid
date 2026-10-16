@@ -78,9 +78,17 @@ as read-only and does not use a write receipt.
 
 ### Discovery
 
+`ui` identifies the configured public `origin` and this service
+`instance`; `projectRuns` describes automatic shared-project discovery.
+Status also returns `uiOrigin`; analysis returns `ui`, including
+`snapshotInstanceLocal`. Run analysis IDs and pinned snapshots belong to
+one service, while recorded project runs are discovered by every service
+sharing the project, including after restart.
+
 `execution` is null without a project, otherwise the same capabilities exposed
 in `project.limen.capabilities`: `parallelRounds`, `parallelFactorize` (false),
-`parallelRequiresPrepEachRound`, `shardsRequireRandomSearch`, `cpuBudget`, and
+`parallelRequiresPrepEachRound`, `shardsRequireRandomSearch`, `cpuBudget`,
+`factorizedRandom` (false), `factorizedGridRequiresUnshuffled` (true), and
 `preflight` (scope). The effective CPU budget accounts for affinity and cgroup
 quotas; fractional quotas round down to whole worker slots, with a minimum
 of one. `shards * uel.workers` cannot exceed this budget. Native parallel
@@ -90,7 +98,9 @@ workers each use one native thread; serial shards divide the budget.
 preflight. Preflight checks declarative worker/version/CPU compatibility; it
 does not certify data availability or custom runner code. `uel.factorize: true`
 requires `uel.workers: 1`. Parallel workers require `prep_each_round: true`
-and Limen >= 5.25.0. Grid edits/preflights `uel` as a block mapping. Start
+and Limen >= 5.25.0. Factorization requires an unshuffled grid; seeded
+factorized random traversal depends on Limen #924 and is not available.
+Grid edits/preflights `uel` as a block mapping. Start
 repeats these checks before making a run directory or spawning a process.
 
 | Field | Meaning |
@@ -499,3 +509,20 @@ not a new backtest of the trained artifact. Read the returned notes: recorded
 take-profit/stop-loss exits are not recreated, and differing test windows can
 leave bars outside both halves. Use the second-half windows to judge a
 first-half selection. Predictor training is a separate asynchronous operation.
+
+## Sparse halves and file-source cohort evaluation
+
+Recorded half arrays retain unavailable values independently. An unavailable
+second half never substitutes a whole-window gate for first-half evidence.
+A gate without first-half measurements admits no rows and produces a warning.
+`firstHalfSelection` is false if any selection gate reads the whole window.
+
+Cohort selection reports `evaluation: {available, reason?}` after probing the
+selected members. Evaluation prefers recorded `alignment.test_datetimes`.
+For manifests without `kline_size`, a project uses its configured Limen Python
+to rebuild the exact test-bar timestamps from the original source and recorded
+manifest/parameters, including native Parquet and Arrow loaders. It performs
+no model fitting. Missing, duplicate, reordered or mismatched timestamps fail
+with an actionable error. Keep the original source available and unchanged;
+Grid does not invent regular bars for an irregular file. Evaluation reports
+`timestampSource` and a null `step` when no regular interval is declared.

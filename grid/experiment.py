@@ -541,6 +541,8 @@ class Project:
     def capabilities(self) -> Json:
         return {"parallelRounds": _version_at_least(self.version, (5, 25)),
                 "parallelFactorize": False,
+                "factorizedRandom": False,
+                "factorizedGridRequiresUnshuffled": True,
                 "parallelRequiresPrepEachRound": True,
                 "shardsRequireRandomSearch": True,
                 "cpuBudget": self.cores,
@@ -566,11 +568,20 @@ class Project:
         if workers > self.cores:
             problem("uel.workers", "uel.workers exceeds the effective CPU "
                     "budget (%d); reduce workers" % self.cores)
+        factorize = (get_value(text, "uel.factorize") or "").lower() == "true"
+        if factorize:
+            search = get_value(text, "uel.search_strategy.type")
+            shuffled = (get_value(text, "uel.search_strategy.shuffle") or "")
+            if search != "grid" or shuffled.lower() == "true":
+                problem("uel.factorize", "factorize requires an unshuffled "
+                        "grid search; factorized random sampling needs "
+                        "upstream Limen support. Use grid without shuffle "
+                        "or disable factorize for random sampling")
         if workers > 1:
             if not self.capabilities()["parallelRounds"]:
                 problem("uel.workers", "uel.workers > 1 needs Limen >= "
                         "5.25.0; use workers: 1 or upgrade Limen")
-            if (get_value(text, "uel.factorize") or "").lower() == "true":
+            if factorize:
                 problem("uel.factorize", "uel.factorize: true cannot run "
                         "with uel.workers > 1; use workers: 1 for factorized "
                         "grid search, or disable factorize")
@@ -1293,7 +1304,8 @@ class Project:
             label = str(s.get("label"))
             d = os.path.join(folder, label)
             if all(os.path.isfile(os.path.join(d, f))
-                   for f in ("results.csv", "metadata.json")):
+                   for f in ("results.csv", "metadata.json",
+                             "round_data.jsonl")):
                 dirs.append(d)
             elif s.get("state") == "running":
                 raise ValueError("%s is writing its first rounds; it opens "
