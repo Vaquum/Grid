@@ -297,8 +297,7 @@ class ProjectRuns(unittest.TestCase):
         self.assertEqual([(s["label"], s["rounds"], s["seed"])
                           for s in record["shards"]],
                          [("s1", 20, 20261009), ("s2", 20, 20261010)])
-        self.assertEqual(record["threads"], max(1, (os.cpu_count() or 1)
-                                                 // 2))
+        self.assertEqual(record["threads"], max(1, self.p.cores // 2))
         with open(os.path.join(folder, "manifests", "s2.yaml")) as f:
             copy = f.read()
         self.assertEqual(get_value(copy, "uel.output_path"),
@@ -582,7 +581,9 @@ class Routes(unittest.TestCase):
     def test_a_write_needs_the_token_the_origin_and_json(self) -> None:
         ok = {"text": manifest_text()}
         self.assertEqual(self.post("/api/experiment/validate", ok),
-                         (200, {"errors": []}))
+                         (200, {"errors": [], "schemaErrors": [],
+                                "executionErrors": [],
+                                "executionChecked": True}))
         for headers, why in (({"X-Grid-Token": ""}, "token"),
                              ({"X-Grid-Token": "nope"}, "token"),
                              ({"Origin": "http://evil.example"}, "origin"),
@@ -651,9 +652,13 @@ class Routes(unittest.TestCase):
         headers = {"Host": "grid.vaquum.fi",
                    "Origin": "https://grid.vaquum.fi"}
         self.assertEqual(self.post("/api/experiment/validate", body,
-                                   **headers), (200, {"errors": []}))
+                                   **headers), (200, {"errors": [], "schemaErrors": [],
+                                "executionErrors": [],
+                                "executionChecked": True}))
         self.assertEqual(self.post("/api/experiment/validate", body),
-                         (200, {"errors": []}))
+                         (200, {"errors": [], "schemaErrors": [],
+                                "executionErrors": [],
+                                "executionChecked": True}))
         for changes in ({"Origin": "http://grid.vaquum.fi"},
                         {"Origin": "https://other.vaquum.fi"},
                         {"Host": "other.vaquum.fi"},

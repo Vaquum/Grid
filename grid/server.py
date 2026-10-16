@@ -543,7 +543,7 @@ def act(project: Project, action: str, body: dict[str, Any]) -> Any:
         return v
 
     if action == "validate":
-        return {"errors": project.validate(text("text"))}
+        return project.validation(text("text"))
     if action == "save":
         return {"version": project.save(text("name"), text("text"),
                                         body.get("version"))}

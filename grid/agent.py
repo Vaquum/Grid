@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -222,6 +223,8 @@ class Agent:
     def discovery(self) -> Json:
         return {"apiVersion": 1, "tools": TOOLS, "analyses": ANALYSES,
                 "project": self.server.project is not None,
+                "execution": self.server.project.capabilities()
+                if self.server.project else None,
                 "semantics": {"confidence": 0.95, "minimumSupport": 30,
                               "missing": None, "writes": "requestId",
                               "references": ["run", "generation", "i"],
@@ -344,6 +347,9 @@ class Agent:
             try:
                 result: Json = json.loads(proc.stdout)
             except ValueError as exc:
+                logging.getLogger(__name__).error(
+                    "analysis worker exited %s: %s", proc.returncode,
+                    proc.stderr[-4000:])
                 raise AgentError("ANALYSIS_FAILED", "analysis worker failed") \
                     from exc
             if not result.get("ok"):

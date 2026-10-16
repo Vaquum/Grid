@@ -21,7 +21,7 @@ from unittest.mock import patch
 from grid.__main__ import Wiring
 from grid.agent import TOOLS, Agent
 from grid.agent_client import Client, mcp_reply, write_connection
-from grid.experiment import Project
+from grid.experiment import Project, set_values
 from grid.server import Server, serve
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -89,6 +89,81 @@ class TestAgent(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, result)
         self.assertTrue(result["ok"], result)
         return result["result"]
+
+    def test_parallel_factorize_preflight_and_capabilities(self):
+        self.project.version = "5.27.0"
+        self.project.cores = 8
+        text = (ROOT / "tests/fixtures/limen_run/"
+                "lightgbm_binary_full.yaml").read_text()
+        text = set_values(text, {"uel.workers": 2, "uel.factorize": True,
+                                 "uel.search_strategy.type": "grid"})
+        checked = self.call("grid_validate", text=text)
+        self.assertEqual(checked["schemaErrors"], [])
+        self.assertTrue(checked["executionChecked"])
+        self.assertEqual(checked["errors"][0]["path"], "uel.factorize")
+        self.assertIn("workers: 1", checked["executionErrors"][0]["message"])
+        self.call("grid_create", name="factor", text=text, requestId="factor")
+        manifest = self.call("grid_manifest", name="factor")
+        with patch.object(self.project, "_spawn") as spawn:
+            result = self.client.call("grid_start", {
+                "name": "factor", "version": manifest["version"],
+                "rounds": 108, "shards": 1, "execution": True,
+                "outputs": True, "requestId": "factor-start"})
+        self.assertFalse(result["ok"])
+        self.assertIn("uel.factorize", result["error"]["message"])
+        spawn.assert_not_called()
+        self.assertEqual(self.project.runs(), [])
+        self.assertFalse(os.path.exists(os.path.join(
+            self.project_root, "results")))
+        serial = set_values(text, {"uel.workers": 1})
+        self.assertEqual(self.call("grid_validate", text=serial)["errors"], [])
+        capabilities = self.call("grid_discover")["execution"]
+        self.assertTrue(capabilities["parallelRounds"])
+        self.assertFalse(capabilities["parallelFactorize"])
+        self.assertEqual(capabilities["cpuBudget"], 8)
+        self.assertEqual(self.call("grid_status")["project"]["cores"], 8)
+
+    def test_workers_share_cpu_budget_with_shards(self):
+        self.project.version = "5.27.0"
+        self.project.cores = 8
+        text = (ROOT / "tests/fixtures/limen_run/"
+                "lightgbm_binary_full.yaml").read_text()
+        text = set_values(text, {"uel.workers": 4,
+                                 "uel.prep_each_round": True})
+        self.project.create("workers", text=text)
+        with self.assertRaisesRegex(ValueError, "shards.*uel.workers"):
+            self.project.start("workers", 12, 3, True, True)
+        self.assertEqual(self.project.runs(), [])
+        with patch.object(self.project, "_spawn", side_effect=OSError("test")), \
+                self.assertRaisesRegex(ValueError, "could not be started"):
+            self.project.start("workers", 12, 2, True, True)
+        run = self.project.runs()[0]
+        record = json.loads(Path(self.project_root, run["id"],
+                                 "grid-run.json").read_text())
+        self.assertEqual(record["threads"], 1)
+        self.assertEqual(record["workers"], 4)
+
+    def test_preflight_distinguishes_schema_and_execution_errors(self):
+        self.project.version = "5.27.0"
+        self.project.cores = 8
+        for text, path in (("uel:\n  workers: 2\n", "uel.prep_each_round"),
+                           ("uel:\n  workers: 9\n", "uel.workers"),
+                           ("uel: {workers: 2, factorize: true}\n", "uel")):
+            checked = self.call("grid_validate", text=text)
+            self.assertEqual(checked["schemaErrors"], [])
+            self.assertEqual(checked["executionErrors"][0]["path"], path)
+        bad = self.call("grid_validate", text="BAD_VALUE")
+        self.assertTrue(bad["schemaErrors"])
+        self.assertFalse(bad["executionChecked"])
+
+    def test_worker_diagnostics_stay_in_private_logs(self):
+        proc = subprocess.CompletedProcess([], 1, "", "private worker detail")
+        with patch("grid.agent.subprocess.run", return_value=proc), \
+                self.assertLogs("grid.agent", level="ERROR") as logs:
+            result = self.agent.call("grid_analyze", {"analysis": "schema"})
+        self.assertIn("private worker detail", logs.output[0])
+        self.assertFalse(result["ok"])
+        self.assertNotIn("private worker detail", json.dumps(result))
 
     def test_documented_inspection_and_predictor_workflow(self):
         inspected = self.example("inspect", "--run", "r0")

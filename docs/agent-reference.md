@@ -57,7 +57,7 @@ Unknown fields fail. Writes require a new `requestId` for each new intent.
 | `grid_row` | `reference`* | `reference` (echo) and `row` (recorded row object). Column names and value types belong to that run; missing fields are not equivalent to null values. |
 | `grid_reports` | `run`* (analysis ID) | `reports`: array of report entries; see reports below. |
 | `grid_manifest` | `name`* | `name`, working YAML `text`, opaque content `version`. |
-| `grid_validate` | `text`* | `errors`: array of `{line, path, message}`. Empty means valid; line may be null and path may be empty. A nonempty list is a validation failure even with envelope `ok: true`. |
+| `grid_validate` | `text`* | `errors`: array of `{line, path, message}`. Also returns `schemaErrors`, `executionErrors` and `executionChecked`. Empty means the schema and known worker compatibility checks passed; line may be null and path may be empty. A nonempty list is a validation failure even with envelope `ok: true`. |
 | `grid_diff` | `name`*, `text`* | `against`: previous project run ID or null; `diff`: unified diff against that run's recorded manifest. No previous run means null/empty string. |
 | `grid_create` | `name`*, `requestId`*; `template` or `text` | `name` of the created experiment. At least one source is needed operationally. If both are supplied, template takes precedence. |
 | `grid_save` | `name`*, `text`*, `version`*, `requestId`* | New manifest `version`. Save fails if the supplied version differs from the working file; reread and reconcile before a new intent. |
@@ -77,6 +77,21 @@ mode. `grid_open` changes the loaded analysis set even though it is advertised
 as read-only and does not use a write receipt.
 
 ### Discovery
+
+`execution` is null without a project, otherwise the same capabilities exposed
+in `project.limen.capabilities`: `parallelRounds`, `parallelFactorize` (false),
+`parallelRequiresPrepEachRound`, `shardsRequireRandomSearch`, `cpuBudget`, and
+`preflight` (scope). The effective CPU budget accounts for affinity and cgroup
+quotas; fractional quotas round down to whole worker slots, with a minimum
+of one. `shards * uel.workers` cannot exceed this budget. Native parallel
+workers each use one native thread; serial shards divide the budget.
+
+`grid_validate` distinguishes upstream schema errors from Grid execution
+preflight. Preflight checks declarative worker/version/CPU compatibility; it
+does not certify data availability or custom runner code. `uel.factorize: true`
+requires `uel.workers: 1`. Parallel workers require `prep_each_round: true`
+and Limen >= 5.25.0. Grid edits/preflights `uel` as a block mapping. Start
+repeats these checks before making a run directory or spawning a process.
 
 | Field | Meaning |
 | --- | --- |
@@ -113,7 +128,7 @@ change without advancing that cursor. Poll status for job completion.
 | `experiment` | Profile/recorded manifest metadata, or null. Contains run-specific Limen information rather than a fixed agent schema. |
 | `roundsBadCount`, `roundsBad` | Round-log ingestion failures and samples. |
 
-`project` nests `project: {root, name}`, `limen: {cli, version}`, `cores`,
+`project` nests `project: {root, name}`, `limen: {cli, version, capabilities}`, `cores`,
 `templates`, `experiments`, `runs`, and `cohorts`. Template entries contain
 `name` and their Limen-provided `about` description. Experiments contain `name`,
 manifest `file`/`version` (null for run-only experiments), and project `runs`

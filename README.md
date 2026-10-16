@@ -220,7 +220,7 @@ Docker serves only `127.0.0.1:8490`; the host's Caddy, maintained in
 `https://grid.vaquum.fi` behind Portal's login and provides its landing card.
 The page, API and event stream all pass through that authentication gate.
 
-The container includes Limen 5.25 and creates an official Limen project
+The container includes Limen 5.27.0 and creates an official Limen project
 at `/data/project` on first start. The `grid_project` volume keeps its
 manifests, experiment results and cohorts across image rebuilds and
 redeployments. It runs as an unprivileged user with a read-only image;
@@ -235,6 +235,15 @@ repository variables `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_DIR` and
 `DEPLOY_KNOWN_HOSTS` can override them. Set `DEPLOY_SSH_KEY` as a repository
 secret (or share the organisation's TDW secrets).
 The deploy waits for `/api/health` before reporting success.
+
+Container capacity uses the smaller of host CPUs, process affinity and visible
+cgroup CPU quotas. Fractional quotas round down to whole worker slots (at least
+one). Shards and manifest `uel.workers` share this budget; parallel Limen
+workers use one native thread each. `grid_validate` reports schema and known
+execution compatibility errors separately. Factorized grids require
+`uel.workers: 1`; native parallel rounds require `prep_each_round: true` and
+Limen 5.25 or later. Custom code and data availability are checked by Limen
+at runtime. See [the issue audit](docs/issue-audit.md).
 
 ## Develop
 

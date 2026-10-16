@@ -182,6 +182,17 @@ export const LIMEN_METRICS = {
   _convergence_warning: { label: "Convergence warning", unit: "share of rows", kind: "binary", better: -1, digits: 2 },
 };
 
+// The native rule architecture writes the snapshot ledger without the
+// ML "backtest_" prefix and with the split as a suffix.
+const RULE_METRICS = Object.fromEntries(["train", "val", "test"].flatMap(split => [
+  ...Object.entries(LIMEN_METRICS).filter(([id]) => id.startsWith("backtest_")).map(([id, metric]) =>
+    [`${id.slice(9)}_${split}`, { ...metric, label: `${metric.label} (${split})` }]),
+  [`num_trades_${split}`, { label: `Signal entries (${split})`, unit: "", better: 0, digits: 0, group: "activity" }],
+  [`num_executed_trades_${split}`, { label: `Executed trades (${split})`, unit: "", better: 0, digits: 0, group: "activity" }],
+  [`position_rate_${split}`, { label: `Signal position rate (${split})`, unit: "share of bars", better: 0, digits: 3, group: "activity" }],
+  [`pnl_per_trade_bps_${split}`, { label: `Mean trade (${split})`, unit: BPS, better: 1, digits: 2 }],
+]));
+
 // A walk-forward run's declaration (sfd.manifest.split_walk_forward, Limen
 // 5.21: its folds, each a test window of its own, and the bars purged and
 // embargoed between them), or null for a run of one test window. A trial's
@@ -229,6 +240,9 @@ export const LIMEN_EXECUTION = {
     backtest_pnl_per_bar_bps: "pnl", backtest_cost_per_bar_bps: "cost", backtest_wins_per_bar: "wins",
     backtest_inventory_per_bar: "inventory", backtest_trades_per_bar: s => s.trades / s.bars,
     entries: "trades", trade_mean: "tradeMean", trade_t: "tradeT", timing: "timing",
+    pnl_per_bar_bps_test: "pnl", cost_per_bar_bps_test: "cost", wins_per_bar_test: "wins",
+    inventory_per_bar_test: "inventory", trades_per_bar_test: s => s.trades / s.bars,
+    num_executed_trades_test: "trades", pnl_per_trade_bps_test: "tradeMean",
   },
   gates: [
     { id: "entries", target: "entries", op: ">=", value: 30 },
@@ -271,7 +285,11 @@ export function limenProfile(experiment) {
   const declared = objective && typeof objective.metric === "string" ? objective : null;
   const way = declared && declared.direction === "minimize" ? 1 : -1;
   const valId = declared ? `val_${declared.metric}` : null;
-  const metrics = declared ? { ...LIMEN_METRICS, [valId]: { ...(LIMEN_METRICS[valId] || { label: `Validation ${declared.metric}`, unit: "", digits: 3 }), better: -way } } : LIMEN_METRICS;
+  const nativeMetrics = { ...LIMEN_METRICS, ...RULE_METRICS,
+    drawdown_std_bps: { label: "Drawdown spread across splits", unit: BPS, better: -1, digits: 3, group: "risk" },
+    is_stable: { label: "Runner stability flag", unit: "", better: 0, digits: 0, kind: "binary" } };
+  const metrics = declared ? { ...nativeMetrics, [valId]: { ...(nativeMetrics[valId] || { label: `Validation ${declared.metric}`, unit: "", digits: 3 }), better: -way } } : nativeMetrics;
+  const defaultTarget = (sfd.manifest || {}).type === "rule_based" ? "pnl_per_bar_bps_test" : "backtest_pnl_per_bar_bps";
   const dirOf = row => (shards ? shards.get(row.shard) : experiment.dir);
   const walkForward = walkForwardOf(experiment);
   return {
@@ -280,6 +298,7 @@ export function limenProfile(experiment) {
     describes: meta.description || "a Limen experiment",
     families: [],
     params: Object.fromEntries([...Object.keys(sfd.params || {}), ...(shards ? ["shard"] : [])].map(k => [k, null])),
+    authoritativeParams: true,
     nested: {}, effective: {}, alias: {}, setSize: {},
     // the round's bookkeeping, never a parameter or a needle: its place in
     // the run (on a random search, its generation index is its order too),
@@ -290,8 +309,8 @@ export function limenProfile(experiment) {
     text: ["id", "_id", "_warnings", "_search_strategy", "_injected", "strict_mode_error", "_dropped_features"],
     metrics,
     derived: LIMEN_DERIVED, roundTargets: LIMEN_ROUND, execution: LIMEN_EXECUTION, gates: [], gatesPrefix: null, invariants: [],
-    defaultTarget: declared ? declared.metric : "backtest_pnl_per_bar_bps",
-    objective: declared ? [[valId, way]] : [["backtest_pnl_per_bar_bps", -1]],
+    defaultTarget: declared ? declared.metric : defaultTarget,
+    objective: declared ? [[valId, way]] : [[defaultTarget, -1]],
     objectiveLabel: declared ? metrics[valId].label.toLowerCase() : "net PnL per bar",
     // the rows the run plans: the whole run's, as the server knows it (a
     // run Grid started, read without a shard that wrote nothing), else its

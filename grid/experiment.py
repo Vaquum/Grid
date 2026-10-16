@@ -42,6 +42,8 @@ import time
 from collections.abc import Callable
 from typing import IO, Any, cast
 
+from .capacity import effective_cpus
+
 Json = dict[str, Any]
 
 RECORD = "grid-run.json"
@@ -192,6 +194,22 @@ def get_value(text: str, dotted: str) -> str | None:
     m = _KEY.match(lines[i])
     assert m is not None
     return _scalar(_written(m["rest"])) or None
+
+
+def _version_at_least(version: str, minimum: tuple[int, int]) -> bool:
+    match = re.match(r"^(\d+)\.(\d+)(?:\.|$)", version)
+    return bool(match and tuple(map(int, match.groups())) >= minimum)
+
+
+def manifest_workers(text: str) -> int:
+    raw = get_value(text, "uel.workers")
+    try:
+        workers = 1 if raw is None else int(raw)
+    except ValueError:
+        workers = 0
+    if workers < 1:
+        raise ValueError("uel.workers must be a positive integer")
+    return workers
 
 
 def yaml_text(value: object) -> str:
@@ -445,7 +463,7 @@ class Project:
         self.lock = threading.Lock()
         self.version = self._version()
         self.templates = self._templates()
-        self.cores = os.cpu_count() or 1
+        self.cores = effective_cpus()
         # runs opened in the sweep: run id -> the sweep's run id; the
         # function that opens one (set by the server's wiring); and why a
         # run did not open, or opened without a shard
@@ -500,7 +518,7 @@ class Project:
                 found.append({"name": m.group(1), "about": m.group(2)})
         return found
 
-    def validate(self, text: str) -> list[Json]:
+    def schema_errors(self, text: str) -> list[Json]:
         """The manifest's problems as ``limen validate`` finds them; none
         when it passes."""
         fd, path = tempfile.mkstemp(suffix=".yaml", prefix="grid-")
@@ -518,6 +536,58 @@ class Project:
                        "message": (out.stdout + out.stderr).strip()[-600:]
                        or "limen validate failed without saying why"}]
         return errors
+
+    def capabilities(self) -> Json:
+        return {"parallelRounds": _version_at_least(self.version, (5, 25)),
+                "parallelFactorize": False,
+                "parallelRequiresPrepEachRound": True,
+                "shardsRequireRandomSearch": True,
+                "cpuBudget": self.cores,
+                "preflight": "declarative worker compatibility; data and "
+                             "custom runner code are checked by Limen"}
+
+    def execution_errors(self, text: str) -> list[Json]:
+        errors: list[Json] = []
+
+        def problem(path: str, message: str) -> None:
+            errors.append({"line": None, "path": path, "message": message})
+
+        try:
+            _mapping(text.splitlines(), ["uel"], create=False)
+        except ValueError as exc:
+            problem("uel", str(exc) + "; use block mappings for preflight")
+            return errors
+        try:
+            workers = manifest_workers(text)
+        except ValueError as exc:
+            problem("uel.workers", str(exc))
+            return errors
+        if workers > self.cores:
+            problem("uel.workers", "uel.workers exceeds the effective CPU "
+                    "budget (%d); reduce workers" % self.cores)
+        if workers > 1:
+            if not self.capabilities()["parallelRounds"]:
+                problem("uel.workers", "uel.workers > 1 needs Limen >= "
+                        "5.25.0; use workers: 1 or upgrade Limen")
+            if (get_value(text, "uel.factorize") or "").lower() == "true":
+                problem("uel.factorize", "uel.factorize: true cannot run "
+                        "with uel.workers > 1; use workers: 1 for factorized "
+                        "grid search, or disable factorize")
+            if (get_value(text, "uel.prep_each_round") or "").lower() \
+                    != "true":
+                problem("uel.prep_each_round", "uel.workers > 1 requires "
+                        "uel.prep_each_round: true; otherwise use workers: 1")
+        return errors
+
+    def validation(self, text: str) -> Json:
+        schema = self.schema_errors(text)
+        execution = [] if schema else self.execution_errors(text)
+        return {"errors": schema + execution, "schemaErrors": schema,
+                "executionErrors": execution,
+                "executionChecked": not bool(schema)}
+
+    def validate(self, text: str) -> list[Json]:
+        return self.validation(text)["errors"]
 
     # -- experiments: the working manifests ---------------------------------
     def _manifest_path(self, name: str) -> str:
@@ -822,7 +892,8 @@ class Project:
         runs = self.runs()
         return {"project": {"root": self.root,
                             "name": os.path.basename(self.root)},
-                "limen": {"cli": self.cli, "version": self.version},
+                "limen": {"cli": self.cli, "version": self.version,
+                          "capabilities": self.capabilities()},
                 "cores": self.cores, "templates": self.templates,
                 "experiments": self.experiments(runs), "runs": runs,
                 "cohorts": self.cohorts()}
@@ -1003,10 +1074,13 @@ class Project:
                              "again before running it" % self._rel(path))
         problems = self.validate(text)
         if problems:
-            raise ValueError("limen validate finds %d problem%s in the "
-                             "manifest; it is not run"
-                             % (len(problems), "" if len(problems) == 1
-                                else "s"))
+            raise ValueError("manifest preflight: %s: %s" % (
+                problems[0]["path"], problems[0]["message"]))
+        workers = manifest_workers(text)
+        if shards * workers > self.cores:
+            raise ValueError("shards * uel.workers exceeds the effective "
+                             "CPU budget (%d); reduce shards or workers"
+                             % self.cores)
         search = get_value(text, "uel.search_strategy.type")
         if shards > 1 and search != "random":
             raise ValueError("shards draw apart only in a random search "
@@ -1039,7 +1113,8 @@ class Project:
         os.makedirs(os.path.join(folder, "manifests"))
         os.makedirs(os.path.join(folder, "logs"))
         _write_text(os.path.join(folder, BASE_COPY), text)
-        threads = max(1, self.cores // shards)
+        # Limen's native parallel workers each enforce one native thread.
+        threads = 1 if workers > 1 else max(1, self.cores // shards)
         share = -(-rounds // shards)
         records: list[Json] = []
         for j in range(shards):
@@ -1069,6 +1144,7 @@ class Project:
                              % problems[0]["message"].split("\n")[0])
         record: Json = {"experiment": name, "started_at": _now(),
                         "rounds": share * shards, "threads": threads,
+                        "workers": workers,
                         "record": {"execution": bool(execution),
                                    "outputs": bool(outputs)},
                         "shards": records}
@@ -1320,7 +1396,17 @@ class Project:
             record = _read_json(path)
             if record is None:
                 raise ValueError("%s is not a run Grid started" % rid)
-            threads = record.get("threads")
+            with open(os.path.join(folder, BASE_COPY),
+                      encoding="utf-8") as f:
+                workers = manifest_workers(f.read())
+            shard_count = len(record.get("shards") or [])
+            if shard_count * workers > self.cores:
+                raise ValueError("resume exceeds the effective CPU budget "
+                                 "(%d); restore the run's CPU allocation"
+                                 % self.cores)
+            threads = 1 if workers > 1 else max(1, self.cores // max(
+                1, shard_count))
+            record["threads"] = threads
             started: list[str] = []
             failed: str | None = None
             for s in cast(list[Json], record.get("shards") or []):
