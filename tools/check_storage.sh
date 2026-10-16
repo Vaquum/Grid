@@ -21,6 +21,10 @@ truncate -s 199000000000 /var/lib/grid.ext4
 mkfs.ext4 -q -F -b 4096 -m 0 /var/lib/grid.ext4 16384
 mount -o loop /var/lib/grid.ext4 /srv/grid
 sh deploy/grid-storage-check
+# systemd BindPaths adds a second mount entry for the same filesystem.
+mount --bind /srv/grid /srv/grid
+sh deploy/grid-storage-check
+umount /srv/grid
 if sh deploy/grid-storage-check --cwd; then
     echo 'FAIL: uncapped working directory accepted' >&2
     exit 1

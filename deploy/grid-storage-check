@@ -4,10 +4,10 @@ set -eu
 image=/var/lib/grid.ext4
 mountpoint -q /srv/grid
 test "$(stat -c %s "$image")" -eq 199000000000
-device=$(findmnt -n -o SOURCE --target /srv/grid)
+device=$(findmnt -n -o SOURCE --target /srv/grid | tail -n 1)
 test "$(losetup -n -O BACK-FILE "$device")" = "$image"
 test "$(blockdev --getsize64 "$device")" -eq 199000000000
-test "$(findmnt -n -o FSTYPE --target /srv/grid)" = ext4
+test "$(findmnt -n -o FSTYPE --target /srv/grid | tail -n 1)" = ext4
 if [ "${1:-}" = --cwd ]; then
     test "$(stat -c %d .)" = "$(stat -c %r "$device")"
 fi
