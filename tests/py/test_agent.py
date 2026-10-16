@@ -24,6 +24,7 @@ from grid.agent import TOOLS, Agent
 from grid.agent_client import Client, mcp_reply, write_connection
 from grid.experiment import Project, set_values
 from grid.server import Server, serve
+from grid.sweep import Run
 
 ROOT = Path(__file__).resolve().parents[2]
 FAKE = str(ROOT / "tests/fixtures/fake_limen.py")
@@ -319,8 +320,15 @@ class TestAgent(unittest.TestCase):
                 url += "?run=" + urllib.parse.quote(selected, safe="")
             request = urllib.request.Request(url, headers={
                 "Host": "grid.vaquum.fi"})
-            with urllib.request.urlopen(request) as response:
-                return json.load(response)["pack"]
+            try:
+                with urllib.request.urlopen(request) as response:
+                    return json.load(response)["pack"]
+            except urllib.error.HTTPError as exc:
+                message = json.load(exc)["error"]
+                if exc.code == 400 and ("first round" in message or
+                                        "no round" in message):
+                    return {"runs": []}
+                raise
 
         def close(service):
             project, wiring, httpd = service
@@ -484,6 +492,52 @@ class TestAgent(unittest.TestCase):
                 urllib.request.urlopen(req)
             self.assertEqual(caught.exception.code, 403)
             caught.exception.close()
+
+    def test_capture_cost_and_evidence_are_scoped_to_selected_run(self):
+        state = {"run": "r0", "firstHalf": True}
+        analyses = ("schema", "cohort", "gates")
+        baseline = {a: self.call("grid_analyze", analysis=a, state=state)
+                    for a in analyses}
+        unrelated = Run("large", "unrelated telemetry", "other.jsonl",
+                        None, True)
+        self.sweep.add_run(unrelated)
+        for i in range(5000):
+            self.sweep.run_line(unrelated, json.dumps({
+                "sequence": i, "message": str(i) + ":" + "x" * 1024}), True)
+        with patch.object(unrelated.store, "export_iter",
+                          side_effect=AssertionError("unrelated export")):
+            after = {a: self.call("grid_analyze", analysis=a, state=state)
+                     for a in analyses}
+        for analysis in analyses:
+            before, current = baseline[analysis], after[analysis]
+            self.assertEqual(current["result"], before["result"])
+            self.assertEqual(current["summary"], before["summary"])
+            self.assertEqual(current["snapshot"]["generation"],
+                             before["snapshot"]["generation"])
+            self.assertLess(current["performance"]["snapshotBytes"], 50000)
+            self.assertLess(abs(current["performance"]["snapshotBytes"] -
+                                before["performance"]["snapshotBytes"]), 128)
+            print("run-scoped profile", analysis, json.dumps({
+                "before": before["performance"],
+                "withUnrelated5000Rows": current["performance"]}))
+        captured = after["cohort"]
+        snapshot = captured["snapshot"]["id"]
+        with urllib.request.urlopen(self.url +
+                                    "/api/agent/snapshot?id=" + snapshot) as r:
+            pack = json.load(r)["pack"]
+        self.assertEqual([r["id"] for r in pack["runs"]], ["r0"])
+        self.assertTrue(all(m["run"] == "r0" for m in
+                            captured["result"]["members"]))
+        self.sweep.run_reset(self.sweep.runs[0], "truncated")
+        pinned = self.call("grid_analyze", analysis="cohort", state=state,
+                           snapshot=snapshot)
+        self.assertEqual(pinned["result"], captured["result"] | {
+            "evaluation": pinned["result"]["evaluation"]})
+        self.assertFalse(pinned["performance"]["captured"])
+        expired = self.client.call("grid_analyze", {
+            "analysis": "schema", "snapshot": baseline["schema"][
+                "snapshot"]["id"]})
+        self.assertEqual(expired["error"]["code"], "SNAPSHOT_EXPIRED")
 
     def test_snapshot_survives_arrivals_and_stale_rows_are_rejected(self):
         schema = self.call("grid_analyze", analysis="schema")

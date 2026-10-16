@@ -2,8 +2,8 @@
 
 The initial 37 issues were reviewed against main (`023df44`) and merged PRs.
 The 24 closed issues already have merged implementations; none needs reopening.
-This change addresses the initial 13 open issues and eight requests filed
-during implementation (#78, #80, #81, #82, #83, #84, #85, #87), in one PR.
+This change addresses the initial 13 open issues and nine requests filed
+during implementation (#78, #80, #81, #82, #83, #84, #85, #87, #89), in one PR.
 
 | Issue | Disposition |
 | --- | --- |
@@ -19,6 +19,7 @@ during implementation (#78, #80, #81, #82, #83, #84, #85, #87), in one PR.
 | [#84](https://github.com/Vaquum/Grid/issues/84) | Return a lightweight project catalog before analytical rows; read historical runs only on selection, scope live cursors to the selected run and its archives, and retain navigation and recorded snapshots. |
 | [#85](https://github.com/Vaquum/Grid/issues/85) | Rank cohorts exclusively on finite first-half evidence, regardless of second-half values or availability; preserve unavailable held-out results. |
 | [#87](https://github.com/Vaquum/Grid/issues/87) | Sort listed Trials by raw numeric or parameter values from accessible heading buttons; retain runner ranks, stable ties and missing values last. |
+| [#89](https://github.com/Vaquum/Grid/issues/89) | Capture only the selected run for agent analysis and pinned snapshots; avoid a full-pack parse/serialize pass, defer Board effects for schema/gates/cohort/manifest queries, and report capture/envelope/worker times and retained bytes. Compare identical evidence with an unrelated 5,000-row telemetry run. |
 | [#54](https://github.com/Vaquum/Grid/issues/54), v5.24.1 | Upstream documentation update. Grid already invokes the documented CLI/Python routes. No feature change. |
 | [#57](https://github.com/Vaquum/Grid/issues/57), v5.25.0 | Already installed in the image. Native workers remain distinct from Grid shards; admission and CPU budgeting are covered by #75/#76. |
 | [#66](https://github.com/Vaquum/Grid/issues/66), v5.25.1 | Captured aggregates and nullable CSV fixes are upstream. Grid already reads CSV aggregates and preserves nulls. Included in the new image pin. |

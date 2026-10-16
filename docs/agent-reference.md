@@ -242,6 +242,7 @@ every analysis population automatically.
 | `apiVersion` | Inner payload version, currently 1. |
 | `snapshot` | `id`, `instance`, `run`, `generation`, `datasetVersion`, `edge`, `rows`, `expiresIn`. Dataset version is captured data revision; `rows` is context population support and `expiresIn` is remaining whole seconds. |
 | `state` | Full resolved public state above. Reuse it to preserve the question. |
+| `performance` | `captured`, `captureMs` (run-scoped pack creation, including column serialization), `serializationMs` (worker envelope), `workerMs` (child process), `snapshotBytes` (retained UTF-8 pack). Pinned reuse sets `captured` false. |
 | `viewLink` | Relative pinned human UI link. Resolve against the connection URL; its snapshot ID grants access to the read-only capture. |
 | `target` | Target descriptor below. |
 | `summary` | Base context statistics below. |
@@ -550,3 +551,10 @@ uses `GET /api/experiment?catalog=1`; unknown historical row counts are null unt
 read. Explicit full packs, CLI exports and pinned agent snapshots retain their
 recorded data. Cohort ranking uses first-half availability and values alone;
 missing held-out statistics do not remove candidates or become zero.
+
+Agent captures include only `state.run` (or the first open run when omitted),
+with canonical IDs, generation, rows, rounds and associated logs. Another run
+requires a new capture. Four captures per server and ten-minute expiry remain
+unchanged; each pinned pack is immutable across arrivals and resets. Schema,
+gates, cohort and manifest queries defer Board effect calculations. Performance
+measurements describe processing stages, not network latency or financial evidence.

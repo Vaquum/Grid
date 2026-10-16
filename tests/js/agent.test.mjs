@@ -182,3 +182,17 @@ test("first-half cohort membership is invariant to held-out masks and values", (
     }
   }
 });
+
+
+test("schema and selection models defer Board effects without changing evidence", () => {
+  const sweep = decodePack(structuredClone(agentFixture));
+  const state = { ...DEFAULT_STATE, run: sweep.runs[0].id };
+  const cache = {};
+  const lean = createModel(sweep, state, cache, { effects: false });
+  assert.equal(lean.board, null);
+  const full = createModel(sweep, state, cache);
+  assert.ok(full.board);
+  assert.deepEqual(lean.rows, full.rows);
+  assert.deepEqual(lean.base, full.base);
+  assert.equal(lean.schema, full.schema);
+});

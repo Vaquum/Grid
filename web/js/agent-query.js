@@ -103,7 +103,7 @@ export function analyzePack(pack, args = {}) {
   state.order = queryInteger(state.order, 2, 2, 6, "order");
   if (state.clusterK !== null) state.clusterK = queryInteger(state.clusterK, null, 2, 7, "clusterK");
   if (!Array.isArray(state.clusters) || state.clusters.some(x => typeof x !== "string")) queryFail("clusters is a list of IDs");
-  const m = createModel(sweep, state);
+  const m = createModel(sweep, state, {}, { effects: !["schema", "gates", "cohort", "manifest"].includes(args.analysis) });
   for (const k of ["context", "pocket"]) checkConditions(state[k], m.schema, k);
   if (state.pocketB !== null) checkConditions(state.pocketB, m.schema, "pocketB");
   if (state.target && !m.schema.targetById.has(state.target)) queryFail(`unknown target ${state.target}`);

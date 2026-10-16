@@ -318,6 +318,8 @@ class Agent:
             if node is None:
                 raise AgentError("ANALYSIS_RUNTIME_MISSING",
                                  "headless analysis needs Node.js >= 18")
+            capture_started = time.perf_counter()
+            captured = False
             with self.snapshot_lock:
                 now = time.monotonic()
                 self.snapshots = {k: v for k, v in self.snapshots.items()
@@ -330,17 +332,28 @@ class Agent:
                     pack = self.snapshots[snapshot][1]
                     created = self.snapshots[snapshot][0]
                 else:
-                    pack, _ = self.server.sweep.pack_text()
-                    data: Json = json.loads(pack)
-                    data["agentInstance"] = self.instance
-                    data["mode"] = "recorded"
-                    pack = json.dumps(data)
+                    state: Any = args.get("state") or {}
+                    requested = state.get("run") if isinstance(state, dict) \
+                        else None
+                    sweep = self.server.sweep
+                    with sweep.lock:
+                        selected = requested or (sweep.runs[0].id
+                                                 if sweep.runs else "")
+                    pack, _ = sweep.pack_text(mode="recorded",
+                                              run_ids={selected})
+                    pack = pack[:-1] + ',"agentInstance":' + json.dumps(
+                        self.instance) + "}"
+                    captured = True
                     snapshot = str(uuid.uuid4())
                     if len(self.snapshots) >= 4:
                         del self.snapshots[next(iter(self.snapshots))]
                     self.snapshots[snapshot] = (now, pack)
                     created = now
+            capture_ms = (time.perf_counter() - capture_started) * 1000
+            serialized_at = time.perf_counter()
             payload = '{"pack":%s,"args":%s}' % (pack, json.dumps(args))
+            serialization_ms = (time.perf_counter() - serialized_at) * 1000
+            worker_started = time.perf_counter()
             try:
                 proc = subprocess.run([node, WORKER], input=payload,
                                       text=True, capture_output=True,
@@ -370,6 +383,11 @@ class Agent:
             result["result"]["ui"] = {
                 "origin": self.server.public_origin, "instance": self.instance,
                 "snapshotInstanceLocal": True}
+            result["result"]["performance"] = {
+                "captured": captured, "captureMs": capture_ms,
+                "serializationMs": serialization_ms,
+                "workerMs": (time.perf_counter() - worker_started) * 1000,
+                "snapshotBytes": len(pack.encode("utf-8"))}
             if args["analysis"] == "cohort":
                 selection = result["result"]["result"]
                 refs = selection.get("members")
