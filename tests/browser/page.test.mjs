@@ -1965,7 +1965,24 @@ test("project catalog loads before history; selected runs stream and survive nav
     await page.waitForFunction(() => /40 rows/.test(document.querySelector(".progress-text").textContent));
     const firstId = await page.locator("#run-pick").inputValue();
     assert.equal(packs.at(-1).pack.runs.length, 1);
+    // A delayed selection cannot replace a newer choice of the loaded run.
+    let release;
+    const held = new Promise(resolve => { release = resolve; });
+    let asked;
+    const requested = new Promise(resolve => { asked = resolve; });
+    const delayed = /\/api\/pack\?run=project%3A.*second/;
+    await page.route(delayed, async route => { asked(); await held; await route.continue(); });
     await page.selectOption("#run-pick", second);
+    await requested;
+    await page.selectOption("#run-pick", firstId);
+    const answered = page.waitForResponse(delayed);
+    release();
+    await answered;
+    await page.unroute(delayed);
+    await page.waitForTimeout(1200);
+    assert.equal(await page.locator("#run-pick").inputValue(), firstId);
+    const secondNow = await page.locator("#run-pick option").evaluateAll(xs => xs.find(x => /second$/.test(x.textContent)).value);
+    await page.selectOption("#run-pick", secondNow);
     await page.waitForFunction(id => document.querySelector("#run-pick").value !== id, firstId);
     assert.equal(packs.at(-1).pack.runs.length, 1);
     await page.goBack();

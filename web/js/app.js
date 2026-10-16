@@ -89,6 +89,8 @@ export function setState(patch, opts = {}) {
       loadProjectRun(id, { ...next, run: id }, opts);
       return;
     }
+    // A newer selection of the loaded run or view cancels a pending fetch.
+    projectLoad++;
   }
   pushState(next, opts.replace);
 }
@@ -123,10 +125,10 @@ async function loadLive(cfg, selected) {
 let projectLoad = 0;
 async function loadProjectRun(id, next, opts = {}) {
   const request = ++projectLoad;
-  app.live?.es.close();
   try {
     const body = await loadLive(app.config, id);
     if (request !== projectLoad) return;
+    app.live?.es.close();
     installSweep(body.pack, true);
     app.pendingRun = null;
     pushState({ ...next, run: body.pack.selectedRun || id }, opts.replace);
@@ -134,7 +136,6 @@ async function loadProjectRun(id, next, opts = {}) {
   } catch (err) {
     if (request !== projectLoad) return;
     toast(String(err.message || err));
-    reconnect(app.config);
   }
 }
 
@@ -943,7 +944,7 @@ async function start() {
       const st = decodeState(location.hash);
       if (!st) return;
       if (app.config.catalog && st.run && !app.sweep.runs.some(r => r.id === st.run)) loadProjectRun(st.run, st, { replace: true });
-      else { app.state = st; update(); }
+      else { projectLoad++; app.state = st; update(); }
     });
     update();
     mark("drawn");
