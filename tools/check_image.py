@@ -136,6 +136,33 @@ def main() -> None:
                     evaluated["cohort"]["halves"][0]["bars"] > 0, evaluated
                 assert evaluated["timestampSource"] \
                     == "original source through Limen", evaluated
+                # The native Arrow loader has different kwargs and no
+                # kline_size. Its source bars must also evaluate exactly.
+                arrow_root = project / "arrow"
+                subprocess.run([
+                    "python", "/fixtures/generate_rule_run.py", str(arrow_root),
+                    "arrow"], check=True)
+                call("grid_create", name="arrow", text=(arrow_root /
+                     "rule_smoke.yaml").read_text(), requestId="arrow-create")
+                arrow = call("grid_manifest", name="arrow")
+                arrow_rid = call(
+                    "grid_start", name="arrow", version=arrow["version"],
+                    rounds=4, shards=1, execution=True, outputs=True,
+                    requestId="arrow-start")["run"]
+                deadline = time.monotonic() + 120
+                while True:
+                    run = next(r for r in call("grid_status")["project"][
+                        "runs"] if r["id"] == arrow_rid)
+                    assert run["state"] != "failed", run
+                    if run["state"] == "finished" and run.get("open"):
+                        break
+                    assert time.monotonic() < deadline, run
+                    time.sleep(0.2)
+                arrow_selected = call("grid_analyze", analysis="cohort",
+                                      state={"run": run["open"],
+                                             "firstHalf": True})
+                assert arrow_selected["result"]["evaluation"]["available"], \
+                    arrow_selected
                 print(json.dumps({"imageAgent": "passed", "cores": cores,
                                   "node": subprocess.check_output([
                                       "node", "--version"], text=True).strip(),

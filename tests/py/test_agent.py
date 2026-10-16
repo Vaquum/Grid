@@ -214,6 +214,96 @@ class TestAgent(unittest.TestCase):
         self.assertTrue(all(d["id"] not in ("num_trades_train", "auc")
                             for d in ml["result"]["dimensions"]))
 
+    def test_sparse_halves_gate_and_cohort_through_public_api(self):
+        original = json.dumps(self.sweep.runs[0].rounds)
+        for first, second in ((3, None), (None, 3), (None, None)):
+            with self.sweep.lock:
+                self.sweep.runs[0].rounds = json.loads(original)
+                for entry in self.sweep.runs[0].rounds:
+                    summary = entry[4]
+                    summary["whole"]["tradeT"] = 9
+                    summary["halves"][0]["tradeT"] = first
+                    summary["halves"][1]["tradeT"] = second
+            state = {"run": "r0", "firstHalf": True,
+                     "target": "backtest_pnl_per_bar_bps", "gates": [{
+                         "id": "t", "target": "trade_t", "op": ">=",
+                         "value": 2}]}
+            gates = self.call("grid_analyze", analysis="gates", state=state)
+            cohort = self.call("grid_analyze", analysis="cohort", state=state)
+            self.assertTrue(cohort["result"]["firstHalfSelection"])
+            self.assertTrue(cohort["result"]["gates"][0]["firstHalf"])
+            if first is None:
+                self.assertEqual(cohort["result"]["pool"], 0)
+                self.assertTrue(any("no first-half measurements" in w
+                                    for w in gates["warnings"]))
+            else:
+                self.assertGreater(cohort["result"]["pool"], 0)
+                self.assertEqual(cohort["warnings"], [])
+
+    def test_agent_run_is_visible_live_to_shared_human_service(self):
+        args = argparse.Namespace(limen=None, results=None, name=None,
+                                  ssh=None, as_=None, log=None, run=None,
+                                  label=None, project=self.project_root)
+
+        def human_service():
+            project = Project(self.project_root, FAKE)
+            wiring = Wiring(args, follow=True)
+            sweep = wiring.build()
+            project.opener = wiring.open_limen
+            wiring.start()
+            project.follow()
+            httpd = serve(sweep, lambda: b"human", "127.0.0.1", 0,
+                          project, "human-token", public_origin=
+                          "https://grid.vaquum.fi")
+            threading.Thread(target=httpd.serve_forever, daemon=True).start()
+            return project, wiring, httpd
+
+        def visible(httpd):
+            url = "http://127.0.0.1:%d/api/pack" % httpd.server_address[1]
+            request = urllib.request.Request(url, headers={
+                "Host": "grid.vaquum.fi"})
+            with urllib.request.urlopen(request) as response:
+                return json.load(response)["pack"]["runs"]
+
+        def close(service):
+            project, wiring, httpd = service
+            project.discovery_stop.set()
+            for follower in wiring.followers:
+                follower.stop()
+            httpd.shutdown()
+            httpd.server_close()
+
+        service = human_service()
+        old_pace = os.environ.get("FAKE_LIMEN_PACE")
+        os.environ["FAKE_LIMEN_PACE"] = "0.1"
+        try:
+            self.call("grid_create", name="shared", template="lightgbm_binary",
+                      requestId="shared-create")
+            manifest = self.call("grid_manifest", name="shared")
+            rid = self.call("grid_start", name="shared", rounds=100, shards=1,
+                            execution=True, outputs=True,
+                            version=manifest["version"],
+                            requestId="shared-start")["run"]
+            deadline = time.monotonic() + 15
+            while not any(r["rows"] > 0 for r in visible(service[2])):
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.05)
+            self.assertEqual(next(r for r in self.project.runs()
+                                  if r["id"] == rid)["state"], "running")
+            self.call("grid_stop", run=rid, requestId="shared-stop")
+            close(service)
+            service = human_service()
+            deadline = time.monotonic() + 15
+            while not any(r["rows"] > 0 for r in visible(service[2])):
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.05)
+        finally:
+            close(service)
+            if old_pace is None:
+                os.environ.pop("FAKE_LIMEN_PACE", None)
+            else:
+                os.environ["FAKE_LIMEN_PACE"] = old_pace
+
     def test_documented_inspection_and_predictor_workflow(self):
         inspected = self.example("inspect", "--run", "r0")
         ids = {q["snapshot"]["id"] for q in inspected.values()}
