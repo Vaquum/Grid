@@ -34,10 +34,15 @@ container and volume. Keep only the capped copy after verification.
 Replace `/opt/grid` with a symlink to `/srv/grid/checkout`.
 Never prune the shared engine or delete unrelated volumes/images.
 
-During migration, count both copies toward 200 GB. If there is insufficient
-room for a full second copy, do not begin this procedure; use a separately
-reviewed migration. The initial deployment had approximately 99 GB decimal
-of project data and a 1.5 GB image.
+During migration, count temporary overlap toward 200 GB. The production
+migration used `rsync --remove-source-files`: rsync verifies each transfer
+before removing its source, limiting overlap to one file. Record a sorted
+path/size inventory before transfer and compare it with the destination
+afterward. Preserve the inventory if a transfer needs resuming. With
+106.5 GB of data and a largest file of 38 GB, this stays below the ceiling.
+Check this bound, image costs and filesystem overhead before migrating
+another deployment. Do not make a full second copy if it would exceed
+200 GB. There is no automatic rollback copy after per-file removal.
 
 ## Administration
 
