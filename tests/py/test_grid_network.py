@@ -1,4 +1,5 @@
 import json
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -33,13 +34,17 @@ class GridNetworkTest(unittest.TestCase):
         links.side_effect = [[peer], [peer]]
         primary = {"Options": {"com.docker.network.bridge.name": "docker0"},
                    "IPAM": {"Config": [{"Subnet": "172.17.0.0/16",
-                                        "Gateway": "172.17.0.1"}]},
-                   "Containers": {"primary": {
+                                        "Gateway": "172.17.0.1"},
+                                       {"Subnet": "fd00:17::/64",
+                                        "Gateway": "fd00:17::1"}]},
+                   "Containers": {"removed": {}, "primary": {
                        "MacAddress": "02:42:ac:11:00:02"}}}
 
         def execute(*args):
             if args[0] == "docker" and "network" in args:
                 return json.dumps([primary])
+            if args[0] == "docker" and args[-1] == "removed":
+                raise subprocess.CalledProcessError(1, args)
             if args[0] == "docker" and "inspect" in args:
                 return '[{"State":{"Running":true,"Pid":100}}]'
             if args[:1] == ("nsenter",) and "show" in args:
@@ -52,6 +57,8 @@ class GridNetworkTest(unittest.TestCase):
         commands = [call.args for call in run.call_args_list]
         self.assertIn(("ip", "link", "set", "dev", "veth-primary",
                        "master", "docker0"), commands)
+        self.assertIn(("ip", "address", "replace", "fd00:17::1/64",
+                       "dev", "docker0"), commands)
         self.assertFalse(any("restart" in args for args in commands))
 
 

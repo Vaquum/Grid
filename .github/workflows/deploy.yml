@@ -51,7 +51,11 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
-      - name: Verify the hard storage boundary before writing
+      - name: Upgrade the storage guard after validating the boundary
+        run: |
+          bootstrap=$(python3 -c 'import pathlib, shlex; print(shlex.quote(pathlib.Path("deploy/bootstrap_storage_guard.py").read_text()))')
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" "if [ \"\$(id -u)\" -eq 0 ]; then python3 -c $bootstrap; else sudo -n python3 -c $bootstrap; fi" < deploy/grid-storage-check
+      - name: Verify the hard storage boundary before writing the checkout
         run: |
           ssh "$DEPLOY_USER@$DEPLOY_HOST" "/usr/local/libexec/grid-storage-check && test \"\$(readlink -f '$DEPLOY_DIR')\" = /srv/grid/checkout"
       - name: Sync the checkout

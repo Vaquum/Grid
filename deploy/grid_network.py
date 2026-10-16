@@ -18,6 +18,18 @@ def links():
     return json.loads(run("ip", "-j", "-d", "link", "show"))
 
 
+def running_container(cid):
+    try:
+        container = json.loads(run(*PRIMARY, "inspect", cid))[0]
+    except subprocess.CalledProcessError:
+        # Build sandboxes and containers removed since the snapshot can vanish.
+        # A daemon/API failure still fails closed when the listing also fails.
+        if run(*PRIMARY, "ps", "-aq", "--no-trunc", "--filter", f"id={cid}").strip():
+            raise
+        return None
+    return container if container["State"]["Running"] else None
+
+
 def ensure_grid_bridge():
     existing = next((x for x in links() if x["ifname"] == GRID_BRIDGE), None)
     if existing is None:
@@ -50,23 +62,23 @@ def restore_primary_bridge():
         raise RuntimeError("Primary engine does not use docker0; refusing repair")
     existing = next((x for x in links() if x["ifname"] == bridge), None)
     if existing is None:
-        ipv4 = next(c for c in network["IPAM"]["Config"]
-                    if ipaddress.ip_network(c["Subnet"]).version == 4)
-        prefix = ipaddress.ip_network(ipv4["Subnet"]).prefixlen
         run("ip", "link", "add", bridge, "type", "bridge")
-        run("ip", "address", "add", f'{ipv4["Gateway"]}/{prefix}',
-            "dev", bridge)
         run("ip", "link", "set", "dev", bridge, "mtu",
             options.get("com.docker.network.driver.mtu", "1500"))
     elif existing.get("linkinfo", {}).get("info_kind") != "bridge":
         raise RuntimeError("docker0 exists and is not a bridge")
+    for config in network["IPAM"]["Config"]:
+        if config.get("Gateway"):
+            prefix = ipaddress.ip_network(config["Subnet"]).prefixlen
+            run("ip", "address", "replace", f'{config["Gateway"]}/{prefix}',
+                "dev", bridge)
     run("ip", "link", "set", "dev", bridge, "up")
     # Deleting a bridge detaches existing veth ports. Reattach only endpoints
     # recorded on the primary engine's default network; never restart services.
     host_links = {x["ifindex"]: x for x in links()}
     for cid, endpoint in network.get("Containers", {}).items():
-        container = json.loads(run(*PRIMARY, "inspect", cid))[0]
-        if not container["State"]["Running"]:
+        container = running_container(cid)
+        if container is None:
             continue
         pid = str(container["State"]["Pid"])
         interfaces = json.loads(run("nsenter", "--target", pid, "--net",
@@ -83,7 +95,7 @@ def restore_primary_bridge():
         # A recreated bridge can have a new MAC; discard stale gateway ARP.
         for config in network["IPAM"]["Config"]:
             gateway = config.get("Gateway")
-            if gateway and ipaddress.ip_address(gateway).version == 4:
+            if gateway:
                 run("nsenter", "--target", pid, "--net", "ip", "neigh",
                     "flush", "to", gateway, "dev", interface["ifname"])
 
@@ -95,8 +107,8 @@ def verify_primary_bridge():
         raise RuntimeError("docker0 is not a bridge")
     host_links = {x["ifindex"]: x for x in links()}
     for cid, endpoint in network.get("Containers", {}).items():
-        container = json.loads(run(*PRIMARY, "inspect", cid))[0]
-        if not container["State"]["Running"]:
+        container = running_container(cid)
+        if container is None:
             continue
         health = container["State"].get("Health", {}).get("Status")
         if health == "unhealthy":
@@ -110,7 +122,7 @@ def verify_primary_bridge():
             raise RuntimeError("Primary endpoint is not attached to docker0")
         for config in network["IPAM"]["Config"]:
             gateway = config.get("Gateway")
-            if gateway and ipaddress.ip_address(gateway).version == 4:
+            if gateway:
                 run("nsenter", "--target", pid, "--net", "ping", "-c", "1",
                     "-W", "3", gateway)
         print(f'Primary endpoint {container["Name"]}: attached, gateway reachable')
