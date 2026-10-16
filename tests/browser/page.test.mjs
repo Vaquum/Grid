@@ -1489,8 +1489,12 @@ test("experiment: catalog opens before results, and analysis loads only its chos
   const project = mkdtempSync(join(tmpdir(), "grid-fast-project-"));
   writeFileSync(join(project, "limen.toml"), "[store]\n");
   mkdirSync(join(project, "manifests"));
+  const recorded = join(project, "results", "dev", "recorded");
+  mkdirSync(recorded, { recursive: true });
+  for (const name of readdirSync(join(ROOT, "tests/fixtures/limen_run_200"))) {
+    copyFileSync(join(ROOT, "tests/fixtures/limen_run_200", name), join(recorded, name));
+  }
   const proc = spawn("python3", ["-m", "grid", "serve", "--project", project,
-    "--limen", join(ROOT, "tests/fixtures/limen_run_200"),
     "--limen-cli", join(ROOT, "tests/fixtures/fake_limen.py"), "--port", "0"], { cwd: ROOT });
   let release;
   const held = new Promise(resolve => { release = resolve; });
@@ -1505,23 +1509,23 @@ test("experiment: catalog opens before results, and analysis loads only its chos
       await route.continue();
     });
     await page.goto(url);
-    await page.waitForSelector(".ex-make");
+    await page.waitForSelector(".ex-runs tbody tr");
     assert.deepEqual(requests, [""], "Experiment fetches no result rows");
     assert.equal(await page.locator("#app").getAttribute("data-state"), "ready");
     await page.keyboard.press("1");
     await page.waitForSelector("#view [role=status]");
     assert.match(await page.locator("#view").innerText(), /Reading/);
     await page.keyboard.press("0");
-    await page.waitForSelector(".ex-make");
+    await page.waitForSelector(".ex-runs tbody tr");
     release();
     await page.keyboard.press("1");
     await page.waitForSelector(".pcard");
-    assert.deepEqual(requests, ["", "r0"], "navigation reuses the in-flight selected run request");
+    assert.deepEqual(requests, ["", "p1"], "navigation reuses the in-flight selected run request");
     const timings = await page.evaluate(() => window.__gridTimings);
     assert.ok(timings.drawn - timings.start < 1000, JSON.stringify(timings));
     await page.reload();
     await page.waitForSelector(".pcard");
-    assert.deepEqual(requests, ["", "r0", "r0"], "a deep link fetches its selected run directly");
+    assert.deepEqual(requests, ["", "p1", "p1"], "a deep link fetches its selected run directly");
     assert.deepEqual(errors, []);
     await page.close();
   } finally {
