@@ -1,0 +1,21 @@
+[Unit]
+Description=Grid isolated container runtime
+BindsTo=srv-grid.mount
+After=srv-grid.mount
+Before=grid-docker.service
+
+[Service]
+ExecStartPre=/usr/local/libexec/grid-storage-check
+ExecStart=/usr/bin/containerd --config /etc/docker/grid-containerd.toml
+StandardOutput=append:/srv/grid/containerd.log
+StandardError=append:/srv/grid/containerd.log
+Restart=always
+RestartSec=5
+Delegate=yes
+KillMode=process
+TasksMax=infinity
+LimitNOFILE=1048576
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

@@ -5,6 +5,8 @@ is a fixed 199,000,000,000-byte sparse image mounted at `/srv/grid`. All
 payloads stay inside, including the checkout, build intermediates, images,
 volumes and logs. A 1 GB margin covers host filesystem bookkeeping and
 small unit/configuration files. Other services retain their existing engine.
+Grid has its own containerd service, namespace, socket and persistent root
+under `/srv/grid/containerd`; it never uses the host's shared runtime root.
 Grid's isolated data and execution roots follow Docker's
 [multiple-daemon configuration](https://docs.docker.com/reference/cli/dockerd/#run-multiple-daemons).
 

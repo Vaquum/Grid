@@ -1,0 +1,7 @@
+version = 2
+root = "/srv/grid/containerd"
+state = "/run/grid-containerd"
+disabled_plugins = ["io.containerd.grpc.v1.cri"]
+
+[grpc]
+  address = "/run/grid-containerd/containerd.sock"

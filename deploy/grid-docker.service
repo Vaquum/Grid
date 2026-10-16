@@ -1,7 +1,8 @@
 [Unit]
 Description=Grid isolated Docker engine
 BindsTo=srv-grid.mount
-After=srv-grid.mount network-online.target
+Requires=grid-containerd.service
+After=srv-grid.mount grid-containerd.service network-online.target
 Wants=network-online.target
 
 [Service]
