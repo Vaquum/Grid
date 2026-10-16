@@ -255,7 +255,8 @@ function applyMessage(msg) {
     mergeLog(sw, msg.logId, msg.log);
   } else if (msg.type === "catalog") {
     const ids = new Set(msg.runs.map(r => r.id));
-    sw.runs = sw.runs.filter(r => !r.id.startsWith("project:") || ids.has(r.id));
+    sw.runs = sw.runs.filter(r => !r.id.startsWith("project:") || ids.has(r.id)
+      || r.id === app.state.run || r.id === app.loadingRun);
     for (const meta of msg.runs) if (!sw.runs.some(r => r.id === meta.id)) sw.runs.push(new Dataset({ ...meta, deferred: true }));
   } else if (msg.type === "meta") {
     sw.meta = { ...sw.meta, ...msg.meta };
