@@ -604,7 +604,7 @@ class Project:
                 key = _KEY.match(lines[i])
                 if (key and key["key"] == "conditions" and
                         _written(key["rest"])) or \
-                        lines[i].lstrip().startswith("- {"):
+                        re.match(r"^\s*-\s*\{", lines[i]):
                     problem("sfd.manifest.strategy.conditions",
                             "use block condition fields for execution "
                             "preflight", i + 1)

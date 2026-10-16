@@ -213,6 +213,34 @@ class TestAgent(unittest.TestCase):
             self.assertEqual(self.call("grid_validate", text=constant)[
                 "errors"], [])
 
+    def test_flow_temporal_references_reject_whitespace_variants(self):
+        text = (ROOT / "tests/fixtures/limen_rule/s1.yaml").read_text()
+        start = text.index("      - id: enter")
+        end = text.index("      entry: enter", start)
+        for field in ("recency_n", "persistence_n"):
+            for j, space in enumerate((" ", "  ", "\t")):
+                flow = ("      -" + space + "{id: enter, name: Up bar, "
+                        "type: relative, column: close, operator: '>', "
+                        "other_column: open, " + field +
+                        ": '{hold_bars}'}\n")
+                candidate = text[:start] + flow + text[end:]
+                checked = self.call("grid_validate", text=candidate)
+                self.assertTrue(checked["executionErrors"])
+                self.assertEqual(checked["executionErrors"][0]["path"],
+                                 "sfd.manifest.strategy.conditions")
+                name = field + "_flow_" + str(j)
+                self.call("grid_create", name=name, text=candidate,
+                          requestId=name)
+                manifest = self.call("grid_manifest", name=name)
+                with patch.object(self.project, "_spawn") as spawn:
+                    rejected = self.client.call("grid_start", {
+                        "name": name, "version": manifest["version"],
+                        "rounds": 4, "shards": 1, "execution": True,
+                        "outputs": True, "requestId": name + "-start"})
+                self.assertFalse(rejected["ok"])
+                spawn.assert_not_called()
+        self.assertEqual(self.project.runs(), [])
+
     def test_worker_diagnostics_stay_in_private_logs(self):
         assert self.agent is not None
         proc = subprocess.CompletedProcess([], 1, "", "private worker detail")
