@@ -82,11 +82,18 @@ function pushState(next, replace = false) {
   update();
 }
 
+function cancelOtherLoad(run) {
+  if (!app.loadingRun || run === app.loadingRun) return;
+  const request = ++app.loadRequest;
+  app.loadingRun = null;
+  if (app.live?.es.readyState === EventSource.CLOSED) {
+    setTimeout(() => { if (request === app.loadRequest) reconnect(app.config); }, 3000);
+  }
+}
+
 export function setState(patch, opts = {}) {
   const next = { ...app.state, ...patch };
-  if (app.loadingRun && next.run !== app.loadingRun) {
-    app.loadRequest++; app.loadingRun = null;
-  }
+  cancelOtherLoad(next.run);
   pushState(next, opts.replace);
 }
 
@@ -984,7 +991,7 @@ async function start() {
     mark("decoded");
     document.getElementById("app").dataset.state = "ready";
     addEventListener("keydown", onKey);
-    addEventListener("popstate", () => { const st = decodeState(location.hash); if (st) { app.state = st; update(); } });
+    addEventListener("popstate", () => { const st = decodeState(location.hash); if (st) { cancelOtherLoad(st.run); app.state = st; update(); } });
     update();
     mark("drawn");
     notifyRecords();
