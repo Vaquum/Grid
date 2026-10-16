@@ -9,7 +9,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -1732,8 +1732,9 @@ test("cohort: a Limen run's pool chosen on the first half, judged on the second,
     const url = await serverUrl(proc);
     const { page, errors } = await limenPage();
     await page.goto(url);
-    // the project's newest run opens with the page; on a Limen run the rail
-    // ends in Cohort (8)
+    // Historical results are selected on demand from the project catalog.
+    await page.waitForSelector("#run-pick option[value^=\"project:\"]");
+    await page.locator("#run-pick").selectOption({ index: 1 });
     await page.waitForSelector(".rail button[aria-label=Cohort]", { timeout: 20000 });
     // the project's predictors cannot be read at first: the view says so,
     // and reads them again until they are read
@@ -1940,4 +1941,68 @@ test("an agent snapshot link opens the exact pinned analysis in the human UI", a
     proc.kill("SIGTERM");
     await new Promise(resolve => proc.once("exit", resolve));
   }
+});
+
+
+test("project catalog loads before history; selected runs stream and survive navigation", async () => {
+  const project = mkdtempSync(join(tmpdir(), "grid-catalog-"));
+  writeFileSync(join(project, "limen.toml"), "[store]\n");
+  for (const name of ["first", "second"]) cpSync(join(ROOT, "tests/fixtures/limen_run"), join(project, "results/dev", name), { recursive: true });
+  const proc = spawn("python3", ["-m", "grid", "serve", "--project", project, "--limen-cli", join(ROOT, "tests/fixtures/fake_limen.py"), "--port", "0"], { cwd: ROOT });
+  try {
+    const url = await serverUrl(proc);
+    const { page, errors } = await limenPage();
+    const packs = [];
+    page.on("response", async response => { if (response.url().includes("/api/pack")) packs.push(await response.json()); });
+    await page.goto(url);
+    await page.waitForSelector(".ex-make");
+    assert.equal(packs[0].pack.runs.length, 0);
+    assert.equal(packs[0].pack.catalog.length, 2);
+    assert.ok(JSON.stringify(packs[0]).length < 10000);
+    const first = packs[0].pack.catalog[0].id, second = packs[0].pack.catalog[1].id;
+    await page.selectOption("#run-pick", first);
+    await page.waitForSelector(".pcard");
+    await page.waitForFunction(() => /40 rows/.test(document.querySelector(".progress-text").textContent));
+    const firstId = await page.locator("#run-pick").inputValue();
+    assert.equal(packs.at(-1).pack.runs.length, 1);
+    await page.selectOption("#run-pick", second);
+    await page.waitForFunction(id => document.querySelector("#run-pick").value !== id, firstId);
+    assert.equal(packs.at(-1).pack.runs.length, 1);
+    await page.goBack();
+    await page.waitForFunction(id => document.querySelector("#run-pick").value === id, firstId);
+    // Its file is still followed after loading it on demand.
+    const csv = join(project, "results/dev/first/results.csv");
+    const lines = readFileSync(csv, "utf8").trimEnd().split("\n");
+    appendFileSync(csv, lines.at(-1) + "\n");
+    await page.waitForFunction(() => /41 rows/.test(document.querySelector(".progress-text").textContent), null, { timeout: 15000 });
+    await page.reload();
+    await page.waitForSelector(".pcard");
+    await page.waitForFunction(() => /41 rows/.test(document.querySelector(".progress-text").textContent));
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally { proc.kill(); }
+});
+
+test("Trials headings sort numeric and parameter columns with accessible direction", async () => {
+  const { page, errors } = await open();
+  await page.keyboard.press("6");
+  await page.waitForSelector("table.trials");
+  const rows = () => page.locator("table.trials tbody tr").evaluateAll(xs => xs.map(x => ({ rank: x.querySelector(".rk").textContent, row: Number(x.querySelector(".ri").textContent.replaceAll(",", "")) })));
+  const original = await rows();
+  const rowHead = page.getByRole("button", { name: "Sort by Row", exact: true });
+  await rowHead.click();
+  assert.equal(await rowHead.locator("..").getAttribute("aria-sort"), "ascending");
+  let sorted = await rows();
+  assert.deepEqual(sorted.map(x => x.row), original.map(x => x.row).sort((a, b) => a - b));
+  await rowHead.click();
+  assert.equal(await rowHead.locator("..").getAttribute("aria-sort"), "descending");
+  sorted = await rows();
+  assert.deepEqual(sorted.map(x => x.row), original.map(x => x.row).sort((a, b) => b - a));
+  assert.deepEqual(new Map(sorted.map(x => [x.row, x.rank])), new Map(original.map(x => [x.row, x.rank])));
+  const parameter = page.locator("table.trials th.g-start .tr-sort").first();
+  await parameter.focus();
+  await page.keyboard.press("Enter");
+  assert.equal(await parameter.locator("..").getAttribute("aria-sort"), "ascending");
+  assert.deepEqual(errors, []);
+  await page.close();
 });

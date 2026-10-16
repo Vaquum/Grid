@@ -82,7 +82,15 @@ function pushState(next, replace = false) {
 }
 
 export function setState(patch, opts = {}) {
-  pushState({ ...app.state, ...patch }, opts.replace);
+  const next = { ...app.state, ...patch };
+  if (app.config.catalog && app.sweep) {
+    const id = next.run || (next.view !== "experiment" ? app.sweep.meta.catalog?.[0]?.id : null);
+    if (id && !app.sweep.runs.some(r => r.id === id)) {
+      loadProjectRun(id, { ...next, run: id }, opts);
+      return;
+    }
+  }
+  pushState(next, opts.replace);
 }
 
 // ---------------------------------------------------------------------------
@@ -102,11 +110,32 @@ async function loadEmbedded() {
   return JSON.parse(text);
 }
 
-async function loadLive(cfg) {
-  const res = await fetch(cfg.pack, { cache: "no-store" });
+async function loadLive(cfg, selected) {
+  const state = app.state || decodeState(location.hash);
+  const run = selected ?? (state?.view !== "experiment" ? state?.run : null);
+  const path = cfg.catalog ? `${cfg.pack}?${run ? `run=${encodeURIComponent(run)}` : "catalog=1"}` : cfg.pack;
+  const res = await fetch(path, { cache: "no-store" });
   if (!res.ok) throw new Error(`the server answered ${res.status} for ${cfg.pack}`);
   const body = await res.json();
   return body;
+}
+
+let projectLoad = 0;
+async function loadProjectRun(id, next, opts = {}) {
+  const request = ++projectLoad;
+  app.live?.es.close();
+  try {
+    const body = await loadLive(app.config, id);
+    if (request !== projectLoad) return;
+    installSweep(body.pack, true);
+    app.pendingRun = null;
+    pushState({ ...next, run: body.pack.selectedRun || id }, opts.replace);
+    if (body.cursor) startStream(app.config, body.cursor);
+  } catch (err) {
+    if (request !== projectLoad) return;
+    toast(String(err.message || err));
+    reconnect(app.config);
+  }
 }
 
 function startStream(cfg, cursor) {
@@ -191,6 +220,8 @@ function applyMessage(msg) {
     mergeLog(sw, msg.logId, msg.log);
   } else if (msg.type === "meta") {
     sw.meta = { ...sw.meta, ...msg.meta };
+  } else if (msg.type === "catalog") {
+    sw.meta.catalog = msg.runs;
   }
   scheduleUpdate();
 }
@@ -210,6 +241,10 @@ function settleStay() {
 // A run the Experiment view asked to analyze: the views show it once its
 // first rows are here.
 function openRun(id) {
+  if (app.config.catalog) {
+    setState({ run: id, view: "board", sel: null, context: [], pocket: [], edge: null, clusters: [], clusterK: null });
+    return;
+  }
   const ds = app.sweep.runs.find(r => r.id === id);
   app.pendingRun = null;
   if (ds && ds.n) {
@@ -421,7 +456,7 @@ function buildTop() {
   const els = {};
   els.name = h("span", { class: "sweep-name" });
   els.runSel = h("select", { class: "run-pick", id: "run-pick", "aria-label": "Run" });
-  els.runSel.addEventListener("change", () => setState({ run: els.runSel.value, sel: null, context: [], pocket: [], edge: null, clusters: [], clusterK: null }));
+  els.runSel.addEventListener("change", () => setState({ run: els.runSel.value, view: app.config.catalog ? "board" : app.state.view, sel: null, context: [], pocket: [], edge: null, clusters: [], clusterK: null }));
   els.runOne = h("span", { class: "run-one" });
   els.statusLabel = h("b");
   els.statusDetail = h("span", { class: "detail" });
@@ -477,26 +512,28 @@ function updateTop(m0) {
   const top = app.top, els = top.els;
   // a project's sweep with no run yet: its name, and nothing of a run
   const none = !app.sweep.runs.length;
+  const runs = app.config.catalog ? (app.sweep.meta.catalog || []).map(meta => ({ id: meta.id, meta })) : app.sweep.runs;
+  const runsKey = `${none}\n${runs.map(r => `${r.id}\t${runName(r.meta)}`).join("\n")}`;
+  if (runsKey !== top.runsKey) {
+    top.runsKey = runsKey;
+    els.runSel.replaceChildren(...(none ? [h("option", { value: "", text: "Choose a run" })] : []),
+      ...runs.map(r => h("option", { value: r.id, text: runName(r.meta) })));
+  }
   for (const el of [els.pill, els.picker, els.chips, els.replay]) el.hidden = none;
   if (none) {
     setText(els.name, app.sweep.meta.name || "sweep");
-    els.runSel.hidden = true;
+    els.runSel.hidden = !runs.length;
     els.runOne.hidden = true;
     setText(els.progress, "");
     syncTab(null);
     return;
   }
   const m = m0 || model();
-  const ds = m.ds, runs = app.sweep.runs;
+  const ds = m.ds;
   setText(els.name, app.sweep.meta.name || "sweep");
   // runs: their options change only when a run is added or renamed; a
   // sweep of one run names it in the same place, unless the sweep's name
   // already says it
-  const runsKey = runs.map(r => `${r.id}\t${runName(r.meta)}`).join("\n");
-  if (runsKey !== top.runsKey) {
-    top.runsKey = runsKey;
-    els.runSel.replaceChildren(...runs.map(r => h("option", { value: r.id, text: runName(r.meta) })));
-  }
   els.runSel.hidden = runs.length < 2;
   els.runOne.hidden = runs.length > 1 || ds.meta.label === app.sweep.meta.name;
   setText(els.runOne, runName(ds.meta));
@@ -902,7 +939,12 @@ async function start() {
     mark("decoded");
     document.getElementById("app").dataset.state = "ready";
     addEventListener("keydown", onKey);
-    addEventListener("popstate", () => { const st = decodeState(location.hash); if (st) { app.state = st; update(); } });
+    addEventListener("popstate", () => {
+      const st = decodeState(location.hash);
+      if (!st) return;
+      if (app.config.catalog && st.run && !app.sweep.runs.some(r => r.id === st.run)) loadProjectRun(st.run, st, { replace: true });
+      else { app.state = st; update(); }
+    });
     update();
     mark("drawn");
     notifyRecords();

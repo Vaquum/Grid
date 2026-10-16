@@ -176,8 +176,8 @@ class TestAgent(unittest.TestCase):
         for field in ("recency_n", "persistence_n"):
             candidate = text.replace("      entry: enter", (
                 "        %s: '{hold_bars}'\n      entry: enter" % field))
-            candidate = candidate.replace("  params:\n", (
-                "  params:\n    hold_bars: [1, 3, 6, 12]\n"))
+            candidate = candidate.replace("\n  params:\n", (
+                "\n  params:\n    hold_bars: [1, 3, 6, 12]\n"))
             checked = self.call("grid_validate", text=candidate)
             self.assertEqual(checked["schemaErrors"], [])
             error = checked["executionErrors"][0]
@@ -274,6 +274,26 @@ class TestAgent(unittest.TestCase):
                 self.assertGreater(cohort["result"]["pool"], 0)
                 self.assertEqual(cohort["warnings"], [])
 
+    def test_project_initial_pack_is_a_catalog_without_historical_reads(self):
+        folder = Path(self.project_root, "results/dev/history")
+        shutil.copytree(ROOT / "tests/fixtures/limen_run", folder)
+        with patch.object(self.project, "_rows", side_effect=AssertionError(
+                "catalog counted historical CSV rows")):
+            # This server owns a different Project object with the same root.
+            with urllib.request.urlopen(self.url + "/api/pack") as response:
+                raw = response.read()
+            body = json.loads(raw)
+            self.assertEqual(body["pack"]["runs"], [])
+            self.assertEqual(body["pack"]["catalog"][0]["projectRun"],
+                             "results/dev/history")
+            self.assertLess(len(raw), 10000)
+            state = self.project.state(light=True)
+            self.assertIsNone(state["runs"][0]["rows"])
+        with urllib.request.urlopen(self.url + "/api/pack?run=r0") as response:
+            selected = json.load(response)["pack"]
+        self.assertEqual([r["id"] for r in selected["runs"]], ["r0"])
+        self.assertGreater(selected["runs"][0]["rows"], 0)
+
     def test_agent_run_is_visible_live_to_shared_human_service(self):
         args = argparse.Namespace(limen=None, results=None, name=None,
                                   ssh=None, as_=None, log=None, run=None,
@@ -292,12 +312,14 @@ class TestAgent(unittest.TestCase):
             threading.Thread(target=httpd.serve_forever, daemon=True).start()
             return project, wiring, httpd
 
-        def visible(httpd):
+        def visible(httpd, selected=None):
             url = "http://127.0.0.1:%d/api/pack" % httpd.server_address[1]
+            if selected:
+                url += "?run=" + urllib.parse.quote(selected, safe="")
             request = urllib.request.Request(url, headers={
                 "Host": "grid.vaquum.fi"})
             with urllib.request.urlopen(request) as response:
-                return json.load(response)["pack"]["runs"]
+                return json.load(response)["pack"]
 
         def close(service):
             project, wiring, httpd = service
@@ -319,7 +341,9 @@ class TestAgent(unittest.TestCase):
                             version=manifest["version"],
                             requestId="shared-start")["run"]
             deadline = time.monotonic() + 15
-            while not any(r["rows"] > 0 for r in visible(service[2])):
+            while not any(r["rows"] and r["rows"] > 0
+                          for r in visible(service[2], "project:" + rid)[
+                              "runs"]):
                 self.assertLess(time.monotonic(), deadline)
                 time.sleep(0.05)
             self.assertEqual(next(r for r in self.project.runs()
@@ -328,7 +352,9 @@ class TestAgent(unittest.TestCase):
             close(service)
             service = human_service()
             deadline = time.monotonic() + 15
-            while not any(r["rows"] > 0 for r in visible(service[2])):
+            while not any(r["rows"] and r["rows"] > 0
+                          for r in visible(service[2], "project:" + rid)[
+                              "runs"]):
                 self.assertLess(time.monotonic(), deadline)
                 time.sleep(0.05)
         finally:

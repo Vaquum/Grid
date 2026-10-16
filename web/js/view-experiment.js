@@ -117,7 +117,7 @@ async function load() {
   let changed = false;
   try {
     const asked = performance.now();
-    const state = await get(lab.A.project.url);
+    const state = await get(`${lab.A.project.url}?catalog=1`);
     const key = JSON.stringify(state);
     // the first reading asked for since a manifest was read or written
     // here says whether its file has changed since, even when it reads as
@@ -784,7 +784,7 @@ function heldBtn(btn, why) {
 
 function actions(r) {
   const out = [];
-  const ready = !!r.open || (r.rows > 0 && r.shards.every(s => s.state !== "running" || s.rows > 0));
+  const ready = !!r.open || r.rows === null || (r.rows > 0 && r.shards.every(s => s.state !== "running" || s.rows > 0));
   const analyze = h("button", { class: "btn small", type: "button", disabled: lab.busy ? true : null, dataset: { focus: `ex-an-${r.id}` },
     onclick: () => {
       if (!ready) return;

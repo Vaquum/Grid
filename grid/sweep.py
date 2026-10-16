@@ -412,7 +412,9 @@ class Sweep:
                 "now": time.time(), "logSources": self.log_sources,
                 "errors": self.errors[-50:]}
 
-    def pack_parts(self, mode: str = "live") -> tuple[list[str], Cursor]:
+    def pack_parts(self, mode: str = "live",
+                   run_ids: set[str] | None = None
+                   ) -> tuple[list[str], Cursor]:
         """Everything as of now as JSON text in parts (joined, they are
         one JSON document), and its cursor.
 
@@ -422,11 +424,17 @@ class Sweep:
         with self.lock:
             parts: list[str] = []
             cursor = Cursor()
+            cursor.only = run_ids.copy() if run_ids is not None else None
             top = self.meta()
             top["mode"] = mode
             parts.append(json.dumps(top, separators=(",", ":"))[:-1] +
                          ',"runs":[')
-            for k, r in enumerate(self.runs):
+            selected = [r for r in self.runs
+                        if run_ids is None or r.id in run_ids]
+            log_ids = {r.log_id for r in selected}
+            logs = {k: v for k, v in self.logs.items()
+                    if run_ids is None or k in log_ids}
+            for k, r in enumerate(selected):
                 head = json.dumps(r.meta(), separators=(",", ":"))[:-1]
                 parts.append(("," if k else "") + head + ',"columns":[')
                 for j, col in enumerate(r.store.export_iter()):
@@ -438,18 +446,19 @@ class Sweep:
                              "}")
                 cursor.runs[r.id] = (r.generation, r.store.rows)
                 cursor.rounds[r.id] = (r.rounds_generation, len(r.rounds))
-            for k, v in self.logs.items():
+            for k, v in logs.items():
                 cursor.progress[k] = v.progress_cursor()
                 cursor.log_lines[k] = v.lines
             cursor.version = self.version
             parts.append('],"logs":' +
                          json.dumps({k: v.to_json()
-                                     for k, v in self.logs.items()},
+                                     for k, v in logs.items()},
                                     separators=(",", ":")) + "}")
             return parts, cursor
 
-    def pack_text(self, mode: str = "live") -> tuple[str, Cursor]:
-        parts, cursor = self.pack_parts(mode)
+    def pack_text(self, mode: str = "live",
+                  run_ids: set[str] | None = None) -> tuple[str, Cursor]:
+        parts, cursor = self.pack_parts(mode, run_ids)
         return "".join(parts), cursor
 
     def delta_text(self, cursor: Cursor) -> list[str]:
@@ -460,6 +469,10 @@ class Sweep:
             if cursor.version == self.version:
                 return []
             for r in self.runs:
+                if cursor.only is not None and r.id not in cursor.only:
+                    if r.archived_from not in cursor.only:
+                        continue
+                    cursor.only.add(r.id)
                 gen, rows = cursor.runs.get(r.id, (-1, 0))
                 rgen, sent = cursor.rounds.get(r.id, (-1, 0))
                 if gen != r.generation:
@@ -485,6 +498,10 @@ class Sweep:
                                  "reset": reset, "entries": r.rounds[sent:]})
                 cursor.rounds[r.id] = (r.rounds_generation, len(r.rounds))
             for k, log in self.logs.items():
+                if cursor.only is not None and not any(
+                        r.id in cursor.only and r.log_id == k
+                        for r in self.runs):
+                    continue
                 if log.lines == cursor.log_lines.get(k, -1):
                     continue
                 msgs.append({"type": "log", "logId": k,
@@ -508,6 +525,7 @@ class Cursor:
     generation, rounds), per log what it has read."""
 
     def __init__(self) -> None:
+        self.only: set[str] | None = None
         self.runs: dict[str, tuple[int, int]] = {}
         self.rounds: dict[str, tuple[int, int]] = {}
         self.progress: dict[str, dict[int, int]] = {}

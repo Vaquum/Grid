@@ -186,13 +186,14 @@ function targetTip(t) {
 
 function targetCol(t) {
   const text = x => fmtRowValue(t, t.values[x.i], { unit: false });
-  return { key: t.id, label: t.label, unit: t.kind === "binary" ? "" : t.unit, num: true, head: () => targetTip(t), text, cell: text };
+  return { key: t.id, label: t.label, unit: t.kind === "binary" ? "" : t.unit, num: true, value: x => t.values[x.i], head: () => targetTip(t), text, cell: text };
 }
 
 function paramCol(m, d, e) {
   const text = x => { const c = d.codes[x.i]; return c >= 0 ? d.levels[c].label : "–"; };
   const t = m.target;
   return { key: d.id, label: d.label, unit: "", num: false, mono: true, text, cell: text,
+    value: x => { const c = d.codes[x.i]; return c >= 0 ? d.levels[c].value : null; },
     head: () => h("div", null, h("b", { text: d.label }),
       e && e.detectable ? h("div", { class: "k", text: `Moves ${inText(t.label)}: ω² ${strengthText(e)}, ${fmtP(e.q)}${e.best ? `; best at ${e.best.label}, ${fmtT(t, e.best.mean)}` : ""}.` })
         : e ? h("div", { class: "k", text: `No detectable effect on ${inText(t.label)} (${fmtP(e.q)}).` }) : null) };
@@ -205,12 +206,12 @@ function rankText(x) {
 function baseColumns(m, keys) {
   const sc = m.schema;
   const cols = [
-    { key: "#", label: "#", unit: "", num: true, cls: "rk", text: rankText,
+    { key: "#", label: "#", unit: "", num: true, cls: "rk", text: rankText, value: x => x.rank,
       cell: x => h("span", null, String(x.rank), h("span", { class: "eq" + (x.tie > 1 ? "" : " no"), text: "=" })),
       tipIf: x => x.tie > 1,
       cellTip: x => h("div", null, h("b", { text: `Tied with ${fmtInt(x.tie - 1)} other row${x.tie > 2 ? "s" : ""}` }),
         h("div", { class: "k", text: `They share rank ${x.rank} and keep the order they arrived in.` })) },
-    { key: "row", label: "Row", unit: "", num: true, cls: "ri", text: x => fmtInt(x.i), cell: x => fmtInt(x.i) },
+    { key: "row", label: "Row", unit: "", num: true, cls: "ri", value: x => x.i, text: x => fmtInt(x.i), cell: x => fmtInt(x.i) },
   ];
   if (sc.gates.length) {
     cols.push({ key: "pills", label: "Gates", unit: "", num: false, notes: false, text: () => "",
@@ -240,9 +241,11 @@ function columnSets(m, ranked) {
     rest: m.order.filter(e => !e.detectable).map(e => paramCol(m, sc.dimById.get(e.dim), e)),
     like: ranked.movers.length ? [
       { key: "like", label: t.label, note: `${t.label} like it`, unit: t.kind === "binary" ? "" : t.unit, num: true,
+        value: x => x.like.mean,
         head: () => h("div", null, h("b", { text: `${t.label} of the rows like it` }), h("div", { class: "k", text: "The other rows that share the row's values where the needle moves." })),
         text: x => fmtT(t, x.like.mean, { unit: false }), cell: x => fmtT(t, x.like.mean, { unit: false }), cellTip: x => likeTip(m, ranked, x) },
       { key: "like-n", label: "Rows", note: "Rows like it", unit: "", num: true,
+        value: x => x.like.n,
         head: () => h("div", null, h("b", { text: "Rows like it" }), h("div", { class: "k", text: `At least ${MIN_N}: matched on the strongest movers that leave as many.` })),
         text: x => fmtInt(x.like.n), cell: x => fmtInt(x.like.n), cellTip: x => likeTip(m, ranked, x) },
     ] : [],
@@ -270,6 +273,7 @@ function halfColumns(m) {
   const n = rank.reduce((a, v) => a + (v === v ? 1 : 0), 0);
   return [
     { key: "half-rank", label: "Rank, first half", note: "Rank on the first half", unit: "", num: true, needle: lt,
+      value: x => rank[x.i],
       head: () => h("div", null, h("b", { text: "The row's rank on the first half" }), h("div", { class: "k", text: `By ${inText(lt.label)} on the first half of the test window, among the ${fmtInt(n)} rows in view with it; rows that tie share a rank.` })),
       text: rankText, cell: rankText },
     ...halves.map((ht, k) => ({ ...targetCol(ht), label: k ? "Second half" : "First half", note: ht.label,
@@ -335,9 +339,30 @@ function colTools(m, A, cols) {
 // A head's unit, unless its label already says it ("Signal days").
 const unitOf = (c) => (c.unit && !c.label.toLowerCase().split(/\s+/).includes(c.unit.toLowerCase()) ? c.unit : "");
 
-function headCell(c, cls) {
+// Reorder only the listed rows; the runner's ranks and tie groups stay intact.
+export function sortTrials(list, columns, sort) {
+  const c = sort && columns.find(c => c.key === sort.key && c.value);
+  if (!c) return list;
+  const missing = v => v == null || (typeof v === "number" && !Number.isFinite(v));
+  return [...list].sort((p, q) => {
+    const a = c.value(p), b = c.value(q), am = missing(a), bm = missing(b);
+    if (am || bm) return am === bm ? p.i - q.i : am ? 1 : -1;
+    const cmp = typeof a === "number" && typeof b === "number" ? a - b
+      : String(a).localeCompare(String(b));
+    return cmp * sort.dir || p.i - q.i;
+  });
+}
+
+function headCell(c, m, A, cls) {
+  const active = c.value && m.state.trialSort?.key === c.key;
+  const dir = active ? m.state.trialSort.dir : null;
+  const label = h("span", { class: "lbl" + (c.mono ? " mono" : "") }, wrapName(c.label), unitOf(c) ? [" ", h("span", { class: "u", text: `(${unitOf(c)})` })] : null);
   const th = h("th", { class: [c.num ? "r" : "", c.cls || "", cls || ""].join(" ").trim() || null, scope: "col" },
-    h("span", { class: "lbl" + (c.mono ? " mono" : "") }, wrapName(c.label), unitOf(c) ? [" ", h("span", { class: "u", text: `(${unitOf(c)})` })] : null));
+    c.value ? h("button", { type: "button", class: "tr-sort", "aria-label": `Sort by ${c.label}`,
+      dataset: { focus: `sort-${c.key}` },
+      onclick: () => A.set({ trialSort: { key: c.key, dir: dir === 1 ? -1 : 1 } }, { replace: true }) }, label,
+      active ? h("span", { "aria-hidden": "true", text: dir === 1 ? " ↑" : " ↓" }) : null) : label);
+  if (c.value) th.setAttribute("aria-sort", active ? dir === 1 ? "ascending" : "descending" : "none");
   if (c.head) tip(th, c.head);
   return th;
 }
@@ -353,12 +378,12 @@ function bestIsland(m, A, ranked, keys, base, cols, shown) {
       shown.map(p => h("th", { class: "grp g-start", colspan: String(cols[p.id].length), scope: "colgroup", text: p.name })),
       h("th", { class: "grp blank fill" })));
   }
-  thead.append(h("tr", null, base.map(c => headCell(c)), shown.flatMap(p => cols[p.id].map((c, k) => headCell(c, k === 0 ? "g-start" : ""))),
+  thead.append(h("tr", null, base.map(c => headCell(c, m, A)), shown.flatMap(p => cols[p.id].map((c, k) => headCell(c, m, A, k === 0 ? "g-start" : ""))),
     h("th", { class: "fill", "aria-hidden": "true" })));
   tbl.append(thead);
   const tb = h("tbody");
   const sel = m.state.sel;
-  for (const x of ranked.list) {
+  for (const x of sortTrials(ranked.list, [...base, ...shown.flatMap(p => cols[p.id])], m.state.trialSort)) {
     const on = !!sel && sel.kind === "row" && sel.i === x.i;
     const pick = () => A.select(on ? null : { kind: "row", i: x.i });
     const tr = h("tr", { class: "clickable" + (on ? " sel" : ""), tabindex: "0", "aria-selected": on ? "true" : "false",

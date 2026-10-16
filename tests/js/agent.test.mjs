@@ -157,3 +157,27 @@ test("trial parameters retain names that resemble engine internals", () => {
   const trial = r.result.list[0];
   for (const name of names) assert.equal(trial.parameters[name], trial.i % 2 ? "b" : "a", name);
 });
+
+
+test("first-half cohort membership is invariant to held-out masks and values", () => {
+  const out = join(agentTemp, "isolated-cohort.json");
+  execFileSync("python3", ["-m", "grid", "pack", "--limen", "tests/fixtures/limen_cohort", "--out", out]);
+  const original = JSON.parse(readFileSync(out));
+  for (const [target, field] of [["trade_t", "tradeT"], ["trade_mean", "tradeMean"], ["backtest_pnl_per_bar_bps", "pnl"]]) {
+    let expected;
+    for (const held of [[null, null, null, null], [1000, -1, null, 999], [-100, 20, 40, null]]) {
+      const pack = structuredClone(original);
+      pack.runs[0].rounds.forEach((entry, i) => {
+        entry[4].halves[0][field] = [3, 7, null, 1][i];
+        entry[4].halves[1][field] = held[i];
+      });
+      const result = analyzePack(pack, { analysis: "cohort", members: 100, state: { firstHalf: true, target } });
+      assert.equal(result.result.firstHalfSelection, true);
+      assert.deepEqual(result.warnings, []);
+      const selection = { pool: result.result.pool, ranked: result.result.ranked, members: result.result.members };
+      assert.equal(selection.ranked, 3, target);
+      if (expected) assert.deepEqual(selection, expected, target);
+      expected = selection;
+    }
+  }
+});

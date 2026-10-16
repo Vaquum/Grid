@@ -625,6 +625,7 @@ def cmd_serve(a: argparse.Namespace) -> int:
     if project is not None:
         token = secrets.token_urlsafe(24)
         config.update(experiment="api/experiment", token=token)
+        config["catalog"] = True
         project.opener = w.open_limen
         project.python = limen_python(a.project, project.cli, a.limen_python)
     page = LivePage(config)

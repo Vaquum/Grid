@@ -50,6 +50,7 @@ def main() -> None:
                 discover = call("grid_discover")
                 assert discover["semantics"]["analysisRuntime"]
                 status = call("grid_status")
+                call("grid_open", run="results/dev/ml")
                 deadline = time.monotonic() + 30
                 while not status["runs"] or not status["runs"][0]["rows"]:
                     assert time.monotonic() < deadline, status
@@ -83,8 +84,8 @@ def main() -> None:
                         "      entry: enter",
                         "        %s: '{hold_bars}'\n      entry: enter"
                         % field)
-                    temporal = temporal.replace("  params:\n", (
-                        "  params:\n    hold_bars: [1, 3, 6, 12]\n"))
+                    temporal = temporal.replace("\n  params:\n", (
+                        "\n  params:\n    hold_bars: [1, 3, 6, 12]\n"))
                     checked = call("grid_validate", text=temporal)
                     assert checked["schemaErrors"] == [], checked
                     assert any(e["path"].endswith(field)
@@ -114,8 +115,7 @@ def main() -> None:
                 record = json.loads((project / rid / "grid-run.json")
                                     .read_text())
                 assert record["threads"] == cores, record
-                # Discovery must put the native run in the human pack
-                # before any explicit agent Open operation.
+                # Discovery advertises the run without serialising history.
                 deadline = time.monotonic() + 30
                 while not run.get("open"):
                     assert time.monotonic() < deadline, run
@@ -125,6 +125,13 @@ def main() -> None:
                 run_id = run["open"]
                 with urllib.request.urlopen(
                         "http://127.0.0.1:8499/api/pack") as response:
+                    visible = json.load(response)
+                assert visible["pack"]["runs"] == [], visible
+                assert any(r["id"] == run_id
+                           for r in visible["pack"]["catalog"]), visible
+                with urllib.request.urlopen(
+                        "http://127.0.0.1:8499/api/pack?run=" +
+                        run_id) as response:
                     visible = json.load(response)
                 assert any(r["id"] == run_id and r["rows"] == 40
                            for r in visible["pack"]["runs"]), visible

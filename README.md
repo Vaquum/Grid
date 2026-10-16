@@ -231,8 +231,10 @@ Retrieve it through the host/container administration channel and protect the
 local copy; it is regenerated on container restart. Agent requests still require
 a localhost/IP Host header and their separate bearer token. Portal protects
 the public page; no credential is included in it.
-Every service discovers recorded runs from shared project storage within a
-second and after restart. Analysis IDs and pinned snapshots remain local to
+Every service discovers active runs from shared project storage within a
+second. Historical runs appear in the catalog after restart and load when
+selected for analysis. The project page opens with this lightweight catalog,
+independent of historical trial data; only the selected run streams rows. Analysis IDs and pinned snapshots remain local to
 each service; agent discovery/status identify its UI origin and instance. The configured
 `--public-origin https://grid.vaquum.fi` permits that exact public Host
 and HTTPS browser Origin, retaining the page token and cross-origin checks.

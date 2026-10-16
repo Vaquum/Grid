@@ -862,11 +862,39 @@ class Project:
                 return folder
         raise ValueError("no run %r in the project" % run_id)
 
-    def runs(self) -> list[Json]:
+    def catalog(self) -> list[Json]:
+        """Recorded identities and lifecycle, without reading result rows."""
+        out: list[Json] = []
+        for folder, kind in self._run_folders():
+            rid = self._rel(folder)
+            if kind == "grid":
+                record = _read_json(os.path.join(folder, RECORD)) or {}
+                states = {str(s.get("state"))
+                          for s in self._record_shards(folder)}
+                state = next((s for s in ("running", "failed", "stopped")
+                              if s in states), "finished")
+                name = record.get("experiment") or os.path.basename(folder)
+            else:
+                name, _ = self._meta(folder)
+                state = "recorded"
+            out.append({"projectRun": rid,
+                        "id": self.opened.get(rid, "project:" + rid),
+                        "label": "%s / %s" % (name or "experiment",
+                                               os.path.basename(folder)),
+                        "state": state, "rows": None, "live": True})
+        return out
+
+    def runs(self, light: bool = False) -> list[Json]:
         """Every run, newest first: its experiment, when it started, its
         shards (rounds written of those planned, how each stands), and
         whether the sweep has it open."""
         out: list[Json] = []
+
+        def count(path: str) -> int | None:
+            if not light or rid in self.opened:
+                return self._rows(path)
+            seen = self.counts.get(path)
+            return max(0, seen[3] - 1) if seen else None
         for folder, kind in self._run_folders():
             rid = self._rel(folder)
             stopping = False
@@ -884,8 +912,8 @@ class Project:
                     shards.append({
                         "label": label, "seed": sh.get("seed"),
                         "planned": sh.get("rounds"),
-                        "rows": self._rows(os.path.join(folder, label,
-                                                        "results.csv")),
+                        "rows": count(os.path.join(folder, label,
+                                                   "results.csv")),
                         "state": sh.get("state"), "exit": sh.get("exit"),
                         "checkpoint": os.path.isfile(os.path.join(
                             folder, label, "checkpoint.json")),
@@ -896,11 +924,12 @@ class Project:
                 name = str(record.get("experiment") or "")
             else:
                 name_got, planned = self._meta(folder)
-                rows = self._rows(os.path.join(folder, "results.csv"))
+                rows = count(os.path.join(folder, "results.csv"))
                 shards = [{"label": os.path.basename(folder), "seed": None,
                            "planned": planned, "rows": rows,
                            "state": "finished" if planned is not None and
-                           rows >= planned else "incomplete", "exit": None,
+                           rows is not None and rows >= planned
+                           else "incomplete", "exit": None,
                            "checkpoint": False, "tail": None}]
                 try:
                     started = os.path.getmtime(os.path.join(folder,
@@ -915,7 +944,8 @@ class Project:
             out.append({
                 "id": rid, "kind": kind, "experiment": name,
                 "started": started, "state": state, "shards": shards,
-                "rows": sum(int(s["rows"] or 0) for s in shards),
+                "rows": sum(int(s["rows"]) for s in shards)
+                if all(s["rows"] is not None for s in shards) else None,
                 "planned": sum(int(s["planned"] or 0) for s in shards),
                 "open": self.opened.get(rid), "note": self.notes.get(rid),
                 "stopping": stopping})
@@ -929,8 +959,8 @@ class Project:
         return [cast(Json, s) for s in cast(list[Any], raw)
                 if isinstance(s, dict)] if isinstance(raw, list) else []
 
-    def state(self) -> Json:
-        runs = self.runs()
+    def state(self, light: bool = False) -> Json:
+        runs = self.runs(light=light)
         return {"project": {"root": self.root,
                             "name": os.path.basename(self.root)},
                 "limen": {"cli": self.cli, "version": self.version,
@@ -1371,19 +1401,19 @@ class Project:
         return sweep_id
 
     def follow(self) -> None:
-        """Discover every recorded project run, including those started
-        by another service sharing the volume, and rediscover on restart.
+        """Follow active runs across shared services. Historical runs remain
+        in the catalog and are read only when selected for analysis.
         A transient partially written directory is retried on the next scan.
         """
         def scan() -> None:
             while not self.discovery_stop.is_set():
                 try:
-                    runs = self.runs()
+                    runs = self.catalog()
                 except (OSError, ValueError):
                     runs = []
                 for run in runs:
-                    rid = str(run["id"])
-                    if rid in self.opened:
+                    rid = str(run["projectRun"])
+                    if rid in self.opened or run["state"] != "running":
                         continue
                     try:
                         self.open(rid)

@@ -62,9 +62,10 @@ test("a gate on a needle measured on each half is read on its first half, any ot
   assert.deepEqual([read[0].firstHalf, read[0].label, [...read[0].pass]], [true, "Net PnL per bar ≥ 0", [1, 0, 1, 0, NaN_, 1]]);
 });
 
-test("ranked on the first half, the best first, rows without both halves left out", () => {
+test("ranked on the first half, the best first, regardless of held-out availability", () => {
   const t = { better: 1, halves: [Float64Array.from([0.5, 0.9, 0.1, 0.7, 0.2, NaN_]), Float64Array.from([0.4, 0.1, 0.2, 0.3, 0.1, 0.5])] };
   assert.deepEqual(rankedOf(t, [0, 1, 3, 5]), [1, 3, 0]);
+  assert.deepEqual(rankedOf({ ...t, halves: [t.halves[0], new Float64Array(6).fill(NaN_)] }, [0, 1, 3, 5]), [1, 3, 0]);
   // lower is better: the order turns over; ties keep their arrival order
   assert.deepEqual(rankedOf({ ...t, better: -1 }, [0, 1, 3]), [0, 3, 1]);
   const tied = { better: 1, halves: [Float64Array.from([1, 1, 1, 1, 1, 1]), Float64Array.from([0, 0, 0, 0, 0, 0])] };

@@ -539,3 +539,14 @@ and invalid constants with the field path and line before any run directory
 or process is created. Native temporal reference resolution depends on
 [Limen #925](https://github.com/Vaquum/Limen/issues/925); Grid does not resolve
 these fields itself or claim factorized equivalence for unsupported references.
+
+
+Project page loading uses `GET /api/pack` for a lightweight `catalog` with no
+analytical runs. `GET /api/pack?run=ID` returns only the selected run; an unopened
+catalog ID starts with `project:` and resolves to `selectedRun` in that response.
+Its live cursor follows that run and any rollover archives. Catalog updates
+advertise other runs without transferring their outcomes. The Experiment view
+uses `GET /api/experiment?catalog=1`; unknown historical row counts are null until
+read. Explicit full packs, CLI exports and pinned agent snapshots retain their
+recorded data. Cohort ranking uses first-half availability and values alone;
+missing held-out statistics do not remove candidates or become zero.

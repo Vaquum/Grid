@@ -137,6 +137,22 @@ class Server:
             got = self.cursors.pop(token, None)
         return got[1] if got else None
 
+    def catalog(self) -> list[Json]:
+        """Run identity and counts only; never serialise historical data."""
+        with self.sweep.lock:
+            loaded = [{"id": r.id, "label": r.label, "live": r.live,
+                     "rows": r.store.rows, "generation": r.generation,
+                     "archivedFrom": r.archived_from}
+                    for r in self.sweep.runs]
+        if self.project is None:
+            return loaded
+        catalog = self.project.catalog()
+        by_id = {r["id"]: r for r in loaded}
+        for entry in catalog:
+            if entry["id"] in by_id:
+                entry.update(by_id.pop(entry["id"]))
+        return catalog + list(by_id.values())
+
     def members(self, run_id: object, rows: list[int],
                 generation: object = None
                 ) -> tuple[Json, list[Json], list[str]]:
@@ -395,7 +411,28 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
                 return self.send_bytes(server.page(),
                                        "text/html; charset=utf-8")
             if url.path == "/api/pack":
-                text, cursor = server.sweep.pack_text()
+                selected: set[str] | None = None
+                if "run" in q:
+                    requested = q["run"]
+                    if requested.startswith("project:") and server.project:
+                        try:
+                            requested = server.project.open(requested[8:])
+                        except (ValueError, OSError) as exc:
+                            return self.fail(400, str(exc))
+                    selected = {requested}
+                    with server.sweep.lock:
+                        found = any(r.id == requested
+                                    for r in server.sweep.runs)
+                    if not found:
+                        return self.fail(404, "unknown analysis run")
+                elif server.project is not None and q.get("all") != "1":
+                    selected = set()
+                text, cursor = server.sweep.pack_text(run_ids=selected)
+                if server.project is not None:
+                    text = text[:-1] + ',"catalog":' + json.dumps(
+                        server.catalog(), separators=(",", ":")) + (
+                            ',"selectedRun":' + json.dumps(requested)
+                            if "run" in q else "") + "}"
                 token = server.save_cursor(cursor)
                 body = ('{"cursor":%s,"pack":%s}' % (json.dumps(token), text))
                 return self.send_bytes(body.encode(), "application/json")
@@ -418,7 +455,8 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
                 except ValueError as exc:
                     return self.fail(400, str(exc))
             if url.path == "/api/experiment" and server.project:
-                return self.send_json(server.project.state())
+                return self.send_json(server.project.state(
+                    light=q.get("catalog") == "1"))
             if url.path == "/api/experiment/manifest" and server.project:
                 try:
                     return self.send_json(server.project.manifest(
@@ -550,10 +588,17 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
             self.end_headers()
             sweep = server.sweep
             last_ping = time.monotonic()
+            last_catalog = ""
             try:
                 while True:
                     sweep.wait_change(cursor.version, PING_EVERY)
                     msgs = sweep.delta_text(cursor)
+                    if server.project is not None:
+                        catalog = json.dumps({"type": "catalog",
+                                              "runs": server.catalog()})
+                        if catalog != last_catalog:
+                            msgs.append(catalog)
+                            last_catalog = catalog
                     if msgs:
                         for m in msgs:
                             self.wfile.write(b"data: " + m.encode() +

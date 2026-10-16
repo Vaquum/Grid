@@ -186,7 +186,7 @@ class ProjectRuns(unittest.TestCase):
             wait(lambda: self.run_of(rid)["state"] == "stopped")
             second = self.p.start("shared", 3, 1, True, True)
             wait(lambda: self.run_of(second)["state"] == "finished")
-            wait(lambda: second in seen)
+            self.assertIn(second, {r["projectRun"] for r in human.catalog()})
         finally:
             human.discovery_stop.set()
         restarted = Project(self.root, FAKE)
@@ -195,8 +195,11 @@ class ProjectRuns(unittest.TestCase):
             reopened.append(key) or key)
         restarted.follow()
         try:
-            wait(lambda: len(reopened) == 2)
-            self.assertEqual(set(reopened), {rid, second})
+            self.assertEqual({r["projectRun"] for r in restarted.catalog()},
+                             {rid, second})
+            self.assertEqual(reopened, [])
+            restarted.open(second)
+            self.assertEqual(reopened, [second])
         finally:
             restarted.discovery_stop.set()
 
