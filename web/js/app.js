@@ -218,6 +218,7 @@ function applyMessage(msg) {
     } else {
       old.meta = meta;
     }
+    if (app.pendingRun === meta.id) settlePending();
   } else if (msg.type === "rows") {
     const ds = sw.runs.find(r => r.id === msg.run);
     if (!ds) { console.error("rows for an unknown run", msg.run); return; }
@@ -264,7 +265,7 @@ function openRun(id) {
 
 function settlePending() {
   const ds = app.sweep.runs.find(r => r.id === app.pendingRun);
-  if (!ds || !ds.n) return;
+  if (!ds || (!ds.n && !(ds.meta.deferred && ds.meta.rows))) return;
   app.pendingRun = null;
   app.state = { ...app.state, run: ds.id, view: "board", sel: null, context: [], pocket: [], edge: null, clusters: [], clusterK: null };
   try { history.pushState(null, "", "#" + encodeState(app.state)); } catch (err) { /* host refused */ }

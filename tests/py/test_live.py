@@ -123,6 +123,7 @@ class SweepTest(unittest.TestCase):
         for run in (first, other):
             sweep.add_run(run)
             sweep.run_line(run, '{"x":1}', True)
+            run.rounds.append([0, []])
         text, catalog_cursor = sweep.pack_text(run_id="")
         catalog = json.loads(text)
         self.assertEqual([r["rows"] for r in catalog["runs"]], [1, 1])
@@ -134,10 +135,15 @@ class SweepTest(unittest.TestCase):
         self.assertTrue(runs[1]["deferred"])
         sweep.run_line(first, '{"x":2}', False)
         sweep.run_line(other, '{"x":2}', False)
+        first.rounds.append([1, []])
+        other.rounds.append([1, []])
         messages = [json.loads(m) for m in sweep.delta_text(cursor)]
         rows = [m for m in messages if m["type"] == "rows"]
         self.assertEqual([(m["run"], m["lo"], m["hi"]) for m in rows],
                          [("r0", 1, 2)])
+        rounds = [m for m in messages if m["type"] == "rounds"]
+        self.assertEqual([(m["run"], m["entries"]) for m in rounds],
+                         [("r0", [[1, []]])])
         deferred = [m["run"] for m in messages if m["type"] == "run"]
         self.assertEqual(deferred[0]["id"], "r1")
         self.assertEqual(deferred[0]["rows"], 2)
