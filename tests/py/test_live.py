@@ -116,6 +116,62 @@ class FollowerTest(unittest.TestCase):
 
 
 class SweepTest(unittest.TestCase):
+    def test_catalog_and_selected_run_keep_streams_scoped(self):
+        sweep = Sweep("t")
+        first = Run("r0", "first", "a", None, True, "l0")
+        other = Run("r1", "other", "b", None, True, "l1")
+        for log_id in ("l0", "l1"):
+            sweep.add_log(log_id, log_id + ".log")
+            sweep.log_line(log_id, "sampling 100 A-perms...", True)
+        for run in (first, other):
+            sweep.add_run(run)
+            sweep.run_line(run, '{"x":1}', True)
+            run.rounds.append([0, []])
+        text, catalog_cursor = sweep.pack_text(run_id="")
+        catalog = json.loads(text)
+        self.assertEqual([r["rows"] for r in catalog["runs"]], [1, 1])
+        self.assertTrue(all(r["deferred"] for r in catalog["runs"]))
+        self.assertTrue(all("columns" not in r for r in catalog["runs"]))
+        self.assertEqual(catalog["logs"], {})
+        text, cursor = sweep.pack_text(run_id="r0")
+        runs = json.loads(text)["runs"]
+        self.assertEqual(list(json.loads(text)["logs"]), ["l0"])
+        self.assertEqual(len(runs[0]["columns"]), 1)
+        self.assertTrue(runs[1]["deferred"])
+        sweep.run_line(first, '{"x":2}', False)
+        sweep.run_line(other, '{"x":2}', False)
+        first.rounds.append([1, []])
+        other.rounds.append([1, []])
+        for log_id in ("l0", "l1"):
+            sweep.log_line(log_id, "a new line", False)
+        messages = [json.loads(m) for m in sweep.delta_text(cursor)]
+        rows = [m for m in messages if m["type"] == "rows"]
+        self.assertEqual([(m["run"], m["lo"], m["hi"]) for m in rows],
+                         [("r0", 1, 2)])
+        rounds = [m for m in messages if m["type"] == "rounds"]
+        self.assertEqual([(m["run"], m["entries"]) for m in rounds],
+                         [("r0", [[1, []]])])
+        self.assertEqual([m["logId"] for m in messages
+                          if m["type"] == "log"], ["l0"])
+        deferred = [m["run"] for m in messages if m["type"] == "run"]
+        self.assertEqual(deferred[0]["id"], "r1")
+        self.assertEqual(deferred[0]["rows"], 2)
+        self.assertTrue(deferred[0]["deferred"])
+        messages = [json.loads(m) for m in sweep.delta_text(catalog_cursor)]
+        self.assertFalse(any(m["type"] in ("rows", "rounds", "log")
+                             for m in messages))
+        sweep.run_reset(first, "truncated")
+        sweep.run_line(first, '{"x":3}', False)
+        messages = [json.loads(m) for m in sweep.delta_text(cursor)]
+        archive = next(m["run"] for m in messages
+                       if m["type"] == "run" and
+                       m["run"]["id"] == "r0.g0")
+        self.assertTrue(archive["deferred"])
+        text, _ = sweep.pack_text(run_id=archive["id"])
+        archived = json.loads(text)["runs"][0]
+        self.assertEqual(archived["rows"], 2)
+        self.assertEqual(len(archived["columns"]), 1)
+
     def test_bad_lines_are_counted_and_kept(self):
         s = Sweep("t")
         run = Run("r0", "current", "x", None, True)
@@ -211,6 +267,10 @@ class ServerTest(unittest.TestCase):
             body = json.loads(gzip.decompress(raw) if raw[:2] == b"\x1f\x8b"
                               else raw)
             self.assertEqual(body["pack"]["runs"][0]["rows"], 1)
+            catalog = json.loads(urllib.request.urlopen(
+                base + "/api/pack?run=").read())
+            self.assertTrue(catalog["pack"]["runs"][0]["deferred"])
+            self.assertNotIn("columns", catalog["pack"]["runs"][0])
             row = json.loads(urllib.request.urlopen(
                 base + "/api/row?run=r0&i=0").read())
             self.assertEqual(row["row"], {"a": 1, "hp": {"d": 2}})

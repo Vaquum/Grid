@@ -61,6 +61,7 @@ const app = {
   events: [], watch: null,
   // the archive to move the reader to once its rows are here
   stayOn: null,
+  loadingRun: null, loadRequest: 0, loadError: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -102,24 +103,32 @@ async function loadEmbedded() {
   return JSON.parse(text);
 }
 
-async function loadLive(cfg) {
-  const res = await fetch(cfg.pack, { cache: "no-store" });
+async function loadLive(cfg, runId) {
+  const url = new URL(cfg.pack, location.href);
+  if (cfg.mode === "live") {
+    const st = app.state || decodeState(location.hash);
+    url.searchParams.set("run", runId ?? (st && st.view !== "experiment" ? st.run || "" : ""));
+  }
+  const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`the server answered ${res.status} for ${cfg.pack}`);
   const body = await res.json();
   return body;
 }
 
 function startStream(cfg, cursor) {
+  if (app.live) app.live.es.close();
   const es = new EventSource(`${cfg.stream}?cursor=${encodeURIComponent(cursor)}`);
   app.live = { es, connected: false, lastMessage: Date.now(), cfg };
-  es.onopen = () => { app.live.connected = true; updateTop(); };
+  es.onopen = () => { if (app.live.es === es) { app.live.connected = true; updateTop(); } };
   es.onmessage = (ev) => {
+    if (app.live.es !== es) return;
     app.live.lastMessage = Date.now();
     let msg;
     try { msg = JSON.parse(ev.data); } catch (err) { console.error("bad stream message", err); return; }
     applyMessage(msg);
   };
   es.onerror = () => {
+    if (app.live.es !== es) return;
     // The cursor is single-use: start over from a fresh pack after a pause.
     es.close();
     app.live.connected = false;
@@ -129,8 +138,10 @@ function startStream(cfg, cursor) {
 }
 
 async function reconnect(cfg) {
+  const request = ++app.loadRequest;
   try {
     const body = await loadLive(cfg);
+    if (request !== app.loadRequest) return;
     // the run on screen, and its generation: it may have started over while
     // the stream was down, and its rows kept then are in the pack, not resent
     const was = app.sweep.runs.find(r => r.id === app.state.run);
@@ -139,11 +150,43 @@ async function reconnect(cfg) {
     const now = was && app.sweep.runs.find(r => r.id === was.id);
     if (now && now.meta.generation !== gen && !app.stayOn) app.stayOn = `${was.id}.g${gen}`;
     settleStay();
+    app.loadingRun = null;
+    update();
     startStream(cfg, body.cursor);
     note(null, "Reconnected.", "Rows read again from the server.");
   } catch (err) {
+    if (request !== app.loadRequest) return;
     console.error(err);
     setTimeout(() => reconnect(cfg), 5000);
+  }
+}
+
+// Only the run being analyzed needs its rows. The Experiment view reads
+// its project directly and can open while every run is still deferred.
+async function loadRun(ds) {
+  if (app.loadingRun === ds.id) return;
+  const request = ++app.loadRequest;
+  app.loadingRun = ds.id;
+  app.loadError = null;
+  // Keep the current stream until its replacement is ready: if this
+  // request fails, returning to the cached run must still follow it.
+  try {
+    const body = await loadLive(app.config, ds.id);
+    if (request !== app.loadRequest) return;
+    installSweep(body.pack, true);
+    app.loadingRun = null;
+    startStream(app.config, body.cursor);
+    update();
+  } catch (err) {
+    if (request !== app.loadRequest) return;
+    app.loadingRun = null;
+    app.loadError = { run: ds.id, message: String(err.message || err) };
+    update();
+    // A superseded reconnect cannot retry itself. If its stream was
+    // already down, recover it even when the reader leaves this error.
+    if (app.live && app.live.es.readyState === EventSource.CLOSED) {
+      setTimeout(() => { if (request === app.loadRequest) reconnect(app.config); }, 3000);
+    }
   }
 }
 
@@ -168,6 +211,11 @@ function applyMessage(msg) {
       // had, once they are here (they come in the next message, and a
       // draw can fall between the two)
       if (meta.archivedFrom && meta.archivedFrom === app.state.run) app.stayOn = meta.id;
+      if (meta.deferred && app.stayOn === meta.id) {
+        app.stayOn = null;
+        app.state = { ...app.state, run: meta.id };
+        try { history.replaceState(null, "", "#" + encodeState(app.state)); } catch (err) { /* host refused */ }
+      }
       // a run of the project's, opened by the Experiment view
       else if (app.config.experiment && !meta.archivedFrom && meta.id !== app.pendingRun) {
         note("good", `${meta.label} is open.`, "Its rounds are in the views.", () => openRun(meta.id));
@@ -176,6 +224,7 @@ function applyMessage(msg) {
     } else {
       old.meta = meta;
     }
+    if (app.pendingRun === meta.id) settlePending();
   } else if (msg.type === "rows") {
     const ds = sw.runs.find(r => r.id === msg.run);
     if (!ds) { console.error("rows for an unknown run", msg.run); return; }
@@ -200,7 +249,7 @@ function applyMessage(msg) {
 function settleStay() {
   const id = app.stayOn;
   const ds = id && app.sweep.runs.find(r => r.id === id);
-  if (!ds || !ds.n) return;
+  if (!ds || (!ds.n && !ds.meta.deferred)) return;
   app.stayOn = null;
   if (app.state.run !== ds.meta.archivedFrom) return;
   app.state = { ...app.state, run: id };
@@ -212,7 +261,7 @@ function settleStay() {
 function openRun(id) {
   const ds = app.sweep.runs.find(r => r.id === id);
   app.pendingRun = null;
-  if (ds && ds.n) {
+  if (ds && (ds.n || ds.meta.deferred)) {
     setState({ run: id, view: "board", sel: null, context: [], pocket: [], edge: null, clusters: [], clusterK: null });
     return;
   }
@@ -222,7 +271,7 @@ function openRun(id) {
 
 function settlePending() {
   const ds = app.sweep.runs.find(r => r.id === app.pendingRun);
-  if (!ds || !ds.n) return;
+  if (!ds || (!ds.n && !(ds.meta.deferred && ds.meta.rows))) return;
   app.pendingRun = null;
   app.state = { ...app.state, run: ds.id, view: "board", sel: null, context: [], pocket: [], edge: null, clusters: [], clusterK: null };
   try { history.pushState(null, "", "#" + encodeState(app.state)); } catch (err) { /* host refused */ }
@@ -311,21 +360,24 @@ function scheduleUpdate() {
 
 function update() {
   if (!app.sweep) return;
-  const m = app.sweep.runs.length ? model() : null;
+  const ds = currentRun();
+  const experiment = app.state.view === "experiment" && app.config.experiment;
+  const m = ds && !ds.meta.deferred && !experiment ? model() : null;
   app.measurementModel = m;
   updateTop(m);
   updateRail(m);
   const view = app.els.view;
   const sameView = app.lastView === app.state.view;
   app.lastView = app.state.view;
-  if (app.state.view === "experiment" && app.config.experiment) {
+  if (experiment) {
     // the view keeps itself up to date: drawn again only when entered,
     // or when the run in view (a new experiment's source) changes
-    const key = experimentKey(m);
+    const source = ds ? { ds } : null;
+    const key = experimentKey(source);
     if (!sameView || key !== app.lastExperiment) {
       if (!sameView) hideTip();
       try {
-        renderExperiment(view, m, ACTIONS, !sameView);
+        renderExperiment(view, source, ACTIONS, !sameView);
       } catch (err) {
         console.error(err);
         clear(view);
@@ -338,6 +390,15 @@ function update() {
     return;
   }
   hideTip();
+  if (ds && ds.meta.deferred) {
+    const error = app.loadError && app.loadError.run === ds.id ? app.loadError : null;
+    redraw(view, sameView, () => view.append(h("div", { class: "empty", role: "status" },
+      error ? `The run could not be read: ${error.message}` : `Reading ${runName(ds.meta)}…`,
+      error ? h("button", { class: "btn", onclick: () => { loadRun(ds); update(); } }, "Retry") : null)));
+    app.els.root.dataset.insp = "closed";
+    if (!error) loadRun(ds);
+    return;
+  }
   if (!m) {
     redraw(view, sameView, () => renderNoRun(view));
     syncInfo();
@@ -476,12 +537,21 @@ function updateTop(m0) {
   if (!app.top) buildTop();
   const top = app.top, els = top.els;
   // a project's sweep with no run yet: its name, and nothing of a run
-  const none = !app.sweep.runs.length;
+  const none = !app.sweep.runs.length || currentRun().meta.deferred || app.state.view === "experiment";
   for (const el of [els.pill, els.picker, els.chips, els.replay]) el.hidden = none;
   if (none) {
     setText(els.name, app.sweep.meta.name || "sweep");
-    els.runSel.hidden = true;
+    const runs = app.sweep.runs;
+    const runsKey = runs.map(r => `${r.id}\t${runName(r.meta)}`).join("\n");
+    if (runsKey !== top.runsKey) {
+      top.runsKey = runsKey;
+      els.runSel.replaceChildren(...runs.map(r => h("option", { value: r.id, text: runName(r.meta) })));
+    }
+    els.runSel.hidden = runs.length < 2;
+    if (currentRun()) els.runSel.value = currentRun().id;
     els.runOne.hidden = true;
+    els.half.hidden = true;
+    els.whole.hidden = true;
     setText(els.progress, "");
     syncTab(null);
     return;
@@ -627,7 +697,7 @@ function updateRail(m) {
 // Replay
 
 function stepEdge(dir) {
-  if (!app.sweep.runs.length) return;
+  if (!app.sweep.runs.length || currentRun().meta.deferred) return;
   const ds = currentRun();
   const cur = app.state.edge === null ? ds.n : app.state.edge;
   const step = Math.max(1, Math.round(ds.n / 100));
@@ -637,7 +707,7 @@ function stepEdge(dir) {
 
 function togglePlay() {
   if (app.playback) { stopPlay(); updateTop(); return; }
-  if (!app.sweep.runs.length) return;
+  if (!app.sweep.runs.length || currentRun().meta.deferred) return;
   const ds = currentRun();
   if (app.state.edge === null || app.state.edge >= ds.n) app.state.edge = Math.floor(ds.n * 0.5);
   startPlay();
@@ -676,7 +746,7 @@ function stopPlay() {
 // New records as rows arrive (live or replay), once a run has rows enough
 // to rank (its first rows each set one), one toast at a time.
 function notifyRecords() {
-  if (!app.sweep || !app.sweep.runs.length) return;
+  if (!app.sweep || !app.sweep.runs.length || currentRun().meta.deferred || app.state.view === "experiment") return;
   const m = model();
   if (!m.schema.objective) return;
   const top = objectiveTop(m, m.allRows, 1)[0];
