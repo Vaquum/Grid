@@ -128,7 +128,7 @@ def verify_primary_bridge():
         print(f'Primary endpoint {container["Name"]}: attached, gateway reachable')
     # Exercise the exact path that failed when docker0 disappeared: a new
     # container on the primary bridge, including DNS and outbound HTTPS.
-    run(*PRIMARY, "run", "--rm", "--pull=never", "--network", "bridge",
+    run(*PRIMARY, "run", "--rm", "--pull=missing", "--network", "bridge",
         "--read-only", "--entrypoint", "python", "python:3.12-slim", "-c",
         "import urllib.request; "
         "urllib.request.urlopen('https://pypi.org/simple/pip/',timeout=15).read(1)")
