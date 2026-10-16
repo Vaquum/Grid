@@ -367,7 +367,7 @@ function headCell(c, sort, A, cls) {
     h("button", { type: "button", class: "tr-sort", dataset: { focus: `sort-${c.sortKey}`, sort: c.sortKey },
       onclick: () => A.set({ trialSort: { key: c.sortKey, dir: active ? -dir : 1 } }, { replace: true }) },
       h("span", { class: "lbl" + (c.mono ? " mono" : "") }, wrapName(c.label), unitOf(c) ? [" ", h("span", { class: "u", text: `(${unitOf(c)})` })] : null),
-      h("span", { class: "tr-sort-mark", "aria-hidden": "true", text: active ? (dir === 1 ? "↑" : "↓") : "↕" })));
+      h("span", { class: "tr-sort-mark", "aria-hidden": "true" })));
   if (c.head) tip(th, c.head);
   return th;
 }

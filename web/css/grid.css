@@ -725,6 +725,10 @@ table.trials .tr-sort { display: inline-flex; align-items: baseline; gap: 4px; p
 table.trials .tr-sort:hover, table.trials th[aria-sort] .tr-sort { color: var(--ink); }
 table.trials .tr-sort-mark { color: var(--muted); font-size: var(--fs-s); }
 table.trials th[aria-sort] .tr-sort-mark { color: var(--ink); }
+/* Decorative arrows stay out of the heading text used for metric context. */
+table.trials .tr-sort-mark::before { content: "↕"; }
+table.trials th[aria-sort="ascending"] .tr-sort-mark::before { content: "↑"; }
+table.trials th[aria-sort="descending"] .tr-sort-mark::before { content: "↓"; }
 /* a head wraps only past a set width, so no column is squeezed below it */
 table.trials th .lbl { display: inline-block; width: max-content; max-width: 112px; white-space: normal; }
 table.trials th .u { font-weight: 400; white-space: nowrap; }

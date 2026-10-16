@@ -354,7 +354,8 @@ test("trials: headings sort both ways, survive reload and copy the displayed ord
   await page.locator('[data-sort="base:#"]').click();
   assert.deepEqual(await ids(), original);
   // Every available column set supplies working sort buttons with unique keys.
-  for (const toggle of await page.locator('.tr-tools [aria-pressed="false"]:not([aria-disabled="true"])').all()) await toggle.click();
+  const off = await page.locator('.tr-tools [aria-pressed="false"]:not([aria-disabled="true"])').evaluateAll(bs => bs.map(b => b.dataset.cols));
+  for (const id of off) await page.locator(`[data-cols="${id}"]`).click();
   const keys = await page.locator(".tr-sort").evaluateAll(bs => bs.map(b => b.dataset.sort));
   assert.equal(new Set(keys).size, keys.length);
   for (const key of keys.filter(k => k !== "base:#")) {
