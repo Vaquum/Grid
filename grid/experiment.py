@@ -599,7 +599,7 @@ class Project:
                 problem("sfd.manifest.strategy", str(exc) +
                         "; use block fields for rule preflight")
                 span = None
-            for i in range(span[0], span[1]) if span else []:
+            for i in range(span[0], span[1]) if span else range(0):
                 temporal = re.match(
                     r"^\s*(?:-\s+)?(recency_n|persistence_n)\s*:(.*)$",
                     lines[i])
