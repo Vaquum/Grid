@@ -6,6 +6,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as E from "../../web/js/engine.js";
 import { recordedDecimals } from "../../web/js/schema.js";
+import { sortTrialRows } from "../../web/js/view-trials.js";
+import { DEFAULT_STATE, encodeState, decodeState } from "../../web/js/core.js";
 import { fmtRowValue } from "../../web/js/ui.js";
 
 const rowsOf = (n) => Uint32Array.from({ length: n }, (_, i) => i);
@@ -102,4 +104,31 @@ test("a target's values are shown no finer than they were written", () => {
   assert.equal(fmtRowValue({ kind: "binary", unit: "share of rows", digits: 1 }, 1), "yes");
   assert.equal(fmtRowValue({ kind: "binary", unit: "share of rows", digits: 1 }, 0), "no");
   assert.equal(fmtRowValue(pnl, NaN), "–");
+});
+
+
+test("trial sorting uses raw numbers, keeps missing values last in either direction and preserves ranks", () => {
+  const rows = [3, 0, 4, 2, 1, 5].map(i => ({ i, rank: i + 1 }));
+  const values = [10.001, NaN, -2, 10.002, null, 10.001];
+  const column = { value: x => values[x.i] };
+  assert.deepEqual(sortTrialRows(rows, column, 1).map(x => x.i), [2, 0, 5, 3, 1, 4]);
+  assert.deepEqual(sortTrialRows(rows, column, -1).map(x => x.i), [3, 0, 5, 2, 1, 4]);
+  assert.deepEqual(rows.map(x => [x.i, x.rank]), [[3, 4], [0, 1], [4, 5], [2, 3], [1, 2], [5, 6]]);
+  assert.equal(sortTrialRows(rows, null), rows);
+});
+
+test("trial parameter sorting orders numbers within names and breaks ties by arrival", () => {
+  const values = ["model10", "model2", "model2", undefined];
+  const rows = [3, 2, 1, 0].map(i => ({ i }));
+  const column = { value: x => values[x.i] };
+  assert.deepEqual(sortTrialRows(rows, column).map(x => x.i), [1, 2, 0, 3]);
+  assert.deepEqual(sortTrialRows(rows, column, -1).map(x => x.i), [0, 1, 2, 3]);
+});
+
+test("trial sort survives shared addresses, defaults for old addresses and rejects malformed state", () => {
+  const state = { ...DEFAULT_STATE, trialSort: { key: "base:row", dir: -1 } };
+  assert.deepEqual(decodeState(encodeState(state)).trialSort, state.trialSort);
+  for (const trialSort of [undefined, { key: "row", dir: 0 }, { key: 42, dir: 1 }, "row"]) {
+    assert.equal(decodeState(encodeState({ ...state, trialSort })).trialSort, null);
+  }
 });

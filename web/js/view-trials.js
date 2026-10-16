@@ -40,8 +40,14 @@ export function renderTrials(view, m, A) {
   const on = new Set(m.state.trialCols);
   const shown = PRESETS.filter(p => on.has(p.id) && cols[p.id] && cols[p.id].length);
   const base = baseColumns(m, keys);
-  view.append(trialsStrip(m, A, ranked, keys, base, cols, shown));
-  view.append(bestIsland(m, A, ranked, keys, base, cols, shown));
+  for (const c of base) c.sortKey = `base:${c.key}`;
+  for (const [id, cs] of Object.entries(cols)) for (const c of cs || []) c.sortKey = `${id}:${c.key}`;
+  const visible = [...base, ...shown.flatMap(p => cols[p.id])];
+  const sort = m.state.trialSort;
+  const column = sort && visible.find(c => c.sortKey === sort.key);
+  const ordered = { ...ranked, list: sortTrialRows(ranked.list, column, sort?.dir) };
+  view.append(trialsStrip(m, A, ranked, keys, base, cols, shown, ordered));
+  view.append(bestIsland(m, A, ordered, keys, base, cols, shown, column ? sort : null));
   const { t: lt, better } = keys[keys.length - 1];
   if (lt.halves) view.append(leadIsland(m, lt, better));
 }
@@ -108,7 +114,7 @@ function arrivedAfter(rows, i) {
   return rows.length - lo;
 }
 
-function trialsStrip(m, A, ranked, keys, base, cols, shown) {
+function trialsStrip(m, A, ranked, keys, base, cols, shown, ordered) {
   const { t: lt, better } = keys[keys.length - 1];
   const top = ranked.list.length && ranked.list[0].rank === 1 ? ranked.list[0] : null;
   const luck = luckOf(lt, better, m.rows);
@@ -151,14 +157,14 @@ function trialsStrip(m, A, ranked, keys, base, cols, shown) {
   return strip("The best rows in figures", cells,
     { key: "trials", label: "About the best rows", content: () => trialsAbout(m) },
     { label: "Copy the best rows as notes", what: "The rows in the table, with the columns on screen, and the luck line.",
-      text: () => trialsNotes(m, ranked, base, cols, shown, luck, lt), done: "Best rows copied." }, A);
+      text: () => trialsNotes(m, ordered, base, cols, shown, luck, lt), done: "Best rows copied." }, A);
 }
 
 function trialsAbout(m) {
   return about("The best rows",
     `Ranked by ${m.schema.objectiveLabel}, as the runner ranks them, over the rows in view. Rows that tie share a rank (4=) and keep the order they arrived in; a tie too large for the list of ${BEST_LIMIT} is told in one line instead, since inside it the order means nothing.`,
     "The best of many noisy rows is also the luckiest. The strip sets the best row against the luck line, what noise alone would reach in as many rows, and against the rows like it: the other rows that share its values where the needle moves, which is what those values earn without its luck.",
-    "The toggles above the table add columns: the parameters that move the needle and the other parameters; the rows like each row; each row's halves, where the needle is measured on each half of the test window; and, where the sweep records them, the activity, risk and model skill behind each score and the time it took. Choose a row to open its full record and its replay.",
+    "The toggles above the table add columns: the parameters that move the needle and the other parameters; the rows like each row; each row's halves, where the needle is measured on each half of the test window; and, where the sweep records them, the activity, risk and model skill behind each score and the time it took. Click a column heading to sort the listed rows; click again to reverse. Missing values stay last, and # restores runner order. Choose a row to open its full record and its replay.",
     "On a Limen run that recorded its execution, each round's test window has two halves, stretches of the market that do not overlap. Every row's rank on the first half is set against its second half: Lead kept is the share of the best tenth's first-half lead that the second half keeps, the luck line measured rather than modelled, and the chart under the table gives each tenth's second half.");
 }
 
@@ -186,13 +192,14 @@ function targetTip(t) {
 
 function targetCol(t) {
   const text = x => fmtRowValue(t, t.values[x.i], { unit: false });
-  return { key: t.id, label: t.label, unit: t.kind === "binary" ? "" : t.unit, num: true, head: () => targetTip(t), text, cell: text };
+  return { key: t.id, label: t.label, unit: t.kind === "binary" ? "" : t.unit, num: true, head: () => targetTip(t), value: x => t.values[x.i], text, cell: text };
 }
 
 function paramCol(m, d, e) {
   const text = x => { const c = d.codes[x.i]; return c >= 0 ? d.levels[c].label : "–"; };
   const t = m.target;
   return { key: d.id, label: d.label, unit: "", num: false, mono: true, text, cell: text,
+    value: x => { const level = d.levels[d.codes[x.i]]; return !level || level.value === null ? null : level.sort ?? level.label; },
     head: () => h("div", null, h("b", { text: d.label }),
       e && e.detectable ? h("div", { class: "k", text: `Moves ${inText(t.label)}: ω² ${strengthText(e)}, ${fmtP(e.q)}${e.best ? `; best at ${e.best.label}, ${fmtT(t, e.best.mean)}` : ""}.` })
         : e ? h("div", { class: "k", text: `No detectable effect on ${inText(t.label)} (${fmtP(e.q)}).` }) : null) };
@@ -205,15 +212,18 @@ function rankText(x) {
 function baseColumns(m, keys) {
   const sc = m.schema;
   const cols = [
-    { key: "#", label: "#", unit: "", num: true, cls: "rk", text: rankText,
+    { key: "#", label: "#", unit: "", num: true, cls: "rk", text: rankText, value: x => x.rank,
       cell: x => h("span", null, String(x.rank), h("span", { class: "eq" + (x.tie > 1 ? "" : " no"), text: "=" })),
       tipIf: x => x.tie > 1,
       cellTip: x => h("div", null, h("b", { text: `Tied with ${fmtInt(x.tie - 1)} other row${x.tie > 2 ? "s" : ""}` }),
         h("div", { class: "k", text: `They share rank ${x.rank} and keep the order they arrived in.` })) },
-    { key: "row", label: "Row", unit: "", num: true, cls: "ri", text: x => fmtInt(x.i), cell: x => fmtInt(x.i) },
+    { key: "row", label: "Row", unit: "", num: true, cls: "ri", value: x => x.i, text: x => fmtInt(x.i), cell: x => fmtInt(x.i) },
   ];
   if (sc.gates.length) {
     cols.push({ key: "pills", label: "Gates", unit: "", num: false, notes: false, text: () => "",
+      value: x => sc.gates.some(g => g.pass[x.i] === 0 || g.pass[x.i] === 1)
+        ? sc.gates.reduce((n, g) => n + (g.pass[x.i] === 1 ? 1 : 0), 0) : null,
+      head: () => h("div", { text: "Gates passed: sort by the number of gates the row passes." }),
       cell: x => {
         const pills = h("span", { class: "pills" });
         for (const g of sc.gates) pills.append(h("span", { class: "pill" + (g.pass[x.i] === 1 ? " pass" : "") }));
@@ -241,10 +251,10 @@ function columnSets(m, ranked) {
     like: ranked.movers.length ? [
       { key: "like", label: t.label, note: `${t.label} like it`, unit: t.kind === "binary" ? "" : t.unit, num: true,
         head: () => h("div", null, h("b", { text: `${t.label} of the rows like it` }), h("div", { class: "k", text: "The other rows that share the row's values where the needle moves." })),
-        text: x => fmtT(t, x.like.mean, { unit: false }), cell: x => fmtT(t, x.like.mean, { unit: false }), cellTip: x => likeTip(m, ranked, x) },
+        value: x => x.like.mean, text: x => fmtT(t, x.like.mean, { unit: false }), cell: x => fmtT(t, x.like.mean, { unit: false }), cellTip: x => likeTip(m, ranked, x) },
       { key: "like-n", label: "Rows", note: "Rows like it", unit: "", num: true,
         head: () => h("div", null, h("b", { text: "Rows like it" }), h("div", { class: "k", text: `At least ${MIN_N}: matched on the strongest movers that leave as many.` })),
-        text: x => fmtInt(x.like.n), cell: x => fmtInt(x.like.n), cellTip: x => likeTip(m, ranked, x) },
+        value: x => x.like.n, text: x => fmtInt(x.like.n), cell: x => fmtInt(x.like.n), cellTip: x => likeTip(m, ranked, x) },
     ] : [],
     halves: halfColumns(m),
     activity: recorded(sc.targets.filter(x => x.group === "activity")),
@@ -271,7 +281,7 @@ function halfColumns(m) {
   return [
     { key: "half-rank", label: "Rank, first half", note: "Rank on the first half", unit: "", num: true, needle: lt,
       head: () => h("div", null, h("b", { text: "The row's rank on the first half" }), h("div", { class: "k", text: `By ${inText(lt.label)} on the first half of the test window, among the ${fmtInt(n)} rows in view with it; rows that tie share a rank.` })),
-      text: rankText, cell: rankText },
+      value: x => rank[x.i], text: rankText, cell: rankText },
     ...halves.map((ht, k) => ({ ...targetCol(ht), label: k ? "Second half" : "First half", note: ht.label,
       head: () => h("div", null, h("b", { text: ht.label }), h("div", { class: "k", text: `${lt.label} on the ${HALF_NAMES[k]} of the round's test window, read as a window of its own.` })) })),
   ];
@@ -335,14 +345,34 @@ function colTools(m, A, cols) {
 // A head's unit, unless its label already says it ("Signal days").
 const unitOf = (c) => (c.unit && !c.label.toLowerCase().split(/\s+/).includes(c.unit.toLowerCase()) ? c.unit : "");
 
-function headCell(c, cls) {
-  const th = h("th", { class: [c.num ? "r" : "", c.cls || "", cls || ""].join(" ").trim() || null, scope: "col" },
-    h("span", { class: "lbl" + (c.mono ? " mono" : "") }, wrapName(c.label), unitOf(c) ? [" ", h("span", { class: "u", text: `(${unitOf(c)})` })] : null));
+// Compare raw values so units, rounding and thousands separators cannot affect order.
+export function sortTrialRows(rows, column, dir = 1) {
+  if (!column) return rows;
+  const missing = v => v == null || (typeof v === "number" && !Number.isFinite(v));
+  return rows.slice().sort((a, b) => {
+    const av = column.value(a), bv = column.value(b);
+    const am = missing(av), bm = missing(bv);
+    if (am || bm) return am - bm || a.i - b.i;
+    const cmp = typeof av === "number" && typeof bv === "number" ? av - bv
+      : String(av).localeCompare(String(bv), undefined, { numeric: true });
+    return cmp * dir || a.i - b.i;
+  });
+}
+
+function headCell(c, sort, A, cls) {
+  const active = sort ? sort.key === c.sortKey : c.sortKey === "base:#";
+  const dir = active && sort ? sort.dir : 1;
+  const th = h("th", { class: [c.num ? "r" : "", c.cls || "", cls || ""].join(" ").trim() || null, scope: "col",
+    "aria-sort": active ? (dir === 1 ? "ascending" : "descending") : null },
+    h("button", { type: "button", class: "tr-sort", dataset: { focus: `sort-${c.sortKey}`, sort: c.sortKey },
+      onclick: () => A.set({ trialSort: { key: c.sortKey, dir: active ? -dir : 1 } }, { replace: true }) },
+      h("span", { class: "lbl" + (c.mono ? " mono" : "") }, wrapName(c.label), unitOf(c) ? [" ", h("span", { class: "u", text: `(${unitOf(c)})` })] : null),
+      h("span", { class: "tr-sort-mark", "aria-hidden": "true" })));
   if (c.head) tip(th, c.head);
   return th;
 }
 
-function bestIsland(m, A, ranked, keys, base, cols, shown) {
+function bestIsland(m, A, ranked, keys, base, cols, shown, sort) {
   const sc = m.schema;
   const tbl = h("table", { class: "vals trials" });
   const thead = h("thead");
@@ -353,7 +383,7 @@ function bestIsland(m, A, ranked, keys, base, cols, shown) {
       shown.map(p => h("th", { class: "grp g-start", colspan: String(cols[p.id].length), scope: "colgroup", text: p.name })),
       h("th", { class: "grp blank fill" })));
   }
-  thead.append(h("tr", null, base.map(c => headCell(c)), shown.flatMap(p => cols[p.id].map((c, k) => headCell(c, k === 0 ? "g-start" : ""))),
+  thead.append(h("tr", null, base.map(c => headCell(c, sort, A)), shown.flatMap(p => cols[p.id].map((c, k) => headCell(c, sort, A, k === 0 ? "g-start" : ""))),
     h("th", { class: "fill", "aria-hidden": "true" })));
   tbl.append(thead);
   const tb = h("tbody");
