@@ -426,6 +426,7 @@ class Sweep:
             parts: list[str] = []
             cursor = Cursor()
             cursor.run_id = run_id
+            log_ids = self._scope_logs(run_id)
             top = self.meta()
             top["mode"] = mode
             parts.append(json.dumps(top, separators=(",", ":"))[:-1] +
@@ -449,12 +450,15 @@ class Sweep:
                 cursor.runs[r.id] = (r.generation, r.store.rows)
                 cursor.rounds[r.id] = (r.rounds_generation, len(r.rounds))
             for k, v in self.logs.items():
+                if log_ids is not None and k not in log_ids:
+                    continue
                 cursor.progress[k] = v.progress_cursor()
                 cursor.log_lines[k] = v.lines
             cursor.version = self.version
             parts.append('],"logs":' +
                          json.dumps({k: v.to_json()
-                                     for k, v in self.logs.items()},
+                                     for k, v in self.logs.items()
+                                     if log_ids is None or k in log_ids},
                                     separators=(",", ":")) + "}")
             return parts, cursor
 
@@ -462,6 +466,10 @@ class Sweep:
                   ) -> tuple[str, Cursor]:
         parts, cursor = self.pack_parts(mode, run_id)
         return "".join(parts), cursor
+
+    def _scope_logs(self, run_id: str | None) -> set[str | None] | None:
+        return None if run_id is None else {
+            r.log_id for r in self.runs if r.id == run_id}
 
     def delta_text(self, cursor: Cursor) -> list[str]:
         """Messages (JSON text) that bring a page at ``cursor`` up to date;
@@ -501,7 +509,10 @@ class Sweep:
                     msgs.append({"type": "rounds", "run": r.id,
                                  "reset": reset, "entries": r.rounds[sent:]})
                 cursor.rounds[r.id] = (r.rounds_generation, len(r.rounds))
+            log_ids = self._scope_logs(cursor.run_id)
             for k, log in self.logs.items():
+                if log_ids is not None and k not in log_ids:
+                    continue
                 if log.lines == cursor.log_lines.get(k, -1):
                     continue
                 msgs.append({"type": "log", "logId": k,
