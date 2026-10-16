@@ -1505,8 +1505,13 @@ test("experiment: catalog opens before results, and analysis loads only its chos
     await page.route("**/api/pack?*", async route => {
       const run = new URL(route.request().url()).searchParams.get("run");
       requests.push(run);
+      if (run === "unavailable") return route.fulfill({ status: 200, body: "invalid JSON" });
       if (run) await held;
-      await route.continue();
+      const response = await route.fetch();
+      const body = await response.json();
+      const { columns, arrivals, rounds, ...meta } = body.pack.runs[0];
+      body.pack.runs.push({ ...meta, id: "unavailable", label: "Unavailable run", deferred: true });
+      await route.fulfill({ response, json: body });
     });
     await page.goto(url);
     await page.waitForSelector(".ex-runs tbody tr");
@@ -1526,6 +1531,14 @@ test("experiment: catalog opens before results, and analysis loads only its chos
     await page.reload();
     await page.waitForSelector(".pcard");
     assert.deepEqual(requests, ["", "p1", "p1"], "a deep link fetches its selected run directly");
+    await page.locator("#run-pick").selectOption("unavailable");
+    await page.getByRole("button", { name: "Retry", exact: true }).waitFor();
+    await page.locator("#run-pick").selectOption("p1");
+    await page.waitForSelector(".pcard");
+    const csv = readFileSync(join(recorded, "results.csv"), "utf8").trimEnd().split("\n");
+    appendFileSync(join(recorded, "results.csv"), csv[1] + "\n");
+    await page.waitForFunction(() => document.querySelector(".progress-text").textContent.startsWith("201 rows"));
+    assert.deepEqual(requests, ["", "p1", "p1", "unavailable"], "the cached run keeps streaming after another run fails to load");
     assert.deepEqual(errors, []);
     await page.close();
   } finally {

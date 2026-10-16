@@ -168,7 +168,8 @@ async function loadRun(ds) {
   const request = ++app.loadRequest;
   app.loadingRun = ds.id;
   app.loadError = null;
-  if (app.live) app.live.es.close();
+  // Keep the current stream until its replacement is ready: if this
+  // request fails, returning to the cached run must still follow it.
   try {
     const body = await loadLive(app.config, ds.id);
     if (request !== app.loadRequest) return;
