@@ -170,6 +170,7 @@ class TestAgent(unittest.TestCase):
             "factorizedRandom"])
 
     def test_worker_diagnostics_stay_in_private_logs(self):
+        assert self.agent is not None
         proc = subprocess.CompletedProcess([], 1, "", "private worker detail")
         with patch("grid.agent.subprocess.run", return_value=proc), \
                 self.assertLogs("grid.agent", level="ERROR") as logs:
@@ -179,6 +180,7 @@ class TestAgent(unittest.TestCase):
         self.assertNotIn("private worker detail", json.dumps(result))
 
     def test_missing_file_alignment_is_an_operation_error(self):
+        assert self.agent is not None
         refs = self.agent.call("grid_analyze", {
             "analysis": "trials", "limit": 1})["result"]["result"]["list"]
         members = [r["reference"] for r in refs]

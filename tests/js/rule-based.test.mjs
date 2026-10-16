@@ -50,7 +50,11 @@ test("rule PnL and activity read actual recorded first halves", () => {
   const first = analyzePack(structuredClone(pack), { analysis: "schema", state: { firstHalf: true } });
   const changed = structuredClone(pack);
   for (const column of changed.runs[0].columns) {
-    if (column.name.endsWith("_test")) column.data = column.data.map(() => 99999);
+    if (column.name.endsWith("_test") && column.kind === "num") {
+      delete column.codes;
+      delete column.levels;
+      column.data = Array(changed.runs[0].rows).fill(99999);
+    }
   }
   // Full-test CSV outcomes cannot change input levels or a recorded-half needle.
   const again = analyzePack(changed, { analysis: "schema", state: { firstHalf: true } });

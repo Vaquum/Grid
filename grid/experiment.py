@@ -1439,7 +1439,7 @@ class Project:
                             ["run", "--no-progress-bar", "--resume",
                              directory],
                             os.path.join(folder, "logs", label + ".log"),
-                            threads if isinstance(threads, int) else 1)
+                            threads)
                     except OSError as err:
                         failed = str(err)
                     else:
