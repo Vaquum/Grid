@@ -332,13 +332,13 @@ class Agent:
                     pack = self.snapshots[snapshot][1]
                     created = self.snapshots[snapshot][0]
                 else:
-                    state: Any = args.get("state") or {}
-                    requested = state.get("run") if isinstance(state, dict) \
-                        else None
+                    query_state: Any = args.get("state")
+                    requested: Any = cast(Json, query_state).get("run") \
+                        if isinstance(query_state, dict) else None
                     sweep = self.server.sweep
                     with sweep.lock:
-                        selected = requested or (sweep.runs[0].id
-                                                 if sweep.runs else "")
+                        selected = requested if isinstance(requested, str) \
+                            else sweep.runs[0].id if sweep.runs else ""
                     pack, _ = sweep.pack_text(mode="recorded",
                                               run_ids={selected})
                     pack = pack[:-1] + ',"agentInstance":' + json.dumps(
