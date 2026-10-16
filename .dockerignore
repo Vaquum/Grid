@@ -6,6 +6,8 @@
 !web/**
 !tools/
 !tools/build.py
+!tools/agent_query.mjs
+!package.json
 !deploy/
 !deploy/start.sh
 **/__pycache__/
