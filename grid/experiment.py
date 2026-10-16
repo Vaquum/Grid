@@ -600,12 +600,31 @@ class Project:
                 problem("sfd.manifest.strategy", str(exc) +
                         "; use block fields for rule preflight")
                 span = None
+            condition_indent: int | None = None
+            item_indent: int | None = None
             for i in range(span[0], span[1]) if span else range(0):
                 key = _KEY.match(lines[i])
-                item = re.match(r"^\s*-\s*(.*)$", lines[i])
-                if (key and key["key"] == "conditions" and
-                        _written(key["rest"])) or \
-                        (item and not _KEY.match(item[1])):
+                item = re.match(r"^( *)-\s*(.*)$", lines[i])
+                unsupported = False
+                if key and key["key"] == "conditions":
+                    condition_indent = len(key["indent"])
+                    item_indent = None
+                    unsupported = bool(_written(key["rest"]))
+                elif condition_indent is not None and _content(lines[i]):
+                    indent = _indent(lines[i])
+                    if indent <= condition_indent and not item:
+                        condition_indent = None
+                    elif item_indent is None:
+                        if item is None:
+                            unsupported = True
+                            condition_indent = None
+                        else:
+                            item_indent = len(item[1])
+                    # A scalar expression can contain a deeper unary '-'.
+                    # Only condition items must start with a mapping key.
+                    if item and indent == item_indent:
+                        unsupported = _KEY.match(item[2]) is None
+                if unsupported:
                     problem("sfd.manifest.strategy.conditions",
                             "use block condition fields with the first "
                             "key after '-' for execution preflight", i + 1)
