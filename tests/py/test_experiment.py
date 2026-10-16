@@ -535,7 +535,7 @@ class ProjectRuns(unittest.TestCase):
             self.p.start("grid", 10, 2, True, True)
         self.p.create("bad", text=text.replace(
             "prep_each_round", "BAD_VALUE: 1\n  prep_each_round"))
-        with self.assertRaisesRegex(ValueError, "1 problem in the manifest"):
+        with self.assertRaisesRegex(ValueError, "manifest preflight"):
             self.p.start("bad", 10, 1, True, True)
         for rounds, shards in ((0, 1), (10, 0), (3, 4), (True, 1)):
             with self.assertRaises(ValueError):

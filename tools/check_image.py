@@ -23,12 +23,13 @@ def main() -> None:
         project = root / "project"
         project.mkdir()
         (project / "limen.toml").write_text("[store]\n")
+        shutil.copytree("/fixtures/limen_run", project / "results/dev/ml")
         connection = root / "agent.json"
         log = root / "server.log"
         with log.open("w") as stream:
             server = subprocess.Popen([
                 "python", "-m", "grid", "serve", "--project", str(project),
-                "--limen", "/fixtures/limen_run", "--bind", "127.0.0.1",
+                "--bind", "127.0.0.1",
                 "--port", "8499", "--agent-file", str(connection)],
                 stdout=stream, stderr=subprocess.STDOUT)
             try:
@@ -47,12 +48,17 @@ def main() -> None:
                 discover = call("grid_discover")
                 assert discover["semantics"]["analysisRuntime"]
                 status = call("grid_status")
+                deadline = time.monotonic() + 30
+                while not status["runs"] or not status["runs"][0]["rows"]:
+                    assert time.monotonic() < deadline, status
+                    time.sleep(0.1)
+                    status = call("grid_status")
                 cores = status["project"]["cores"]
                 assert cores == effective_cpus() == int(
                     os.environ.get("GRID_EXPECT_CPUS", "2")), status
                 assert status["project"]["limen"]["version"] == "5.27.0"
                 analysis = call("grid_analyze", analysis="schema",
-                                state={"run": "r0"})
+                                state={"run": status["runs"][0]["id"]})
                 assert analysis["result"]["profile"] == "limen", analysis
                 manifest = Path("/fixtures/limen_run/"
                                 "lightgbm_binary_full.yaml").read_text()
@@ -65,7 +71,7 @@ def main() -> None:
                     "execution": True, "outputs": True,
                     "requestId": "image-cpu-reject"})
                 assert not rejected["ok"], rejected
-                assert not call("grid_status")["project"]["runs"]
+                assert len(call("grid_status")["project"]["runs"]) == 1
                 subprocess.run([
                     "python", "/fixtures/generate_rule_run.py", str(project)],
                     check=True)

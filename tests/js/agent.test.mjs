@@ -109,11 +109,14 @@ test("sparse recorded halves never use whole-window gate evidence", () => {
     const pack = structuredClone(original);
     for (const entry of pack.runs[0].rounds) {
       const summary = entry[4];
+      summary.whole.tradeMean = 1;
+      summary.halves[0].tradeMean = 1;
+      summary.halves[1].tradeMean = 1;
       summary.whole.tradeT = 9;
       summary.halves[0].tradeT = first;
       summary.halves[1].tradeT = second;
     }
-    const state = { firstHalf: true, target: "trade_mean", gates: [{ id: "t", target: "trade_t", op: ">=", value: 2 }] };
+    const state = { firstHalf: true, target: "backtest_pnl_per_bar_bps", gates: [{ id: "t", target: "trade_t", op: ">=", value: 2 }] };
     const gates = analyzePack(structuredClone(pack), { analysis: "gates", state });
     const cohort = analyzePack(structuredClone(pack), { analysis: "cohort", state });
     assert.equal(cohort.result.gates[0].firstHalf, true);
@@ -128,7 +131,7 @@ test("sparse recorded halves never use whole-window gate evidence", () => {
     }
   }
   const mixed = analyzePack(structuredClone(original), { analysis: "cohort", state: {
-    firstHalf: true, target: "trade_mean", gates: [{ id: "auc", target: "auc", op: ">", value: 0 }] } });
+    firstHalf: true, target: "backtest_pnl_per_bar_bps", gates: [{ id: "auc", target: "auc", op: ">", value: 0 }] } });
   assert.equal(mixed.result.firstHalfSelection, false);
   assert.ok(mixed.warnings.some(w => w.includes("selection is not isolated")));
 });
