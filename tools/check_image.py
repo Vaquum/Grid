@@ -93,17 +93,20 @@ def main() -> None:
                 start = rule_text.index("      - id: enter")
                 end = rule_text.index("      entry: enter", start)
                 for field in ("recency_n", "persistence_n"):
-                    flow = ("      -  {id: enter, name: Up bar, "
-                            "type: relative, column: close, operator: '>', "
-                            "other_column: open, " + field +
-                            ": '{hold_bars}'}\n")
-                    candidate = (rule_text[:start] + flow + rule_text[end:])
-                    candidate = candidate.replace("\n  params:\n", (
-                        "\n  params:\n    hold_bars: [1, 3]\n"))
-                    checked = call("grid_validate", text=candidate)
-                    assert checked["schemaErrors"] == [], checked
-                    assert any(e["path"].endswith("conditions") for e in
-                               checked["executionErrors"]), checked
+                    for separator in ("  ", "\n        "):
+                        flow = ("      -" + separator +
+                                "{id: enter, name: Up bar, type: relative, "
+                                "column: close, operator: '>', "
+                                "other_column: open, " + field +
+                                ": '{hold_bars}'}\n")
+                        candidate = (rule_text[:start] + flow +
+                                     rule_text[end:])
+                        candidate = candidate.replace("\n  params:\n", (
+                            "\n  params:\n    hold_bars: [1, 3]\n"))
+                        checked = call("grid_validate", text=candidate)
+                        assert checked["schemaErrors"] == [], checked
+                        assert any(e["path"].endswith("conditions") for e in
+                                   checked["executionErrors"]), checked
                 bad = rule_text.replace("workers: 1", "workers: 2")
                 preflight = call("grid_validate", text=bad)
                 assert preflight["schemaErrors"] == [], preflight

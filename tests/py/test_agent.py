@@ -218,7 +218,8 @@ class TestAgent(unittest.TestCase):
         start = text.index("      - id: enter")
         end = text.index("      entry: enter", start)
         for field in ("recency_n", "persistence_n"):
-            for j, space in enumerate((" ", "  ", "\t")):
+            for j, space in enumerate((" ", "  ", "\t", " &condition ",
+                                       "\n        ")):
                 flow = ("      -" + space + "{id: enter, name: Up bar, "
                         "type: relative, column: close, operator: '>', "
                         "other_column: open, " + field +

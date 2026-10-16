@@ -558,3 +558,8 @@ requires a new capture. Four captures per server and ten-minute expiry remain
 unchanged; each pinned pack is immutable across arrivals and resets. Schema,
 gates, cohort and manifest queries defer Board effect calculations. Performance
 measurements describe processing stages, not network latency or financial evidence.
+
+Rule preflight requires condition items as block mappings with their first
+key on the sequence-dash line, for example `- id: signal`. Flow mappings,
+sequence aliases and anchored items must be expanded into this form before
+launch. Both plain and single/double-quoted temporal keys are checked.

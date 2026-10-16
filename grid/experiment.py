@@ -602,12 +602,13 @@ class Project:
                 span = None
             for i in range(span[0], span[1]) if span else range(0):
                 key = _KEY.match(lines[i])
+                item = re.match(r"^\s*-\s*(.*)$", lines[i])
                 if (key and key["key"] == "conditions" and
                         _written(key["rest"])) or \
-                        re.match(r"^\s*-\s*\{", lines[i]):
+                        (item and not _KEY.match(item[1])):
                     problem("sfd.manifest.strategy.conditions",
-                            "use block condition fields for execution "
-                            "preflight", i + 1)
+                            "use block condition fields with the first "
+                            "key after '-' for execution preflight", i + 1)
                 temporal = re.match(
                     r"^\s*(?:-\s+)?(?P<quote>['\"]?)"
                     r"(?P<field>recency_n|persistence_n)(?P=quote)\s*:"
