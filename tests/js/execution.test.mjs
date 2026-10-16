@@ -74,7 +74,7 @@ test("each round's trades and timing are needles, with each half of the window, 
   // the needles results.csv gives and the round's bars split in two; no
   // half holds 30 trades here, so per-trade t has none
   assert.deepEqual(schema.targets.filter(x => x.halves).map(x => x.id).sort(),
-    ["backtest_cost_per_bar_bps", "backtest_inventory_per_bar", "backtest_pnl_per_bar_bps", "backtest_trades_per_bar", "backtest_wins_per_bar", "entries", "timing", "trade_mean"]);
+    ["backtest_cost_per_bar_bps", "backtest_inventory_per_bar", "backtest_pnl_per_bar_bps", "backtest_trades_per_bar", "backtest_wins_per_bar", "entries", "timing", "trade_mean", "trade_t"].sort());
 });
 
 test("Grid's gates stand on the trades: 30 entries and a per-trade t of 2", () => {

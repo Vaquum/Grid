@@ -4,10 +4,7 @@ Routes:
 
 - ``/``             the page, told to read the live sweep from this server;
 - ``/api/pack``     everything as of now (gzip when accepted), with a cursor
-                    token for the stream; ``?run=ID`` includes only that
-                    run's rows, ``?run=`` only the catalog. Other runs'
-                    metadata is marked deferred; the cursor keeps this
-                    scope for subsequent events;
+                    token for the stream;
 - ``/api/stream``   server-sent events that bring a page holding the cursor
                     up to date, as rows and log lines arrive;
 - ``/api/row``      one row rebuilt from its columns (``?run=ID&i=N``);
@@ -47,8 +44,10 @@ from __future__ import annotations
 import gzip
 import ipaddress
 import json
+import os
 import re
 import secrets
+import subprocess
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -138,6 +137,22 @@ class Server:
             got = self.cursors.pop(token, None)
         return got[1] if got else None
 
+    def catalog(self) -> list[Json]:
+        """Run identity and counts only; never serialise historical data."""
+        with self.sweep.lock:
+            loaded = [{"id": r.id, "label": r.label, "live": r.live,
+                     "rows": r.store.rows, "generation": r.generation,
+                     "archivedFrom": r.archived_from}
+                    for r in self.sweep.runs]
+        if self.project is None:
+            return loaded
+        catalog = self.project.catalog()
+        by_id = {r["id"]: r for r in loaded}
+        for entry in catalog:
+            if entry["id"] in by_id:
+                entry.update(by_id.pop(entry["id"]))
+        return catalog + list(by_id.values())
+
     def members(self, run_id: object, rows: list[int],
                 generation: object = None
                 ) -> tuple[Json, list[Json], list[str]]:
@@ -207,10 +222,45 @@ class Server:
                 raise ValueError("fee and slip are basis points") from err
         manifest: Any = exp.get("manifest")
         sfd_module: Any = exp.get("sfdModule")
-        out = judge(records, bar_step(exp), fee, slip,
+        step = bar_step(exp)
+        if any(not isinstance(rec.get("alignment"), dict) for rec in records):
+            raise ValueError("a selected round recorded no alignment; "
+                             "record model outputs and execution before "
+                             "selecting cohort members")
+        if step is None and any(not isinstance(rec.get("alignment"), dict)
+                                or "test_datetimes" not in rec["alignment"]
+                                for rec in records):
+            if self.project is None or self.project.python is None:
+                raise ValueError("file-source cohort evaluation needs "
+                                 "--project and --limen-python, or recorded "
+                                 "alignment.test_datetimes")
+            worker = os.path.join(os.path.dirname(__file__), "limen_times.py")
+            try:
+                proc = subprocess.run([
+                    self.project.python, worker], input=json.dumps({
+                        "manifest": manifest, "records": records}),
+                    cwd=self.project.root, text=True, capture_output=True,
+                    timeout=180, check=False)
+                if proc.returncode:
+                    raise ValueError("Limen could not recover source "
+                                     "timestamps; keep the original file "
+                                     "accessible with its datetime column")
+                times: Json = json.loads(proc.stdout)
+            except subprocess.TimeoutExpired as exc:
+                raise ValueError("source timestamp recovery exceeded 180 s") \
+                    from exc
+            for rec in records:
+                if "test_datetimes" not in rec["alignment"]:
+                    rec["_grid_source_datetimes"] = times.get(rec["round_id"])
+        out = judge(records, step, fee, slip,
                     cast(Json, manifest) if isinstance(manifest, dict)
                     else None,
                     sfd_module if isinstance(sfd_module, str) else None)
+        if step is None:
+            out["timestampSource"] = ("original source through Limen"
+                                      if any("_grid_source_datetimes" in r
+                                             for r in records)
+                                      else "recorded test_datetimes")
         out["rows"] = rows
         shards: Any = exp.get("shards")
         labels = ({str(p[1]): str(p[0])
@@ -362,7 +412,45 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
                 return self.send_bytes(server.page(),
                                        "text/html; charset=utf-8")
             if url.path == "/api/pack":
-                text, cursor = server.sweep.pack_text(run_id=q.get("run"))
+                requested = q.get("run", "")
+                if server.project is None:
+                    text, cursor = server.sweep.pack_text(
+                        run_id=q.get("run"))
+                elif requested:
+                    if requested.startswith("project:"):
+                        try:
+                            requested = server.project.open(requested[8:])
+                        except (ValueError, OSError) as exc:
+                            return self.fail(400, str(exc))
+                    with server.sweep.lock:
+                        found = any(r.id == requested
+                                    for r in server.sweep.runs)
+                    if not found:
+                        return self.fail(404, "unknown analysis run")
+                    text, cursor = server.sweep.pack_text(
+                        run_ids={requested})
+                else:
+                    text, cursor = server.sweep.pack_text(run_id="")
+                if server.project is not None:
+                    catalog = server.catalog()
+                    if not requested:
+                        # Unopened histories have identities without CSV reads.
+                        data: Json = json.loads(text)
+                        data["runs"] = [{**r, "deferred": True}
+                                        for r in catalog]
+                        text = json.dumps(data, separators=(",", ":"))
+                    if requested:
+                        deferred = [{**r, "deferred": True} for r in catalog
+                                    if r["id"] != requested]
+                        if deferred:
+                            at = text.rfind('],"logs":')
+                            text = text[:at] + "," + ",".join(
+                                json.dumps(r, separators=(",", ":"))
+                                for r in deferred) + text[at:]
+                    text = text[:-1] + ',"catalog":' + json.dumps(
+                        catalog, separators=(",", ":")) + (
+                            ',"selectedRun":' + json.dumps(requested)
+                            if requested else "") + "}"
                 token = server.save_cursor(cursor)
                 body = ('{"cursor":%s,"pack":%s}' % (json.dumps(token), text))
                 return self.send_bytes(body.encode(), "application/json")
@@ -385,7 +473,8 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
                 except ValueError as exc:
                     return self.fail(400, str(exc))
             if url.path == "/api/experiment" and server.project:
-                return self.send_json(server.project.state())
+                return self.send_json(server.project.state(
+                    light=q.get("catalog") == "1"))
             if url.path == "/api/experiment/manifest" and server.project:
                 try:
                     return self.send_json(server.project.manifest(
@@ -517,10 +606,17 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
             self.end_headers()
             sweep = server.sweep
             last_ping = time.monotonic()
+            last_catalog = ""
             try:
                 while True:
                     sweep.wait_change(cursor.version, PING_EVERY)
                     msgs = sweep.delta_text(cursor)
+                    if server.project is not None:
+                        catalog = json.dumps({"type": "catalog",
+                                              "runs": server.catalog()})
+                        if catalog != last_catalog:
+                            msgs.append(catalog)
+                            last_catalog = catalog
                     if msgs:
                         for m in msgs:
                             self.wfile.write(b"data: " + m.encode() +
@@ -547,7 +643,7 @@ def act(project: Project, action: str, body: dict[str, Any]) -> Any:
         return v
 
     if action == "validate":
-        return {"errors": project.validate(text("text"))}
+        return project.validation(text("text"))
     if action == "save":
         return {"version": project.save(text("name"), text("text"),
                                         body.get("version"))}

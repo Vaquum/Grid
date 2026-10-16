@@ -9,6 +9,7 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+from unittest.mock import patch
 
 from grid.__main__ import main
 from grid.follow import FileFollower
@@ -116,6 +117,35 @@ class FollowerTest(unittest.TestCase):
 
 
 class SweepTest(unittest.TestCase):
+    def test_selected_pack_and_stream_never_export_unselected_history(self):
+        sweep = Sweep("catalog")
+        a = Run("a", "selected", "a.csv", None, True)
+        b = Run("b", "history", "b.csv", None, True)
+        sweep.add_run(a)
+        sweep.add_run(b)
+        sweep.run_line(a, '{"value": 1}', True)
+        sweep.run_line(b, '{"value": 2}', True)
+        with patch.object(b.store, "export_iter", side_effect=AssertionError(
+                "unselected history was exported")):
+            text, empty = sweep.pack_text(run_ids=set())
+            self.assertEqual(json.loads(text)["runs"], [])
+            text, selected = sweep.pack_text(run_ids={"a"})
+            self.assertEqual([r["id"] for r in json.loads(text)["runs"]],
+                             ["a"])
+        sweep.run_line(a, '{"value": 3}', False)
+        sweep.run_line(b, '{"value": 4}', False)
+        msgs = [json.loads(m) for m in sweep.delta_text(selected)]
+        self.assertEqual({m["run"] for m in msgs if m["type"] == "rows"},
+                         {"a"})
+        self.assertFalse(any(json.loads(m)["type"] == "rows"
+                             for m in sweep.delta_text(empty)))
+        sweep.run_reset(a, "truncated")
+        msgs = [json.loads(m) for m in sweep.delta_text(selected)]
+        self.assertEqual({m["run"]["id"] for m in msgs
+                          if m["type"] == "run"}, {"a", "a.g0"})
+        full, _ = sweep.pack_text(mode="recorded")
+        self.assertEqual(len(json.loads(full)["runs"]), 3)
+
     def test_catalog_and_selected_run_keep_streams_scoped(self):
         sweep = Sweep("t")
         first = Run("r0", "first", "a", None, True, "l0")

@@ -82,8 +82,19 @@ function pushState(next, replace = false) {
   update();
 }
 
+function cancelOtherLoad(run) {
+  if (!app.loadingRun || run === app.loadingRun) return;
+  const request = ++app.loadRequest;
+  app.loadingRun = null;
+  if (app.live?.es.readyState === EventSource.CLOSED) {
+    setTimeout(() => { if (request === app.loadRequest) reconnect(app.config); }, 3000);
+  }
+}
+
 export function setState(patch, opts = {}) {
-  pushState({ ...app.state, ...patch }, opts.replace);
+  const next = { ...app.state, ...patch };
+  cancelOtherLoad(next.run);
+  pushState(next, opts.replace);
 }
 
 // ---------------------------------------------------------------------------
@@ -174,6 +185,10 @@ async function loadRun(ds) {
     const body = await loadLive(app.config, ds.id);
     if (request !== app.loadRequest) return;
     installSweep(body.pack, true);
+    if (body.pack.selectedRun && app.state.run === ds.id) {
+      app.state = { ...app.state, run: body.pack.selectedRun };
+      try { history.replaceState(null, "", "#" + encodeState(app.state)); } catch (err) { /* host refused */ }
+    }
     app.loadingRun = null;
     startStream(app.config, body.cursor);
     update();
@@ -238,6 +253,11 @@ function applyMessage(msg) {
     ds.addRounds(msg.entries, msg.reset);
   } else if (msg.type === "log") {
     mergeLog(sw, msg.logId, msg.log);
+  } else if (msg.type === "catalog") {
+    const ids = new Set(msg.runs.map(r => r.id));
+    sw.runs = sw.runs.filter(r => !r.id.startsWith("project:") || ids.has(r.id)
+      || r.id === app.state.run || r.id === app.loadingRun);
+    for (const meta of msg.runs) if (!sw.runs.some(r => r.id === meta.id)) sw.runs.push(new Dataset({ ...meta, deferred: true }));
   } else if (msg.type === "meta") {
     sw.meta = { ...sw.meta, ...msg.meta };
   }
@@ -482,7 +502,7 @@ function buildTop() {
   const els = {};
   els.name = h("span", { class: "sweep-name" });
   els.runSel = h("select", { class: "run-pick", id: "run-pick", "aria-label": "Run" });
-  els.runSel.addEventListener("change", () => setState({ run: els.runSel.value, sel: null, context: [], pocket: [], edge: null, clusters: [], clusterK: null }));
+  els.runSel.addEventListener("change", () => setState({ run: els.runSel.value, view: app.config.experiment ? "board" : app.state.view, sel: null, context: [], pocket: [], edge: null, clusters: [], clusterK: null }));
   els.runOne = h("span", { class: "run-one" });
   els.statusLabel = h("b");
   els.statusDetail = h("span", { class: "detail" });
@@ -547,7 +567,7 @@ function updateTop(m0) {
       top.runsKey = runsKey;
       els.runSel.replaceChildren(...runs.map(r => h("option", { value: r.id, text: runName(r.meta) })));
     }
-    els.runSel.hidden = runs.length < 2;
+    els.runSel.hidden = !runs.length;
     if (currentRun()) els.runSel.value = currentRun().id;
     els.runOne.hidden = true;
     els.half.hidden = true;
@@ -972,7 +992,7 @@ async function start() {
     mark("decoded");
     document.getElementById("app").dataset.state = "ready";
     addEventListener("keydown", onKey);
-    addEventListener("popstate", () => { const st = decodeState(location.hash); if (st) { app.state = st; update(); } });
+    addEventListener("popstate", () => { const st = decodeState(location.hash); if (st) { cancelOtherLoad(st.run); app.state = st; update(); } });
     update();
     mark("drawn");
     notifyRecords();

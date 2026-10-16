@@ -9,7 +9,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -1578,12 +1578,14 @@ test("experiment: catalog opens before results, and analysis loads only its chos
     release();
     await page.keyboard.press("1");
     await page.waitForSelector(".pcard");
-    assert.deepEqual(requests, ["", "p1"], "navigation reuses the in-flight selected run request");
+    const catalogId = requests[1];
+    assert.match(catalogId, /^project:/);
+    assert.deepEqual(requests, ["", catalogId], "navigation reuses the in-flight selected run request");
     const timings = await page.evaluate(() => window.__gridTimings);
     assert.ok(timings.drawn - timings.start < 1000, JSON.stringify(timings));
     await page.reload();
     await page.waitForSelector(".pcard");
-    assert.deepEqual(requests, ["", "p1", "p1"], "a deep link fetches its selected run directly");
+    assert.deepEqual(requests, ["", catalogId, "p1"], "a deep link fetches its selected run directly");
     await page.locator("#run-pick").selectOption("unavailable");
     await page.getByRole("button", { name: "Retry", exact: true }).waitFor();
     await page.locator("#run-pick").selectOption("p1");
@@ -1591,7 +1593,7 @@ test("experiment: catalog opens before results, and analysis loads only its chos
     const csv = readFileSync(join(recorded, "results.csv"), "utf8").trimEnd().split("\n");
     appendFileSync(join(recorded, "results.csv"), csv[1] + "\n");
     await page.waitForFunction(() => document.querySelector(".progress-text").textContent.startsWith("201 rows"));
-    assert.deepEqual(requests, ["", "p1", "p1", "unavailable"], "the cached run keeps streaming after another run fails to load");
+    assert.deepEqual(requests, ["", catalogId, "p1", "unavailable"], "the cached run keeps streaming after another run fails to load");
     holdReconnect = true;
     const reconnecting = page.waitForRequest("**/api/pack?run=p1");
     await page.evaluate(() => { const es = window.__gridTestStream; es.close(); es.onerror(new Event("error")); });
@@ -1862,8 +1864,9 @@ test("cohort: a Limen run's pool chosen on the first half, judged on the second,
     const url = await serverUrl(proc);
     const { page, errors } = await limenPage();
     await page.goto(url);
-    // the project's newest run opens with the page; on a Limen run the rail
-    // ends in Cohort (8)
+    // Historical results are selected on demand from the project catalog.
+    await page.waitForSelector("#run-pick option[value^=\"project:\"]", { state: "attached" });
+    await page.locator("#run-pick").selectOption({ index: 0 });
     await page.waitForSelector(".rail button[aria-label=Cohort]", { timeout: 20000 });
     // the project's predictors cannot be read at first: the view says so,
     // and reads them again until they are read
@@ -1982,12 +1985,11 @@ test("first half: every needle measured on each half reads its first half only, 
     await page.reload();
     await page.waitForSelector(".pcard");
     assert.equal(await page.locator(".half-pick").getAttribute("aria-pressed"), "true");
-    // Grid's gates read their needles as read: entries on the first half,
-    // named so; per-trade t, which needs 30 trades and here has no half
-    // with them, over the whole window, as before
+    // Both gates read their first halves. With fewer than 30 trades,
+    // per-trade t stays unavailable instead of using whole-window values.
     await page.keyboard.press("6");
     await page.waitForSelector("article.gt-card");
-    assert.deepEqual(await page.locator("article.gt-card .gt-title").allInnerTexts(), ["Entries, first half ≥ 30", "Per-trade t ≥ 2"]);
+    assert.deepEqual(await page.locator("article.gt-card .gt-title").allInnerTexts(), ["Entries, first half ≥ 30", "Per-trade t, first half ≥ 2"]);
     // Trials has no halves; the Run view no halves of the test window, nor
     // a reliability across them
     await page.keyboard.press("5");
@@ -2071,4 +2073,62 @@ test("an agent snapshot link opens the exact pinned analysis in the human UI", a
     proc.kill("SIGTERM");
     await new Promise(resolve => proc.once("exit", resolve));
   }
+});
+
+
+test("project catalog loads before history; selected runs stream and survive navigation", async () => {
+  const project = mkdtempSync(join(tmpdir(), "grid-catalog-"));
+  writeFileSync(join(project, "limen.toml"), "[store]\n");
+  for (const name of ["first", "second"]) cpSync(join(ROOT, "tests/fixtures/limen_run"), join(project, "results/dev", name), { recursive: true });
+  const proc = spawn("python3", ["-m", "grid", "serve", "--project", project, "--limen-cli", join(ROOT, "tests/fixtures/fake_limen.py"), "--port", "0"], { cwd: ROOT });
+  try {
+    const url = await serverUrl(proc);
+    const { page, errors } = await limenPage();
+    const packs = [];
+    page.on("response", async response => { if (response.url().includes("/api/pack")) packs.push(await response.json()); });
+    await page.goto(url);
+    await page.waitForSelector(".ex-table");
+    assert.ok(packs[0].pack.runs.every(r => r.deferred));
+    assert.equal(packs[0].pack.catalog.length, 2);
+    assert.ok(JSON.stringify(packs[0]).length < 10000);
+    const first = packs[0].pack.catalog[0].id, second = packs[0].pack.catalog[1].id;
+    await page.selectOption("#run-pick", first);
+    await page.waitForSelector(".pcard");
+    await page.waitForFunction(() => /40 rows/.test(document.querySelector(".progress-text").textContent));
+    const firstId = await page.locator("#run-pick").inputValue();
+    assert.equal(packs.at(-1).pack.runs.filter(r => !r.deferred).length, 1);
+    // A delayed selection cannot replace a newer choice of the loaded run.
+    let release;
+    const held = new Promise(resolve => { release = resolve; });
+    let asked;
+    const requested = new Promise(resolve => { asked = resolve; });
+    const delayed = /\/api\/pack\?run=project%3A.*second/;
+    await page.route(delayed, async route => { asked(); await held; await route.continue(); });
+    await page.selectOption("#run-pick", second);
+    await requested;
+    await page.selectOption("#run-pick", firstId);
+    const answered = page.waitForResponse(delayed);
+    release();
+    await answered;
+    await page.unroute(delayed);
+    await page.waitForTimeout(1200);
+    assert.equal(await page.locator("#run-pick").inputValue(), firstId);
+    const secondNow = await page.locator("#run-pick option").evaluateAll(xs => xs.find(x => /second$/.test(x.textContent)).value);
+    const firstHash = new URL(page.url()).hash;
+    await page.selectOption("#run-pick", secondNow);
+    await page.waitForURL(url => url.hash !== firstHash);
+    assert.equal(packs.at(-1).pack.runs.filter(r => !r.deferred).length, 1);
+    await page.goBack();
+    await page.waitForFunction(id => document.querySelector("#run-pick").value === id, firstId);
+    // Its file is still followed after loading it on demand.
+    const csv = join(project, "results/dev/first/results.csv");
+    const lines = readFileSync(csv, "utf8").trimEnd().split("\n");
+    appendFileSync(csv, lines.at(-1) + "\n");
+    await page.waitForFunction(() => /41 rows/.test(document.querySelector(".progress-text").textContent), null, { timeout: 15000 });
+    await page.reload();
+    await page.waitForSelector(".pcard");
+    await page.waitForFunction(() => /41 rows/.test(document.querySelector(".progress-text").textContent));
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally { proc.kill(); }
 });

@@ -221,11 +221,22 @@ Docker serves only `127.0.0.1:8490`; the host's Caddy, maintained in
 `https://grid.vaquum.fi` behind Portal's login and provides its landing card.
 The page, API and event stream all pass through that authentication gate.
 
-The container includes Limen 5.25 and creates an official Limen project
+The container includes Limen 5.27.0 and creates an official Limen project
 at `/data/project` on first start. The `grid_project` volume keeps its
 manifests, experiment results and cohorts across image rebuilds and
 redeployments. It runs as an unprivileged user with a read-only image;
 only the project volume and temporary files are writable.
+The production service also writes a private mode-0600 agent connection to
+`/tmp/grid-agent.json`, usable over an SSH tunnel to the loopback listener.
+Retrieve it through the host/container administration channel and protect the
+local copy; it is regenerated on container restart. Agent requests still require
+a localhost/IP Host header and their separate bearer token. Portal protects
+the public page; no credential is included in it.
+Every service discovers active runs from shared project storage within a
+second. Historical runs appear in the catalog after restart and load when
+selected for analysis. The project page opens with this lightweight catalog,
+independent of historical trial data; only the selected run streams rows. Analysis IDs and pinned snapshots remain local to
+each service; agent discovery/status identify its UI origin and instance.
 Production confines the checkout and all Docker data (images, builds, project
 data and logs) to a fixed 199,000,000,000-byte filesystem mounted at `/srv/grid`.
 The isolated engine uses `unix:///run/grid-docker.sock`; temporary runtime
@@ -244,6 +255,15 @@ repository variables `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_DIR` and
 `DEPLOY_KNOWN_HOSTS` can override them. Set `DEPLOY_SSH_KEY` as a repository
 secret (or share the organisation's TDW secrets).
 The deploy waits for `/api/health` before reporting success.
+
+Container capacity uses the smaller of host CPUs, process affinity and visible
+cgroup CPU quotas. Fractional quotas round down to whole worker slots (at least
+one). Shards and manifest `uel.workers` share this budget; parallel Limen
+workers use one native thread each. `grid_validate` reports schema and known
+execution compatibility errors separately. Factorized grids require
+`uel.workers: 1`; native parallel rounds require `prep_each_round: true` and
+Limen 5.25 or later. Custom code and data availability are checked by Limen
+at runtime. See [the issue audit](docs/issue-audit.md).
 
 ## Develop
 

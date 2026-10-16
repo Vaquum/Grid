@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -222,6 +223,12 @@ class Agent:
     def discovery(self) -> Json:
         return {"apiVersion": 1, "tools": TOOLS, "analyses": ANALYSES,
                 "project": self.server.project is not None,
+                "execution": self.server.project.capabilities()
+                if self.server.project else None,
+                "ui": {"origin": self.server.public_origin,
+                       "instance": self.instance,
+                       "projectRuns": "automatically discovered from "
+                                      "shared project storage"},
                 "semantics": {"confidence": 0.95, "minimumSupport": 30,
                               "missing": None, "writes": "requestId",
                               "references": ["run", "generation", "i"],
@@ -300,6 +307,7 @@ class Agent:
                 s.wait_change(args["afterVersion"], args.get("timeout", 0))
             with s.lock:
                 state: Json = {"instance": self.instance, "version": s.version,
+                               "uiOrigin": self.server.public_origin,
                                "runs": [r.meta() for r in s.runs],
                                "errors": s.errors[-10:]}
             state["project"] = self.server.project.state() \
@@ -310,6 +318,8 @@ class Agent:
             if node is None:
                 raise AgentError("ANALYSIS_RUNTIME_MISSING",
                                  "headless analysis needs Node.js >= 18")
+            capture_started = time.perf_counter()
+            captured = False
             with self.snapshot_lock:
                 now = time.monotonic()
                 self.snapshots = {k: v for k, v in self.snapshots.items()
@@ -322,17 +332,28 @@ class Agent:
                     pack = self.snapshots[snapshot][1]
                     created = self.snapshots[snapshot][0]
                 else:
-                    pack, _ = self.server.sweep.pack_text()
-                    data: Json = json.loads(pack)
-                    data["agentInstance"] = self.instance
-                    data["mode"] = "recorded"
-                    pack = json.dumps(data)
+                    query_state: Any = args.get("state")
+                    requested: Any = cast(Json, query_state).get("run") \
+                        if isinstance(query_state, dict) else None
+                    sweep = self.server.sweep
+                    with sweep.lock:
+                        selected = requested if isinstance(requested, str) \
+                            else sweep.runs[0].id if sweep.runs else ""
+                    pack, _ = sweep.pack_text(mode="recorded",
+                                              run_ids={selected})
+                    pack = pack[:-1] + ',"agentInstance":' + json.dumps(
+                        self.instance) + "}"
+                    captured = True
                     snapshot = str(uuid.uuid4())
                     if len(self.snapshots) >= 4:
                         del self.snapshots[next(iter(self.snapshots))]
                     self.snapshots[snapshot] = (now, pack)
                     created = now
+            capture_ms = (time.perf_counter() - capture_started) * 1000
+            serialized_at = time.perf_counter()
             payload = '{"pack":%s,"args":%s}' % (pack, json.dumps(args))
+            serialization_ms = (time.perf_counter() - serialized_at) * 1000
+            worker_started = time.perf_counter()
             try:
                 proc = subprocess.run([node, WORKER], input=payload,
                                       text=True, capture_output=True,
@@ -344,6 +365,9 @@ class Agent:
             try:
                 result: Json = json.loads(proc.stdout)
             except ValueError as exc:
+                logging.getLogger(__name__).error(
+                    "analysis worker exited %s: %s", proc.returncode,
+                    proc.stderr[-4000:])
                 raise AgentError("ANALYSIS_FAILED", "analysis worker failed") \
                     from exc
             if not result.get("ok"):
@@ -356,6 +380,31 @@ class Agent:
                 0, int(600 - (time.monotonic() - created)))
             result["result"]["viewLink"] = "/?snapshot=%s%s" % (
                 snapshot, result["result"]["viewLink"][1:])
+            result["result"]["ui"] = {
+                "origin": self.server.public_origin, "instance": self.instance,
+                "snapshotInstanceLocal": True}
+            result["result"]["performance"] = {
+                "captured": captured, "captureMs": capture_ms,
+                "serializationMs": serialization_ms,
+                "workerMs": (time.perf_counter() - worker_started) * 1000,
+                "snapshotBytes": len(pack.encode("utf-8"))}
+            if args["analysis"] == "cohort":
+                selection = result["result"]["result"]
+                refs = selection.get("members")
+                if refs:
+                    try:
+                        body = self.members(refs)
+                        self.server.cohort({
+                            "run": body["run"],
+                            "generation": str(body["generation"]),
+                            "rows": ",".join(str(i) for i in body["rows"])})
+                        selection["evaluation"] = {"available": True}
+                    except (ValueError, OSError) as exc:
+                        selection["evaluation"] = {
+                            "available": False, "reason": str(exc)}
+                else:
+                    selection["evaluation"] = {
+                        "available": False, "reason": "no eligible members"}
             return result["result"]
         if operation == "grid_row":
             return {"reference": args["reference"],

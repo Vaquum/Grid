@@ -184,6 +184,52 @@ class Execution(unittest.TestCase):
 
 
 class Alignment(unittest.TestCase):
+    def test_exact_timestamps_allow_explicitly_dropped_endpoints(self) -> None:
+        stamps = ["2024-01-01T0%d:00:00+00:00" % i for i in range(5)]
+        for dropped in ([stamps[0]], [stamps[-1]],
+                        [stamps[0], stamps[-1]]):
+            for source_key in ("test_datetimes", "_grid_source_datetimes"):
+                rec = synthetic("edges", [0.6] * (5 - len(dropped)))
+                rec["alignment"] = {
+                    "first_test_datetime": stamps[0],
+                    "last_test_datetime": stamps[-1],
+                    "missing_datetimes": dropped}
+                target = rec["alignment"] if source_key == \
+                    "test_datetimes" else rec
+                target[source_key] = stamps
+                times = bar_times(rec, None)
+                self.assertEqual(len(times), 5 - len(dropped))
+                self.assertEqual(judge([rec], None, 0, 0)["bars"], len(times))
+                # An unrecorded missing endpoint still fails closed.
+                rec["alignment"]["missing_datetimes"] = []
+                target[source_key] = stamps[1:-1]
+                with self.assertRaisesRegex(ValueError, "alignment"):
+                    bar_times(rec, None)
+
+    def test_exact_timestamps_support_irregular_file_bars(self) -> None:
+        rec = synthetic("file", [0.6] * 3)
+        stamps = ["2024-01-01T00:00:00+00:00",
+                  "2024-01-01T01:00:00+00:00",
+                  "2024-01-01T03:30:00+00:00"]
+        rec["alignment"] = {"first_test_datetime": stamps[0],
+                            "last_test_datetime": stamps[-1],
+                            "test_datetimes": stamps, "missing_datetimes": []}
+        times = bar_times(rec, None)
+        self.assertEqual([t - times[0] for t in times], [0, 3600, 12600])
+        self.assertEqual(judge([rec], None, 0, 0)["bars"], 3)
+        self.assertIsNone(bar_step({"manifest": LGBM}))
+        rec["alignment"]["test_datetimes"] = [stamps[0], stamps[0], stamps[2]]
+        with self.assertRaisesRegex(ValueError, "unique and increasing"):
+            bar_times(rec, None)
+        del rec["alignment"]["test_datetimes"]
+        with self.assertRaisesRegex(ValueError, "no recorded test timestamps"):
+            bar_times(rec, None)
+        rec["_grid_source_datetimes"] = stamps
+        self.assertEqual(bar_times(rec, None), times)
+        rec["preds"] = rec["preds"][:2]
+        with self.assertRaisesRegex(ValueError, "test bars"):
+            bar_times(rec, None)
+
     def test_bars_are_rebuilt_from_the_window_less_what_it_dropped(
             self) -> None:
         for rec in ROUNDS:

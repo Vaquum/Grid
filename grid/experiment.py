@@ -42,6 +42,8 @@ import time
 from collections.abc import Callable
 from typing import IO, Any, cast
 
+from .capacity import effective_cpus
+
 Json = dict[str, Any]
 
 RECORD = "grid-run.json"
@@ -63,7 +65,8 @@ MAX_ROUNDS = 10_000_000
 # ---------------------------------------------------------------------------
 # A manifest's plain values, as text
 
-_KEY = re.compile(r"^(?P<indent> *)(?P<key>[A-Za-z_][A-Za-z0-9_.-]*)[ \t]*:"
+_KEY = re.compile(r"^(?P<indent> *)(?P<quote>['\"]?)"
+                  r"(?P<key>[A-Za-z_][A-Za-z0-9_.-]*)(?P=quote)[ \t]*:"
                   r"(?P<rest>(?:[ \t].*)?)$")
 
 
@@ -192,6 +195,22 @@ def get_value(text: str, dotted: str) -> str | None:
     m = _KEY.match(lines[i])
     assert m is not None
     return _scalar(_written(m["rest"])) or None
+
+
+def _version_at_least(version: str, minimum: tuple[int, int]) -> bool:
+    match = re.match(r"^(\d+)\.(\d+)(?:\.|$)", version)
+    return bool(match and tuple(map(int, match.groups())) >= minimum)
+
+
+def manifest_workers(text: str) -> int:
+    raw = get_value(text, "uel.workers")
+    try:
+        workers = 1 if raw is None else int(raw)
+    except ValueError:
+        workers = 0
+    if workers < 1:
+        raise ValueError("uel.workers must be a positive integer")
+    return workers
 
 
 def yaml_text(value: object) -> str:
@@ -445,7 +464,7 @@ class Project:
         self.lock = threading.Lock()
         self.version = self._version()
         self.templates = self._templates()
-        self.cores = os.cpu_count() or 1
+        self.cores = effective_cpus()
         # runs opened in the sweep: run id -> the sweep's run id; the
         # function that opens one (set by the server's wiring); and why a
         # run did not open, or opened without a shard
@@ -465,6 +484,7 @@ class Project:
         # manifest -> (mtime_ns, size, version)
         self.versions: dict[str, tuple[int, int, str]] = {}
         self.names: dict[str, tuple[float, str | None, int | None]] = {}
+        self.discovery_stop = threading.Event()
         self._adopt()
 
     # -- the command line ---------------------------------------------------
@@ -500,7 +520,7 @@ class Project:
                 found.append({"name": m.group(1), "about": m.group(2)})
         return found
 
-    def validate(self, text: str) -> list[Json]:
+    def schema_errors(self, text: str) -> list[Json]:
         """The manifest's problems as ``limen validate`` finds them; none
         when it passes."""
         fd, path = tempfile.mkstemp(suffix=".yaml", prefix="grid-")
@@ -518,6 +538,127 @@ class Project:
                        "message": (out.stdout + out.stderr).strip()[-600:]
                        or "limen validate failed without saying why"}]
         return errors
+
+    def capabilities(self) -> Json:
+        return {"parallelRounds": _version_at_least(self.version, (5, 25)),
+                "parallelFactorize": False,
+                "factorizedRandom": False,
+                "factorizedGridRequiresUnshuffled": True,
+                "ruleTemporalReferences": False,
+                "parallelRequiresPrepEachRound": True,
+                "shardsRequireRandomSearch": True,
+                "cpuBudget": self.cores,
+                "preflight": "declarative execution compatibility; data and "
+                             "custom runner code are checked by Limen"}
+
+    def execution_errors(self, text: str) -> list[Json]:
+        errors: list[Json] = []
+
+        def problem(path: str, message: str, line: int | None = None) -> None:
+            errors.append({"line": line, "path": path, "message": message})
+
+        try:
+            _mapping(text.splitlines(), ["uel"], create=False)
+        except ValueError as exc:
+            problem("uel", str(exc) + "; use block mappings for preflight")
+            return errors
+        try:
+            workers = manifest_workers(text)
+        except ValueError as exc:
+            problem("uel.workers", str(exc))
+            return errors
+        if workers > self.cores:
+            problem("uel.workers", "uel.workers exceeds the effective CPU "
+                    "budget (%d); reduce workers" % self.cores)
+        factorize = (get_value(text, "uel.factorize") or "").lower() == "true"
+        if factorize:
+            search = get_value(text, "uel.search_strategy.type")
+            shuffled = (get_value(text, "uel.search_strategy.shuffle") or "")
+            if search != "grid" or shuffled.lower() == "true":
+                problem("uel.factorize", "factorize requires an unshuffled "
+                        "grid search; factorized random sampling needs "
+                        "upstream Limen support. Use grid without shuffle "
+                        "or disable factorize for random sampling")
+        if workers > 1:
+            if not self.capabilities()["parallelRounds"]:
+                problem("uel.workers", "uel.workers > 1 needs Limen >= "
+                        "5.25.0; use workers: 1 or upgrade Limen")
+            if factorize:
+                problem("uel.factorize", "uel.factorize: true cannot run "
+                        "with uel.workers > 1; use workers: 1 for factorized "
+                        "grid search, or disable factorize")
+            if (get_value(text, "uel.prep_each_round") or "").lower() \
+                    != "true":
+                problem("uel.prep_each_round", "uel.workers > 1 requires "
+                        "uel.prep_each_round: true; otherwise use workers: 1")
+        if get_value(text, "sfd.manifest.type") == "rule_based":
+            lines = text.splitlines()
+            try:
+                span = _mapping(lines, ["sfd", "manifest", "strategy"],
+                                create=False)
+            except ValueError as exc:
+                problem("sfd.manifest.strategy", str(exc) +
+                        "; use block fields for rule preflight")
+                span = None
+            condition_indent: int | None = None
+            item_indent: int | None = None
+            for i in range(span[0], span[1]) if span else range(0):
+                key = _KEY.match(lines[i])
+                item = re.match(r"^( *)-\s*(.*)$", lines[i])
+                unsupported = False
+                if key and key["key"] == "conditions":
+                    condition_indent = len(key["indent"])
+                    item_indent = None
+                    unsupported = bool(_written(key["rest"]))
+                elif condition_indent is not None and _content(lines[i]):
+                    indent = _indent(lines[i])
+                    if indent <= condition_indent and not item:
+                        condition_indent = None
+                    elif item_indent is None:
+                        if item is None:
+                            unsupported = True
+                            condition_indent = None
+                        else:
+                            item_indent = len(item[1])
+                    # A scalar expression can contain a deeper unary '-'.
+                    # Only condition items must start with a mapping key.
+                    if item and indent == item_indent:
+                        unsupported = _KEY.match(item[2]) is None
+                if unsupported:
+                    problem("sfd.manifest.strategy.conditions",
+                            "use block condition fields with the first "
+                            "key after '-' for execution preflight", i + 1)
+                temporal = re.match(
+                    r"^\s*(?:-\s+)?(?P<quote>['\"]?)"
+                    r"(?P<field>recency_n|persistence_n)(?P=quote)\s*:"
+                    r"(?P<rest>.*)$",
+                    lines[i])
+                if temporal is None:
+                    continue
+                field, rest = temporal["field"], temporal["rest"]
+                value = _scalar(_written(rest))
+                try:
+                    count = int(value)
+                except ValueError:
+                    count = 0
+                if count < 1:
+                    reason = ("parameter references require upstream Limen "
+                              "support; use a constant positive integer"
+                              if "{" in value else
+                              "must be a constant positive integer")
+                    problem("sfd.manifest.strategy.conditions." + field,
+                            field + " " + reason, i + 1)
+        return errors
+
+    def validation(self, text: str) -> Json:
+        schema = self.schema_errors(text)
+        execution = [] if schema else self.execution_errors(text)
+        return {"errors": schema + execution, "schemaErrors": schema,
+                "executionErrors": execution,
+                "executionChecked": not bool(schema)}
+
+    def validate(self, text: str) -> list[Json]:
+        return self.validation(text)["errors"]
 
     # -- experiments: the working manifests ---------------------------------
     def _manifest_path(self, name: str) -> str:
@@ -751,11 +892,39 @@ class Project:
                 return folder
         raise ValueError("no run %r in the project" % run_id)
 
-    def runs(self) -> list[Json]:
+    def catalog(self) -> list[Json]:
+        """Recorded identities and lifecycle, without reading result rows."""
+        out: list[Json] = []
+        for folder, kind in self._run_folders():
+            rid = self._rel(folder)
+            if kind == "grid":
+                record = _read_json(os.path.join(folder, RECORD)) or {}
+                states = {str(s.get("state"))
+                          for s in self._record_shards(folder)}
+                state = next((s for s in ("running", "failed", "stopped")
+                              if s in states), "finished")
+                name = record.get("experiment") or os.path.basename(folder)
+            else:
+                name, _ = self._meta(folder)
+                state = "recorded"
+            out.append({"projectRun": rid,
+                        "id": self.opened.get(rid, "project:" + rid),
+                        "label": "%s / %s" % (name or "experiment",
+                                               os.path.basename(folder)),
+                        "state": state, "rows": None, "live": True})
+        return out
+
+    def runs(self, light: bool = False) -> list[Json]:
         """Every run, newest first: its experiment, when it started, its
         shards (rounds written of those planned, how each stands), and
         whether the sweep has it open."""
         out: list[Json] = []
+
+        def count(path: str) -> int | None:
+            if not light or rid in self.opened:
+                return self._rows(path)
+            seen = self.counts.get(path)
+            return max(0, seen[3] - 1) if seen else None
         for folder, kind in self._run_folders():
             rid = self._rel(folder)
             stopping = False
@@ -773,8 +942,8 @@ class Project:
                     shards.append({
                         "label": label, "seed": sh.get("seed"),
                         "planned": sh.get("rounds"),
-                        "rows": self._rows(os.path.join(folder, label,
-                                                        "results.csv")),
+                        "rows": count(os.path.join(folder, label,
+                                                   "results.csv")),
                         "state": sh.get("state"), "exit": sh.get("exit"),
                         "checkpoint": os.path.isfile(os.path.join(
                             folder, label, "checkpoint.json")),
@@ -785,11 +954,12 @@ class Project:
                 name = str(record.get("experiment") or "")
             else:
                 name_got, planned = self._meta(folder)
-                rows = self._rows(os.path.join(folder, "results.csv"))
+                rows = count(os.path.join(folder, "results.csv"))
                 shards = [{"label": os.path.basename(folder), "seed": None,
                            "planned": planned, "rows": rows,
                            "state": "finished" if planned is not None and
-                           rows >= planned else "incomplete", "exit": None,
+                           rows is not None and rows >= planned
+                           else "incomplete", "exit": None,
                            "checkpoint": False, "tail": None}]
                 try:
                     started = os.path.getmtime(os.path.join(folder,
@@ -804,7 +974,8 @@ class Project:
             out.append({
                 "id": rid, "kind": kind, "experiment": name,
                 "started": started, "state": state, "shards": shards,
-                "rows": sum(int(s["rows"] or 0) for s in shards),
+                "rows": sum(int(s["rows"]) for s in shards)
+                if all(s["rows"] is not None for s in shards) else None,
                 "planned": sum(int(s["planned"] or 0) for s in shards),
                 "open": self.opened.get(rid), "note": self.notes.get(rid),
                 "stopping": stopping})
@@ -818,11 +989,12 @@ class Project:
         return [cast(Json, s) for s in cast(list[Any], raw)
                 if isinstance(s, dict)] if isinstance(raw, list) else []
 
-    def state(self) -> Json:
-        runs = self.runs()
+    def state(self, light: bool = False) -> Json:
+        runs = self.runs(light=light)
         return {"project": {"root": self.root,
                             "name": os.path.basename(self.root)},
-                "limen": {"cli": self.cli, "version": self.version},
+                "limen": {"cli": self.cli, "version": self.version,
+                          "capabilities": self.capabilities()},
                 "cores": self.cores, "templates": self.templates,
                 "experiments": self.experiments(runs), "runs": runs,
                 "cohorts": self.cohorts()}
@@ -1003,10 +1175,13 @@ class Project:
                              "again before running it" % self._rel(path))
         problems = self.validate(text)
         if problems:
-            raise ValueError("limen validate finds %d problem%s in the "
-                             "manifest; it is not run"
-                             % (len(problems), "" if len(problems) == 1
-                                else "s"))
+            raise ValueError("manifest preflight: %s: %s" % (
+                problems[0]["path"], problems[0]["message"]))
+        workers = manifest_workers(text)
+        if shards * workers > self.cores:
+            raise ValueError("shards * uel.workers exceeds the effective "
+                             "CPU budget (%d); reduce shards or workers"
+                             % self.cores)
         search = get_value(text, "uel.search_strategy.type")
         if shards > 1 and search != "random":
             raise ValueError("shards draw apart only in a random search "
@@ -1039,7 +1214,8 @@ class Project:
         os.makedirs(os.path.join(folder, "manifests"))
         os.makedirs(os.path.join(folder, "logs"))
         _write_text(os.path.join(folder, BASE_COPY), text)
-        threads = max(1, self.cores // shards)
+        # Limen's native parallel workers each enforce one native thread.
+        threads = 1 if workers > 1 else max(1, self.cores // shards)
         share = -(-rounds // shards)
         records: list[Json] = []
         for j in range(shards):
@@ -1069,6 +1245,7 @@ class Project:
                              % problems[0]["message"].split("\n")[0])
         record: Json = {"experiment": name, "started_at": _now(),
                         "rounds": share * shards, "threads": threads,
+                        "workers": workers,
                         "record": {"execution": bool(execution),
                                    "outputs": bool(outputs)},
                         "shards": records}
@@ -1216,7 +1393,8 @@ class Project:
             label = str(s.get("label"))
             d = os.path.join(folder, label)
             if all(os.path.isfile(os.path.join(d, f))
-                   for f in ("results.csv", "metadata.json")):
+                   for f in ("results.csv", "metadata.json",
+                             "round_data.jsonl")):
                 dirs.append(d)
             elif s.get("state") == "running":
                 raise ValueError("%s is writing its first rounds; it opens "
@@ -1253,23 +1431,27 @@ class Project:
         return sweep_id
 
     def follow(self) -> None:
-        """Once the server can open runs: each run Grid started that is
-        still running opens once its shards have written a round, as it
-        would have had this server started it; and the newest run, when
-        it is not running, opens now."""
-        runs = self.runs()
-        for r in runs:
-            if r["kind"] == "grid" and r["state"] == "running":
-                threading.Thread(target=self._open_when_written,
-                                 args=(r["id"], self._folder(r["id"])),
-                                 daemon=True).start()
-        if runs and runs[0]["state"] != "running":
-            rid = str(runs[0]["id"])
-            try:
-                self.open(rid)
-            except ValueError as err:
-                with self.open_lock:
-                    self.notes[rid] = str(err)
+        """Follow active runs across shared services. Historical runs remain
+        in the catalog and are read only when selected for analysis.
+        A transient partially written directory is retried on the next scan.
+        """
+        def scan() -> None:
+            while not self.discovery_stop.is_set():
+                try:
+                    runs = self.catalog()
+                except (OSError, ValueError):
+                    runs = []
+                for run in runs:
+                    rid = str(run["projectRun"])
+                    if rid in self.opened or run["state"] != "running":
+                        continue
+                    try:
+                        self.open(rid)
+                    except (OSError, ValueError) as exc:
+                        with self.open_lock:
+                            self.notes[rid] = str(exc)
+                self.discovery_stop.wait(1.0)
+        threading.Thread(target=scan, daemon=True).start()
 
     def stop(self, rid: object) -> None:
         """Ask each running shard to stop as Limen stops: the round in hand
@@ -1320,7 +1502,17 @@ class Project:
             record = _read_json(path)
             if record is None:
                 raise ValueError("%s is not a run Grid started" % rid)
-            threads = record.get("threads")
+            with open(os.path.join(folder, BASE_COPY),
+                      encoding="utf-8") as f:
+                workers = manifest_workers(f.read())
+            shard_count = len(record.get("shards") or [])
+            if shard_count * workers > self.cores:
+                raise ValueError("resume exceeds the effective CPU budget "
+                                 "(%d); restore the run's CPU allocation"
+                                 % self.cores)
+            threads = 1 if workers > 1 else max(1, self.cores // max(
+                1, shard_count))
+            record["threads"] = threads
             started: list[str] = []
             failed: str | None = None
             for s in cast(list[Json], record.get("shards") or []):
@@ -1336,7 +1528,7 @@ class Project:
                             ["run", "--no-progress-bar", "--resume",
                              directory],
                             os.path.join(folder, "logs", label + ".log"),
-                            threads if isinstance(threads, int) else 1)
+                            threads)
                     except OSError as err:
                         failed = str(err)
                     else:

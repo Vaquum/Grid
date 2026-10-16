@@ -14,6 +14,7 @@ import threading
 import time
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from unittest.mock import patch
@@ -21,8 +22,9 @@ from unittest.mock import patch
 from grid.__main__ import Wiring
 from grid.agent import TOOLS, Agent
 from grid.agent_client import Client, mcp_reply, write_connection
-from grid.experiment import Project
+from grid.experiment import Project, set_values
 from grid.server import Server, serve
+from grid.sweep import Run
 
 ROOT = Path(__file__).resolve().parents[2]
 FAKE = str(ROOT / "tests/fixtures/fake_limen.py")
@@ -89,6 +91,327 @@ class TestAgent(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, result)
         self.assertTrue(result["ok"], result)
         return result["result"]
+
+    def test_parallel_factorize_preflight_and_capabilities(self):
+        self.project.version = "5.27.0"
+        self.project.cores = 8
+        text = (ROOT / "tests/fixtures/limen_run/"
+                "lightgbm_binary_full.yaml").read_text()
+        text = set_values(text, {"uel.workers": 2, "uel.factorize": True,
+                                 "uel.search_strategy.type": "grid"})
+        checked = self.call("grid_validate", text=text)
+        self.assertEqual(checked["schemaErrors"], [])
+        self.assertTrue(checked["executionChecked"])
+        self.assertEqual(checked["errors"][0]["path"], "uel.factorize")
+        self.assertIn("workers: 1", checked["executionErrors"][0]["message"])
+        self.call("grid_create", name="factor", text=text, requestId="factor")
+        manifest = self.call("grid_manifest", name="factor")
+        with patch.object(self.project, "_spawn") as spawn:
+            result = self.client.call("grid_start", {
+                "name": "factor", "version": manifest["version"],
+                "rounds": 108, "shards": 1, "execution": True,
+                "outputs": True, "requestId": "factor-start"})
+        self.assertFalse(result["ok"])
+        self.assertIn("uel.factorize", result["error"]["message"])
+        spawn.assert_not_called()
+        self.assertEqual(self.project.runs(), [])
+        self.assertFalse(os.path.exists(os.path.join(
+            self.project_root, "results")))
+        serial = set_values(text, {"uel.workers": 1})
+        self.assertEqual(self.call("grid_validate", text=serial)["errors"], [])
+        capabilities = self.call("grid_discover")["execution"]
+        self.assertTrue(capabilities["parallelRounds"])
+        self.assertFalse(capabilities["parallelFactorize"])
+        self.assertEqual(capabilities["cpuBudget"], 8)
+        self.assertEqual(self.call("grid_status")["project"]["cores"], 8)
+
+    def test_workers_share_cpu_budget_with_shards(self):
+        self.project.version = "5.27.0"
+        self.project.cores = 8
+        text = (ROOT / "tests/fixtures/limen_run/"
+                "lightgbm_binary_full.yaml").read_text()
+        text = set_values(text, {"uel.workers": 4,
+                                 "uel.prep_each_round": True})
+        self.project.create("workers", text=text)
+        with self.assertRaisesRegex(ValueError, "shards.*uel.workers"):
+            self.project.start("workers", 12, 3, True, True)
+        self.assertEqual(self.project.runs(), [])
+        with patch.object(self.project, "_spawn",
+                          side_effect=OSError("test")), \
+                self.assertRaisesRegex(ValueError, "could not be started"):
+            self.project.start("workers", 12, 2, True, True)
+        run = self.project.runs()[0]
+        record = json.loads(Path(self.project_root, run["id"],
+                                 "grid-run.json").read_text())
+        self.assertEqual(record["threads"], 1)
+        self.assertEqual(record["workers"], 4)
+
+    def test_preflight_distinguishes_schema_and_execution_errors(self):
+        self.project.version = "5.27.0"
+        self.project.cores = 8
+        for text, path in (("uel:\n  workers: 2\n", "uel.prep_each_round"),
+                           ("uel:\n  workers: 9\n", "uel.workers"),
+                           ("uel: {workers: 2, factorize: true}\n", "uel")):
+            checked = self.call("grid_validate", text=text)
+            self.assertEqual(checked["schemaErrors"], [])
+            self.assertEqual(checked["executionErrors"][0]["path"], path)
+        bad = self.call("grid_validate", text="BAD_VALUE")
+        self.assertTrue(bad["schemaErrors"])
+        self.assertFalse(bad["executionChecked"])
+
+    def test_factorized_random_and_shuffled_grids_report_dependency(self):
+        text = (ROOT / "tests/fixtures/limen_run/"
+                "lightgbm_binary_full.yaml").read_text()
+        for strategy, shuffle in (("random", False), ("grid", True)):
+            candidate = set_values(text, {"uel.factorize": True,
+                "uel.search_strategy.type": strategy,
+                "uel.search_strategy.shuffle": shuffle})
+            checked = self.call("grid_validate", text=candidate)
+            self.assertIn("upstream Limen support",
+                          checked["executionErrors"][0]["message"])
+        self.assertFalse(self.call("grid_discover")["execution"][
+            "factorizedRandom"])
+
+    def test_rule_temporal_references_fail_before_run_creation(self):
+        text = (ROOT / "tests/fixtures/limen_rule/s1.yaml").read_text()
+        self.project.version = "5.27.0"
+        for field in ("recency_n", "persistence_n"):
+            candidate = text.replace("      entry: enter", (
+                "        %s: '{hold_bars}'\n      entry: enter" % field))
+            candidate = candidate.replace("\n  params:\n", (
+                "\n  params:\n    hold_bars: [1, 3, 6, 12]\n"))
+            checked = self.call("grid_validate", text=candidate)
+            self.assertEqual(checked["schemaErrors"], [])
+            error = checked["executionErrors"][0]
+            self.assertTrue(error["path"].endswith(field))
+            self.assertIsNotNone(error["line"])
+            self.assertIn("constant positive integer", error["message"])
+            for quote in ("'", '"'):
+                quoted = candidate.replace(field + ":", quote + field +
+                                           quote + ":")
+                # Quoted mapping keys must not bypass the path lookup either.
+                quoted = quoted.replace("  manifest:", '  "manifest":')
+                checked = self.call("grid_validate", text=quoted)
+                self.assertTrue(any(e["path"].endswith(field) for e in
+                                    checked["executionErrors"]))
+            self.call("grid_create", name=field, text=candidate,
+                      requestId=field)
+            manifest = self.call("grid_manifest", name=field)
+            with patch.object(self.project, "_spawn") as spawn:
+                rejected = self.client.call("grid_start", {
+                    "name": field, "rounds": 40, "shards": 1,
+                    "version": manifest["version"], "execution": True,
+                    "outputs": True, "requestId": field + "-start"})
+            self.assertFalse(rejected["ok"])
+            spawn.assert_not_called()
+            self.assertEqual(self.project.runs(), [])
+            for value in ("0", "-1", "true", "1.5"):
+                invalid = candidate.replace("'{hold_bars}'", value)
+                self.assertTrue(self.call("grid_validate", text=invalid)[
+                    "executionErrors"])
+            constant = candidate.replace("'{hold_bars}'", "6")
+            self.assertEqual(self.call("grid_validate", text=constant)[
+                "errors"], [])
+
+    def test_flow_temporal_references_reject_whitespace_variants(self):
+        text = (ROOT / "tests/fixtures/limen_rule/s1.yaml").read_text()
+        start = text.index("      - id: enter")
+        end = text.index("      entry: enter", start)
+        for field in ("recency_n", "persistence_n"):
+            for j, space in enumerate((" ", "  ", "\t", " &condition ",
+                                       "\n        ")):
+                flow = ("      -" + space + "{id: enter, name: Up bar, "
+                        "type: relative, column: close, operator: '>', "
+                        "other_column: open, " + field +
+                        ": '{hold_bars}'}\n")
+                candidate = (text[:start] + flow + text[end:]).replace(
+                    "\n  params:\n", "\n  params:\n    hold_bars: [1, 3]\n")
+                checked = self.call("grid_validate", text=candidate)
+                self.assertTrue(checked["executionErrors"])
+                self.assertEqual(checked["executionErrors"][0]["path"],
+                                 "sfd.manifest.strategy.conditions")
+                name = field + "_flow_" + str(j)
+                self.call("grid_create", name=name, text=candidate,
+                          requestId=name)
+                manifest = self.call("grid_manifest", name=name)
+                with patch.object(self.project, "_spawn") as spawn:
+                    rejected = self.client.call("grid_start", {
+                        "name": name, "version": manifest["version"],
+                        "rounds": 4, "shards": 1, "execution": True,
+                        "outputs": True, "requestId": name + "-start"})
+                self.assertFalse(rejected["ok"])
+                spawn.assert_not_called()
+        self.assertEqual(self.project.runs(), [])
+
+    def test_worker_diagnostics_stay_in_private_logs(self):
+        assert self.agent is not None
+        proc = subprocess.CompletedProcess([], 1, "", "private worker detail")
+        with patch("grid.agent.subprocess.run", return_value=proc), \
+                self.assertLogs("grid.agent", level="ERROR") as logs:
+            result = self.agent.call("grid_analyze", {"analysis": "schema"})
+        self.assertIn("private worker detail", logs.output[0])
+        self.assertFalse(result["ok"])
+        self.assertNotIn("private worker detail", json.dumps(result))
+
+    def test_missing_file_alignment_is_an_operation_error(self):
+        assert self.agent is not None
+        refs = self.agent.call("grid_analyze", {
+            "analysis": "trials", "limit": 1})["result"]["result"]["list"]
+        members = [r["reference"] for r in refs]
+        exp = {"manifest": {"sfd": {"manifest": {"data_source": {
+            "method": "limen.data.HistoricalData.get_any_file",
+            "params": {"file_path_or_url": "missing.parquet"}}}}}}
+        with patch.object(self.server, "members", return_value=(
+                exp, [{"round_id": "bad", "alignment": None}], [])):
+            result = self.agent.call("grid_cohort_evaluate", {
+                "members": members, "fee": 0, "slip": 0})
+        self.assertFalse(result["ok"])
+        self.assertIn("no alignment", result["error"]["message"])
+
+    def test_native_rule_and_ml_profiles_through_public_analysis(self):
+        run_id = self.wiring.open_limen("native-rule", [
+            str(ROOT / "tests/fixtures/limen_rule")], 40)
+        self.wiring.read_once()
+        native = self.call("grid_analyze", analysis="schema",
+                           state={"run": run_id, "firstHalf": True})
+        self.assertEqual(native["target"]["id"], "pnl_per_bar_bps_test")
+        self.assertEqual(native["warnings"], [])
+        self.assertEqual([d["id"] for d in native["result"]["dimensions"]],
+                         ["fee"])
+        board = self.call("grid_analyze", analysis="board",
+                          state={"run": run_id, "firstHalf": True})
+        self.assertTrue(all(e["dim"] == "fee"
+                            for e in board["result"]["effects"]))
+        ml = self.call("grid_analyze", analysis="schema",
+                       state={"run": "r0", "firstHalf": True})
+        self.assertEqual(ml["target"]["id"], "backtest_pnl_per_bar_bps")
+        self.assertTrue(all(d["id"] not in ("num_trades_train", "auc")
+                            for d in ml["result"]["dimensions"]))
+
+    def test_sparse_halves_gate_and_cohort_through_public_api(self):
+        original = json.dumps(self.sweep.runs[0].rounds)
+        for first, second in ((3, None), (None, 3), (None, None)):
+            with self.sweep.lock:
+                self.sweep.runs[0].rounds = json.loads(original)
+                for entry in self.sweep.runs[0].rounds:
+                    summary = entry[4]
+                    summary["whole"]["tradeT"] = 9
+                    summary["halves"][0]["tradeT"] = first
+                    summary["halves"][1]["tradeT"] = second
+            state = {"run": "r0", "firstHalf": True,
+                     "target": "backtest_pnl_per_bar_bps", "gates": [{
+                         "id": "t", "target": "trade_t", "op": ">=",
+                         "value": 2}]}
+            gates = self.call("grid_analyze", analysis="gates", state=state)
+            cohort = self.call("grid_analyze", analysis="cohort", state=state)
+            self.assertTrue(cohort["result"]["firstHalfSelection"])
+            self.assertTrue(cohort["result"]["gates"][0]["firstHalf"])
+            if first is None:
+                self.assertEqual(cohort["result"]["pool"], 0)
+                self.assertTrue(any("no first-half measurements" in w
+                                    for w in gates["warnings"]))
+            else:
+                self.assertGreater(cohort["result"]["pool"], 0)
+                self.assertEqual(cohort["warnings"], [])
+
+    def test_project_initial_pack_is_a_catalog_without_historical_reads(self):
+        folder = Path(self.project_root, "results/dev/history")
+        shutil.copytree(ROOT / "tests/fixtures/limen_run", folder)
+        with patch.object(self.project, "_rows", side_effect=AssertionError(
+                "catalog counted historical CSV rows")):
+            # This server owns a different Project object with the same root.
+            with urllib.request.urlopen(self.url + "/api/pack") as response:
+                raw = response.read()
+            body = json.loads(raw)
+            self.assertTrue(all(r["deferred"]
+                                for r in body["pack"]["runs"]))
+            self.assertEqual(body["pack"]["catalog"][0]["projectRun"],
+                             "results/dev/history")
+            self.assertLess(len(raw), 10000)
+            state = self.project.state(light=True)
+            self.assertIsNone(state["runs"][0]["rows"])
+        with urllib.request.urlopen(self.url + "/api/pack?run=r0") as response:
+            selected = json.load(response)["pack"]
+        self.assertEqual([r["id"] for r in selected["runs"]
+                          if not r.get("deferred")], ["r0"])
+        self.assertGreater(selected["runs"][0]["rows"], 0)
+
+    def test_agent_run_is_visible_live_to_shared_human_service(self):
+        args = argparse.Namespace(limen=None, results=None, name=None,
+                                  ssh=None, as_=None, log=None, run=None,
+                                  label=None, project=self.project_root)
+
+        def human_service():
+            project = Project(self.project_root, FAKE)
+            wiring = Wiring(args, follow=True)
+            sweep = wiring.build()
+            project.opener = wiring.open_limen
+            wiring.start()
+            project.follow()
+            httpd = serve(sweep, lambda: b"human", "127.0.0.1", 0,
+                          project, "human-token", public_origin=
+                          "https://grid.vaquum.fi")
+            threading.Thread(target=httpd.serve_forever, daemon=True).start()
+            return project, wiring, httpd
+
+        def visible(httpd, selected=None):
+            url = "http://127.0.0.1:%d/api/pack" % httpd.server_address[1]
+            if selected:
+                url += "?run=" + urllib.parse.quote(selected, safe="")
+            request = urllib.request.Request(url, headers={
+                "Host": "grid.vaquum.fi"})
+            try:
+                with urllib.request.urlopen(request) as response:
+                    return json.load(response)["pack"]
+            except urllib.error.HTTPError as exc:
+                message = json.load(exc)["error"]
+                if exc.code == 400 and ("first round" in message or
+                                        "no round" in message):
+                    return {"runs": []}
+                raise
+
+        def close(service):
+            project, wiring, httpd = service
+            project.discovery_stop.set()
+            for follower in wiring.followers:
+                follower.stop()
+            httpd.shutdown()
+            httpd.server_close()
+
+        service = human_service()
+        old_pace = os.environ.get("FAKE_LIMEN_PACE")
+        os.environ["FAKE_LIMEN_PACE"] = "0.1"
+        try:
+            self.call("grid_create", name="shared", template="lightgbm_binary",
+                      requestId="shared-create")
+            manifest = self.call("grid_manifest", name="shared")
+            rid = self.call("grid_start", name="shared", rounds=100, shards=1,
+                            execution=True, outputs=True,
+                            version=manifest["version"],
+                            requestId="shared-start")["run"]
+            deadline = time.monotonic() + 15
+            while not any(r["rows"] and r["rows"] > 0
+                          for r in visible(service[2], "project:" + rid)[
+                              "runs"]):
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.05)
+            self.assertEqual(next(r for r in self.project.runs()
+                                  if r["id"] == rid)["state"], "running")
+            self.call("grid_stop", run=rid, requestId="shared-stop")
+            close(service)
+            service = human_service()
+            deadline = time.monotonic() + 15
+            while not any(r["rows"] and r["rows"] > 0
+                          for r in visible(service[2], "project:" + rid)[
+                              "runs"]):
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.05)
+        finally:
+            close(service)
+            if old_pace is None:
+                os.environ.pop("FAKE_LIMEN_PACE", None)
+            else:
+                os.environ["FAKE_LIMEN_PACE"] = old_pace
 
     def test_documented_inspection_and_predictor_workflow(self):
         inspected = self.example("inspect", "--run", "r0")
@@ -209,6 +532,52 @@ class TestAgent(unittest.TestCase):
                 urllib.request.urlopen(req)
             self.assertEqual(caught.exception.code, 403)
             caught.exception.close()
+
+    def test_capture_cost_and_evidence_are_scoped_to_selected_run(self):
+        state = {"run": "r0", "firstHalf": True}
+        analyses = ("schema", "cohort", "gates")
+        baseline = {a: self.call("grid_analyze", analysis=a, state=state)
+                    for a in analyses}
+        unrelated = Run("large", "unrelated telemetry", "other.jsonl",
+                        None, True)
+        self.sweep.add_run(unrelated)
+        for i in range(5000):
+            self.sweep.run_line(unrelated, json.dumps({
+                "sequence": i, "message": str(i) + ":" + "x" * 1024}), True)
+        with patch.object(unrelated.store, "export_iter",
+                          side_effect=AssertionError("unrelated export")):
+            after = {a: self.call("grid_analyze", analysis=a, state=state)
+                     for a in analyses}
+        for analysis in analyses:
+            before, current = baseline[analysis], after[analysis]
+            self.assertEqual(current["result"], before["result"])
+            self.assertEqual(current["summary"], before["summary"])
+            self.assertEqual(current["snapshot"]["generation"],
+                             before["snapshot"]["generation"])
+            self.assertLess(current["performance"]["snapshotBytes"], 50000)
+            self.assertLess(abs(current["performance"]["snapshotBytes"] -
+                                before["performance"]["snapshotBytes"]), 128)
+            print("run-scoped profile", analysis, json.dumps({
+                "before": before["performance"],
+                "withUnrelated5000Rows": current["performance"]}))
+        captured = after["cohort"]
+        snapshot = captured["snapshot"]["id"]
+        with urllib.request.urlopen(self.url +
+                                    "/api/agent/snapshot?id=" + snapshot) as r:
+            pack = json.load(r)["pack"]
+        self.assertEqual([r["id"] for r in pack["runs"]], ["r0"])
+        self.assertTrue(all(m["run"] == "r0" for m in
+                            captured["result"]["members"]))
+        self.sweep.run_reset(self.sweep.runs[0], "truncated")
+        pinned = self.call("grid_analyze", analysis="cohort", state=state,
+                           snapshot=snapshot)
+        self.assertEqual(pinned["result"], captured["result"] | {
+            "evaluation": pinned["result"]["evaluation"]})
+        self.assertFalse(pinned["performance"]["captured"])
+        expired = self.client.call("grid_analyze", {
+            "analysis": "schema", "snapshot": baseline["schema"][
+                "snapshot"]["id"]})
+        self.assertEqual(expired["error"]["code"], "SNAPSHOT_EXPIRED")
 
     def test_snapshot_survives_arrivals_and_stale_rows_are_rejected(self):
         schema = self.call("grid_analyze", analysis="schema")

@@ -412,7 +412,8 @@ class Sweep:
                 "now": time.time(), "logSources": self.log_sources,
                 "errors": self.errors[-50:]}
 
-    def pack_parts(self, mode: str = "live", run_id: str | None = None
+    def pack_parts(self, mode: str = "live", run_id: str | None = None,
+                   *, run_ids: set[str] | None = None
                    ) -> tuple[list[str], Cursor]:
         """A pack as JSON text parts and a cursor with the same scope.
 
@@ -426,12 +427,16 @@ class Sweep:
             parts: list[str] = []
             cursor = Cursor()
             cursor.run_id = run_id
-            log_ids = self._scope_logs(run_id)
+            cursor.only = run_ids.copy() if run_ids is not None else None
+            log_ids = ({r.log_id for r in self.runs if r.id in run_ids}
+                       if run_ids is not None else self._scope_logs(run_id))
             top = self.meta()
             top["mode"] = mode
             parts.append(json.dumps(top, separators=(",", ":"))[:-1] +
                          ',"runs":[')
-            for k, r in enumerate(self.runs):
+            scoped = [r for r in self.runs
+                      if run_ids is None or r.id in run_ids]
+            for k, r in enumerate(scoped):
                 if run_id is not None and r.id != run_id:
                     meta = {**r.meta(), "deferred": True}
                     parts.append(("," if k else "") + json.dumps(
@@ -462,9 +467,10 @@ class Sweep:
                                     separators=(",", ":")) + "}")
             return parts, cursor
 
-    def pack_text(self, mode: str = "live", run_id: str | None = None
+    def pack_text(self, mode: str = "live", run_id: str | None = None,
+                   *, run_ids: set[str] | None = None
                   ) -> tuple[str, Cursor]:
-        parts, cursor = self.pack_parts(mode, run_id)
+        parts, cursor = self.pack_parts(mode, run_id, run_ids=run_ids)
         return "".join(parts), cursor
 
     def _scope_logs(self, run_id: str | None) -> set[str | None] | None:
@@ -479,6 +485,10 @@ class Sweep:
             if cursor.version == self.version:
                 return []
             for r in self.runs:
+                if cursor.only is not None and r.id not in cursor.only:
+                    if r.archived_from not in cursor.only:
+                        continue
+                    cursor.only.add(r.id)
                 gen, rows = cursor.runs.get(r.id, (-1, 0))
                 if cursor.run_id is not None and r.id != cursor.run_id:
                     if gen != r.generation or rows != r.store.rows:
@@ -509,7 +519,9 @@ class Sweep:
                     msgs.append({"type": "rounds", "run": r.id,
                                  "reset": reset, "entries": r.rounds[sent:]})
                 cursor.rounds[r.id] = (r.rounds_generation, len(r.rounds))
-            log_ids = self._scope_logs(cursor.run_id)
+            log_ids = ({r.log_id for r in self.runs if r.id in cursor.only}
+                       if cursor.only is not None
+                       else self._scope_logs(cursor.run_id))
             for k, log in self.logs.items():
                 if log_ids is not None and k not in log_ids:
                     continue
@@ -538,6 +550,7 @@ class Cursor:
     def __init__(self) -> None:
         # None sends everything; an empty id sends only the run catalog.
         self.run_id: str | None = None
+        self.only: set[str] | None = None
         self.runs: dict[str, tuple[int, int]] = {}
         self.rounds: dict[str, tuple[int, int]] = {}
         self.progress: dict[str, dict[int, int]] = {}

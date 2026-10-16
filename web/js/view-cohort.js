@@ -102,13 +102,13 @@ export function poolOf(schema, rows, pocket, edge, reads = gateReads(schema)) {
   return out;
 }
 
-// The pool's rows with a value on both halves, the best on the first half
+// The pool's rows with a value on the first half, the best on the first half
 // first (ties in the order they arrived); on a needle without halves, by
 // the needle over the whole window.
 export function rankedOf(t, pool) {
   const dir = t.better < 0 ? -1 : 1;
-  const [a, b] = t.halves || [t.values, t.values];
-  return pool.filter(i => a[i] === a[i] && b[i] === b[i]).sort((p, q) => (a[q] - a[p]) * dir || p - q);
+  const a = t.halves ? t.halves[0] : t.values;
+  return pool.filter(i => Number.isFinite(a[i])).sort((p, q) => (a[q] - a[p]) * dir || p - q);
 }
 
 // Each row's result directory, on a run read from several: its shard, as
@@ -315,7 +315,7 @@ function cohortMembersIsland(m, A, t, ranked, members, dirOf) {
     isl.append(h("p", { class: "isl-note", text: `${t.label} is not measured on each half (only the figures of the run's recorded execution are), so the members are chosen on the whole window, and the second half below chose them too; a needle of the execution, such as net PnL per bar, judges them on data that did not choose them.` }));
   }
   if (!ranked.length) {
-    isl.append(h("p", { class: "isl-note", text: t.halves ? "No row of the pool has a value of the needle on both halves." : "No row of the pool has a value of the needle." }));
+    isl.append(h("p", { class: "isl-note", text: t.halves ? "No row of the pool has a value of the needle on the first half." : "No row of the pool has a value of the needle." }));
     return isl;
   }
   // the needle on each half, or over the whole window

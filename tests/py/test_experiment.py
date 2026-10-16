@@ -153,6 +153,7 @@ class ProjectRuns(unittest.TestCase):
         return "p%d" % len(self.opened)
 
     def tearDown(self) -> None:
+        self.p.discovery_stop.set()
         for proc in self.p.procs.values():
             if proc.poll() is None:
                 proc.kill()
@@ -170,6 +171,37 @@ class ProjectRuns(unittest.TestCase):
     def test_a_project_needs_its_limen_toml(self) -> None:
         with self.assertRaisesRegex(ValueError, "no limen.toml"):
             Project(self.tmp, FAKE)
+
+    def test_shared_project_runs_discover_live_and_after_restart(self) -> None:
+        human = Project(self.root, FAKE)
+        seen: list[str] = []
+        human.opener = lambda key, dirs, planned: seen.append(key) or key
+        human.follow()
+        try:
+            self.p.create("shared", template="lightgbm_binary")
+            rid = self.p.start("shared", 80, 1, True, True)
+            wait(lambda: rid in seen)
+            self.assertEqual(self.run_of(rid)["state"], "running")
+            self.p.stop(rid)
+            wait(lambda: self.run_of(rid)["state"] == "stopped")
+            second = self.p.start("shared", 3, 1, True, True)
+            wait(lambda: self.run_of(second)["state"] == "finished")
+            self.assertIn(second, {r["projectRun"] for r in human.catalog()})
+        finally:
+            human.discovery_stop.set()
+        restarted = Project(self.root, FAKE)
+        reopened: list[str] = []
+        restarted.opener = lambda key, dirs, planned: (
+            reopened.append(key) or key)
+        restarted.follow()
+        try:
+            self.assertEqual({r["projectRun"] for r in restarted.catalog()},
+                             {rid, second})
+            self.assertEqual(reopened, [])
+            restarted.open(second)
+            self.assertEqual(reopened, [second])
+        finally:
+            restarted.discovery_stop.set()
 
     def test_limens_version_templates_and_validation(self) -> None:
         self.assertEqual(self.p.version, "5.20.0")
@@ -297,8 +329,7 @@ class ProjectRuns(unittest.TestCase):
         self.assertEqual([(s["label"], s["rounds"], s["seed"])
                           for s in record["shards"]],
                          [("s1", 20, 20261009), ("s2", 20, 20261010)])
-        self.assertEqual(record["threads"], max(1, (os.cpu_count() or 1)
-                                                 // 2))
+        self.assertEqual(record["threads"], max(1, self.p.cores // 2))
         with open(os.path.join(folder, "manifests", "s2.yaml")) as f:
             copy = f.read()
         self.assertEqual(get_value(copy, "uel.output_path"),
@@ -508,7 +539,7 @@ class ProjectRuns(unittest.TestCase):
             self.p.start("grid", 10, 2, True, True)
         self.p.create("bad", text=text.replace(
             "prep_each_round", "BAD_VALUE: 1\n  prep_each_round"))
-        with self.assertRaisesRegex(ValueError, "1 problem in the manifest"):
+        with self.assertRaisesRegex(ValueError, "manifest preflight"):
             self.p.start("bad", 10, 1, True, True)
         for rounds, shards in ((0, 1), (10, 0), (3, 4), (True, 1)):
             with self.assertRaises(ValueError):
@@ -582,7 +613,9 @@ class Routes(unittest.TestCase):
     def test_a_write_needs_the_token_the_origin_and_json(self) -> None:
         ok = {"text": manifest_text()}
         self.assertEqual(self.post("/api/experiment/validate", ok),
-                         (200, {"errors": []}))
+                         (200, {"errors": [], "schemaErrors": [],
+                                "executionErrors": [],
+                                "executionChecked": True}))
         for headers, why in (({"X-Grid-Token": ""}, "token"),
                              ({"X-Grid-Token": "nope"}, "token"),
                              ({"Origin": "http://evil.example"}, "origin"),
@@ -651,9 +684,14 @@ class Routes(unittest.TestCase):
         headers = {"Host": "grid.vaquum.fi",
                    "Origin": "https://grid.vaquum.fi"}
         self.assertEqual(self.post("/api/experiment/validate", body,
-                                   **headers), (200, {"errors": []}))
+                                   **headers), (200, {
+                                "errors": [], "schemaErrors": [],
+                                "executionErrors": [],
+                                "executionChecked": True}))
         self.assertEqual(self.post("/api/experiment/validate", body),
-                         (200, {"errors": []}))
+                         (200, {"errors": [], "schemaErrors": [],
+                                "executionErrors": [],
+                                "executionChecked": True}))
         for changes in ({"Origin": "http://grid.vaquum.fi"},
                         {"Origin": "https://other.vaquum.fi"},
                         {"Host": "other.vaquum.fi"},
