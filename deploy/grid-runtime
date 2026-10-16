@@ -4,4 +4,18 @@
 set -eu
 cd /srv/grid
 /usr/local/libexec/grid-storage-check --cwd
+if [ "$1" = /usr/bin/dockerd ]; then
+    # Docker's overlay mounts and containerd must share this namespace.
+    /usr/bin/containerd --config /etc/docker/grid-containerd.toml \
+        >> /srv/grid/containerd.log 2>&1 &
+    runtime=$!
+    attempts=0
+    until /usr/bin/ctr --address /run/grid-containerd/containerd.sock \
+        version >/dev/null 2>&1; do
+        kill -0 "$runtime"
+        attempts=$((attempts + 1))
+        test "$attempts" -lt 100
+        sleep 0.1
+    done
+fi
 exec "$@"

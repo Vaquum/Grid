@@ -5,8 +5,10 @@ is a fixed 199,000,000,000-byte sparse image mounted at `/srv/grid`. All
 payloads stay inside, including the checkout, build intermediates, images,
 volumes and logs. A 1 GB margin covers host filesystem bookkeeping and
 small unit/configuration files. Other services retain their existing engine.
-Grid has its own containerd service, namespace, socket and persistent root
+Grid has its own containerd process, namespace, socket and persistent root
 under `/srv/grid/containerd`; it never uses the host's shared runtime root.
+Docker launches this process in its pinned mount namespace so both see
+the same overlay mounts. The unit stops both processes together.
 Grid's isolated data and execution roots follow Docker's
 [multiple-daemon configuration](https://docs.docker.com/reference/cli/dockerd/#run-multiple-daemons).
 
@@ -62,7 +64,7 @@ DOCKER_HOST=unix:///run/grid-docker.sock docker compose -f /srv/grid/checkout/do
 
 GitHub deployment pins the receiver's working directory before checking
 its device, then writes to a relative checkout path. A lazy unmount leaves
-the receiver on the capped filesystem. Each runtime service also binds
+the receiver on the capped filesystem. The runtime service also binds
 the filesystem into its own mount namespace and checks inside that namespace
 before executing. GitHub then uses only the isolated engine.
 `DEPLOY_DIR` overrides must resolve to

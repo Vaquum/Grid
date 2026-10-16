@@ -1,8 +1,7 @@
 [Unit]
 Description=Grid isolated Docker engine
 BindsTo=srv-grid.mount
-Requires=grid-containerd.service
-After=srv-grid.mount grid-containerd.service network-online.target
+After=srv-grid.mount network-online.target
 Wants=network-online.target
 
 [Service]
@@ -19,7 +18,7 @@ RestartSec=5
 TimeoutStartSec=0
 TimeoutStopSec=120
 Delegate=yes
-KillMode=process
+KillMode=mixed
 TasksMax=infinity
 LimitNOFILE=1048576
 LimitCORE=0

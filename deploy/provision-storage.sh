@@ -18,7 +18,7 @@ test "$(stat -c %s "$image")" -eq 199000000000
 install -d /srv/grid /usr/local/libexec /etc/docker
 install -m 755 grid-storage-check /usr/local/libexec/grid-storage-check
 install -m 755 grid-runtime /usr/local/libexec/grid-runtime
-install -m 644 srv-grid.mount grid-docker.service grid-containerd.service \
+install -m 644 srv-grid.mount grid-docker.service \
     grid-logrotate.service grid-logrotate.timer /etc/systemd/system/
 install -m 644 grid-docker.json /etc/docker/grid.json
 install -m 644 grid-containerd.toml /etc/docker/grid-containerd.toml
@@ -27,7 +27,6 @@ systemctl daemon-reload
 systemctl enable --now srv-grid.mount
 /usr/local/libexec/grid-storage-check
 install -d /srv/grid/tmp /srv/grid/checkout
-systemctl enable --now grid-containerd.service
 systemctl enable --now grid-docker.service
 systemctl enable --now grid-logrotate.timer
 docker --host unix:///run/grid-docker.sock info --format '{{.DockerRootDir}}'
