@@ -33,9 +33,11 @@ from __future__ import annotations
 
 import json
 import math
+import subprocess
 import threading
 import time
 from array import array
+from collections.abc import Callable
 from typing import Any
 
 from . import PACK_VERSION, __version__
@@ -188,7 +190,8 @@ class Run:
             return None
         return records.row(fields)
 
-    def add_round_line(self, text: str, shard: int | None = None) -> None:
+    def add_round_line(self, text: str, shard: int | None = None,
+                       decode: Callable[[str], str] | None = None) -> None:
         """A line of the run's round log (of its shard-th, for a run read
         from several, whose rounds carry their shard's label); one that is
         not a round is counted with its reason, as a bad results line
@@ -201,8 +204,10 @@ class Run:
         if not text.strip():
             return
         try:
-            index, dropped, outputs, execution = round_record(text)
-        except ValueError as exc:
+            decoded = decode(text) if decode is not None else text
+            index, dropped, outputs, execution = round_record(decoded)
+        except (ValueError, OSError, RuntimeError, OverflowError,
+                subprocess.SubprocessError) as exc:
             self.rounds_bad_count += 1
             if len(self.rounds_bad) < BAD_KEEP:
                 bad: Json = {"line": line, "error": str(exc),
@@ -375,9 +380,10 @@ class Sweep:
                     self._bump()
 
     def round_line(self, run: Run, text: str, preload: bool,
-                   shard: int | None = None) -> None:
+                   shard: int | None = None,
+                   decode: Callable[[str], str] | None = None) -> None:
         with self.lock:
-            run.add_round_line(text, shard)
+            run.add_round_line(text, shard, decode)
             self._bump()
 
     def round_reset(self, run: Run, reason: str,

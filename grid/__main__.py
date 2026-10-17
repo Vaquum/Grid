@@ -64,11 +64,11 @@ from .follow import (
     SSHFollower,
     list_remote,
     read_remote,
+    read_remote_bytes,
     remote_mtimes,
     remote_result_dirs,
 )
 from .limen import (
-    ROUND_LOG,
     dir_reports,
     experiment_name,
     manifest_copy,
@@ -77,6 +77,7 @@ from .limen import (
     shard_labels,
     shards_problem,
 )
+from .round_storage import read_local, restore, round_name
 from .server import serve
 from .sweep import SHARD, Json, Run, Sweep
 
@@ -328,16 +329,33 @@ class Wiring:
         assert run.experiment is not None
         names = (list_remote(a.ssh, directory) if a.ssh
                  else os.listdir(directory))
-        if ROUND_LOG not in names:
+        join = posixpath.join if a.ssh else os.path.join
+        metadata = (read_remote(a.ssh, join(directory, "metadata.json"))
+                    if a.ssh else read_local(directory, "metadata.json"))
+        name = round_name(names, json.loads(metadata))
+        if name not in names:
             run.experiment.setdefault("roundLog", None)
             return
-        join = posixpath.join if a.ssh else os.path.join
-        path = join(directory, ROUND_LOG)
+        path = join(directory, name)
+
+        def decode(text: str) -> str:
+            def read(blob: str) -> bytes:
+                if a.ssh:
+                    return read_remote_bytes(a.ssh, join(directory, blob))
+                return read_local(directory, blob)
+            record: Any = json.loads(text)
+            if not isinstance(record, dict):
+                raise ValueError("a round line is a JSON object")
+            return json.dumps(restore(cast(Json, record), read))
+
+        def line(text: str, pre: bool) -> None:
+            self.sweep.round_line(run, text, pre, shard,
+                                  decode if name.endswith(".gz") else None)
         if run.experiment.get("roundLog") is None:
             run.experiment["roundLog"] = self.shown(path)
         sweep = self.sweep
         self.followers.append(self._follower(
-            path, lambda text, pre: sweep.round_line(run, text, pre, shard),
+            path, line,
             lambda reason: sweep.round_reset(run, reason, shard),
             lambda mtime: sweep.run_written(run, mtime)))
 

@@ -814,7 +814,8 @@ test("charts are drawn at their box's width, so their text is the small size at 
   await page.keyboard.press("7");
   await page.waitForSelector(".rn-card .chart", { timeout: 20000 });
   // every chart: drawn at the width it shows at, its labels at 11 px
-  const drawn = () => page.$$eval("svg.chart", svgs => svgs.map(s => ({ w: s.getBoundingClientRect().width, vb: s.viewBox.baseVal.width,
+  // Query and measure together: resizing can replace SVGs between protocol calls.
+  const drawn = () => page.evaluate(() => [...document.querySelectorAll("svg.chart")].map(s => ({ w: s.getBoundingClientRect().width, vb: s.viewBox.baseVal.width,
     fs: s.querySelector(".label") ? getComputedStyle(s.querySelector(".label")).fontSize : "11px" })));
   for (const width of [1440, 900]) {
     await page.setViewportSize({ width, height: 900 });

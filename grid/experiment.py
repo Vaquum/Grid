@@ -43,6 +43,7 @@ from collections.abc import Callable
 from typing import IO, Any, cast
 
 from .capacity import effective_cpus
+from .round_storage import round_path
 
 Json = dict[str, Any]
 
@@ -404,8 +405,12 @@ def _slim(source: str, dst: str, records: list[Json]) -> None:
     round_data.jsonl and their rows of results.csv, so Limen does not parse
     a whole run's rounds."""
     os.mkdir(dst)
-    shutil.copyfile(os.path.join(source, "metadata.json"),
-                    os.path.join(dst, "metadata.json"))
+    metadata = _read_json(os.path.join(source, "metadata.json"))
+    if metadata is None:
+        raise ValueError("Invalid training source metadata")
+    # Records are hydrated; export a legacy JSONL directory for Trainer.
+    metadata.pop("round_storage", None)
+    _write_json(os.path.join(dst, "metadata.json"), metadata)
     for entry in _listdir(source):
         if entry.endswith((".yaml", ".yml")):
             shutil.copyfile(os.path.join(source, entry),
@@ -1348,17 +1353,19 @@ class Project:
     def _open_when_written(self, rid: str, folder: str) -> None:
         """Open a run Grid started in the sweep once each shard has written
         its first round (its results.csv and its round log), or has ended."""
-        while True:
-            shards = self._record_shards(folder)
-            ready = all(
-                s.get("state") != "running" or all(os.path.isfile(
-                    os.path.join(folder, str(s.get("label")), f))
-                    for f in ("results.csv", "round_data.jsonl"))
-                for s in shards)
-            if ready:
-                break
-            time.sleep(1.0)
         try:
+            while True:
+                shards = self._record_shards(folder)
+                ready = all(
+                    s.get("state") != "running" or (
+                        os.path.isfile(os.path.join(
+                            folder, str(s.get("label")), "results.csv"))
+                        and os.path.isfile(round_path(os.path.join(
+                            folder, str(s.get("label"))))))
+                    for s in shards)
+                if ready:
+                    break
+                time.sleep(1.0)
             self.open(rid)
         except ValueError as err:
             # said where the run is listed, not lost
@@ -1393,8 +1400,8 @@ class Project:
             label = str(s.get("label"))
             d = os.path.join(folder, label)
             if all(os.path.isfile(os.path.join(d, f))
-                   for f in ("results.csv", "metadata.json",
-                             "round_data.jsonl")):
+                   for f in ("results.csv", "metadata.json")) and \
+                    os.path.isfile(round_path(d)):
                 dirs.append(d)
             elif s.get("state") == "running":
                 raise ValueError("%s is writing its first rounds; it opens "

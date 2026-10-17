@@ -4,7 +4,7 @@ COPY --from=node /usr/local/bin/node /usr/local/bin/node
 RUN apt-get update && apt-get install -y --no-install-recommends git libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --default-timeout=120 --retries=5 'vaquum-limen[data,boosting,indicators,stats]==5.27.0'
+    pip install --default-timeout=120 --retries=5 'vaquum-limen[data,boosting,indicators,stats]==5.29.0'
 RUN useradd --create-home --uid 10001 grid \
     && mkdir /data && chown grid:grid /data
 WORKDIR /app

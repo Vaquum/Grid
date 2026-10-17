@@ -22,6 +22,8 @@ import subprocess
 import threading
 from typing import IO, Callable
 
+from .round_storage import Members
+
 LineFn = Callable[[str, bool], None]
 ResetFn = Callable[[str], None]
 ErrorFn = Callable[[str], None]
@@ -61,6 +63,26 @@ class _LineBuffer:
         self.preload_end = 0
 
 
+class _GzipLines(_LineBuffer):
+    """Each complete gzip member is one round, classified by wire offset."""
+
+    def __init__(self, on_line: LineFn) -> None:
+        super().__init__(on_line)
+        self.members = Members(self._member)
+
+    def _member(self, raw: bytes, start: int, end: int) -> None:
+        self.on_line(raw.decode("utf-8", errors="replace").rstrip("\n"),
+                     end <= self.preload_end)
+
+    def feed(self, chunk: bytes) -> None:
+        self.members.feed(chunk)
+        self.offset = self.members.offset
+
+    def restart(self) -> None:
+        super().restart()
+        self.members = Members(self._member)
+
+
 class FileFollower:
     """Poll a local file for appended lines."""
 
@@ -69,7 +91,8 @@ class FileFollower:
                  follow: bool = True,
                  on_history: HistoryFn | None = None) -> None:
         self.path = path
-        self.buffer = _LineBuffer(on_line)
+        self.buffer = (_GzipLines(on_line) if path.endswith(".gz")
+                       else _LineBuffer(on_line))
         self.on_reset = on_reset
         self.on_error = on_error
         self.on_history = on_history
@@ -144,7 +167,8 @@ class SSHFollower:
                  on_history: HistoryFn | None = None) -> None:
         self.host = host
         self.path = path
-        self.buffer = _LineBuffer(on_line)
+        self.buffer = (_GzipLines(on_line) if path.endswith(".gz")
+                       else _LineBuffer(on_line))
         self.on_reset = on_reset
         self.on_error = on_error
         self.on_history = on_history
@@ -258,3 +282,8 @@ def list_remote(host: str, directory: str) -> list[str]:
 def read_remote(host: str, path: str) -> str:
     """Read a whole remote text file once (a Limen run's metadata)."""
     return _ssh(host, "cat", _quote(path)).decode("utf-8", errors="replace")
+
+
+def read_remote_bytes(host: str, path: str) -> bytes:
+    """Read one remote binary artifact without a text decoding pass."""
+    return _ssh(host, "cat", _quote(path))

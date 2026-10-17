@@ -59,7 +59,7 @@ def main() -> None:
                 cores = status["project"]["cores"]
                 assert cores == effective_cpus() == int(
                     os.environ.get("GRID_EXPECT_CPUS", "2")), status
-                assert status["project"]["limen"]["version"] == "5.27.0"
+                assert status["project"]["limen"]["version"] == "5.29.0"
                 analysis = call("grid_analyze", analysis="schema",
                                 state={"run": status["runs"][0]["id"]})
                 assert analysis["result"]["profile"] == "limen", analysis
@@ -129,6 +129,8 @@ def main() -> None:
                     assert run["state"] != "failed", run
                     assert time.monotonic() < deadline, run
                     time.sleep(0.2)
+                assert (project / rid / "s1/round_data.jsonl.gz").is_file()
+                assert (project / rid / "s1/round_market").is_dir()
                 record = json.loads((project / rid / "grid-run.json")
                                     .read_text())
                 assert record["threads"] == cores, record
@@ -157,6 +159,11 @@ def main() -> None:
                 if evidence:
                     shutil.copytree(project / rid / "s1", evidence,
                                     dirs_exist_ok=True)
+                    # Limen market blobs inherit tempfile's private mode.
+                    # Only this exported CI evidence is read by the host.
+                    for artifact in Path(evidence).rglob("*"):
+                        if artifact.is_file():
+                            artifact.chmod(0o644)
                 native = call("grid_analyze", analysis="schema",
                               state={"run": run_id, "firstHalf": True})
                 assert native["target"]["id"] == "pnl_per_bar_bps_test", native
@@ -204,7 +211,7 @@ def main() -> None:
                 print(json.dumps({"imageAgent": "passed", "cores": cores,
                                   "node": subprocess.check_output([
                                       "node", "--version"], text=True).strip(),
-                                  "limen": "5.27.0"}))
+                                  "limen": "5.29.0"}))
             finally:
                 server.terminate()
                 server.wait(timeout=15)

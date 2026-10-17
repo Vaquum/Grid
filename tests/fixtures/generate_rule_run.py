@@ -41,7 +41,7 @@ else:
     source_params = {"file_path_or_url": str(source)}
 config = {
     "schema_version": "1.0",
-    "metadata": {"name": "rule_smoke", "limen_version": "5.27.0",
+    "metadata": {"name": "rule_smoke", "limen_version": "5.29.0",
                  "mode": "development", "description": "Offline Grid proof"},
     "sfd": {"manifest": {
         "type": "rule_based",
