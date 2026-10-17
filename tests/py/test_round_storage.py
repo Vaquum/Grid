@@ -10,8 +10,8 @@ import os
 import shutil
 import tempfile
 import unittest
-from unittest.mock import patch
 from pathlib import Path
+from unittest.mock import patch
 
 from grid.__main__ import Wiring, main
 from grid.cohort import RoundLines
