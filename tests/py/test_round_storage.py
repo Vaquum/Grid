@@ -211,7 +211,7 @@ class Storage(unittest.TestCase):
             self.assertEqual(len(run.rounds), len(records) - 1)
             self.assertEqual(run.rounds[-1][0], records[-1]['_round_index'])
 
-    def test_cohort_read_reports_a_truncated_index_as_value_error(self) -> None:
+    def test_cohort_read_reports_truncated_index(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / 'run'
             shutil.copytree(FIXTURE, source)
