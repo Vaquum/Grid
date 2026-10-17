@@ -259,7 +259,7 @@ class Wiring:
                 raise SystemExit("%s has no metadata.json: not a Limen "
                                  "result directory" % directory)
             name = manifest_copy(os.listdir(directory), directory)
-            with open(meta, encoding="utf-8") as f:
+            with open(meta, encoding="utf-8", newline="") as f:
                 meta_text = f.read()
             retained = descriptor(directory)
             if retained is not None and hashlib.sha256(

@@ -142,7 +142,7 @@ def unpack_vector(kind: str, n: int, raw: bytes) -> list[Any]:
         return [None if raw[i // 8] & (1 << (i % 8)) else v
                 for i, v in enumerate(numbers)]
     value: Any = json.loads(raw)
-    if kind != "json" or not isinstance(value, list) or len(value) != n:
+    if kind != "json" or not isinstance(value, list) or len(cast(list[Any], value)) != n:
         raise ValueError("Retained vector type or shape mismatch")
     return cast(list[Any], value)
 
@@ -154,9 +154,9 @@ def wire_vector(values: list[Any]) -> list[Any]:
 
 
 def read_wire_vector(value: Any) -> list[Any]:
-    if not isinstance(value, list) or len(value) != 3:
+    if not isinstance(value, list) or len(cast(list[Any], value)) != 3:
         raise ValueError("Invalid replay vector envelope")
-    kind, n, payload = value
+    kind, n, payload = cast(list[Any], value)
     if kind not in ("bits", "f64", "json") or not isinstance(payload, str) or type(n) is not int or \
             n < 0 or n > MEMBER_LIMIT:
         raise ValueError("Invalid replay vector shape")
@@ -276,7 +276,7 @@ class Evidence:
         return self.put(kind, len(values), raw)
 
     def get(self, key: str) -> tuple[str, int, bytes]:
-        if not isinstance(key, str) or not DIGEST.fullmatch(key):
+        if not DIGEST.fullmatch(key):
             raise ValueError("Invalid retained object identity")
         with self.lock:
             row = self.db.execute("SELECT kind,n,data FROM objects WHERE id=?",
@@ -406,7 +406,7 @@ class MarketCache:
             return hydrated
         preds: Any = record.get("preds")
         if "market" in record or (isinstance(preds, list) and
-                len(preds) != len(market["ret"])):
+                len(cast(list[Any], preds)) != len(market["ret"])):
             raise ValueError("Invalid market returns or prediction length")
         return {("market" if k == "market_ref" else k):
                 (market if k == "market_ref" else v)

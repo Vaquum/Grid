@@ -99,8 +99,9 @@ class ReplayClient:
         if len(raw) > WIRE_LIMIT or not raw.endswith(b"\n"):
             raise ValueError("Incomplete or oversized replay response")
         response: Any = json.loads(raw)
-        if not isinstance(response, dict) or response.get("protocol") != PROTOCOL:
+        if not isinstance(response, dict) or cast(Json, response).get("protocol") != PROTOCOL:
             raise ValueError("Invalid replay response")
+        response = cast(Json, response)
         if response.get("error"):
             raise ValueError("Native replay failed: " + str(response["error"]))
         return cast(Json, response)
@@ -149,15 +150,18 @@ class ReplayClient:
             return None
         preds: Any = record.get("preds")
         if not isinstance(preds, list) or not preds or not all(
-                type(p) is int and p in (0, 1) for p in preds):
+                type(p) is int and p in (0, 1) for p in cast(list[Any], preds)):
             return None
-        kind, bits = pack_vector(cast(list[Any], preds))
+        preds = cast(list[Any], preds)
+        kind, bits = pack_vector(preds)
         if kind != "bits":
             return None
         params: Any = record.get("round_params")
         alignment: Any = record.get("alignment")
         if not isinstance(params, dict) or not isinstance(alignment, dict):
             return None
+        params = cast(Json, params)
+        alignment = cast(Json, alignment)
         expected: Json = {"execution": record_digest({
             "execution": record.get("execution"), "market": record.get("market")})}
         model: str | None = None
@@ -238,19 +242,20 @@ class ReplayClient:
         preds: Any = record.get("preds")
         if not isinstance(preds, list):
             raise ValueError("Retained replay lost its exact predictions")
-        kind, bits = pack_vector(cast(list[Any], preds))
+        preds = cast(list[Any], preds)
+        kind, bits = pack_vector(preds)
         if kind != "bits":
             raise ValueError("Retained replay needs binary integer predictions")
         response = self.call({"op": "materialize", "recipes": expected,
                               "preds": base64.b64encode(bits).decode(),
                               "n": len(preds)})
         vectors: Any = response.get("vectors")
-        names = set()
+        names: set[str] = set()
         if "model" in expected:
             names.add("probs")
         if "execution" in expected:
             names.update(("execution.pos", "execution.gross", "execution.net", "market.ret"))
-        if not isinstance(vectors, dict) or set(vectors) != names:
+        if not isinstance(vectors, dict) or set(cast(Json, vectors)) != names:
             raise ValueError("Native replay returned incomplete evidence")
         fields: Json = {}
         for path, wire in cast(Json, vectors).items():

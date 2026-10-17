@@ -97,7 +97,7 @@ def descriptor(directory: str | Path) -> Json | None:
     if not path.exists():
         return None
     value: Any = json.loads(path.read_bytes())
-    if not isinstance(value, dict) or value.get("format") != ARCHIVE_FORMAT:
+    if not isinstance(value, dict) or cast(Json, value).get("format") != ARCHIVE_FORMAT:
         raise ValueError("Unknown retained-run descriptor")
     result = cast(Json, value)
     if result.get("rounds") != RETAINED or result.get("csv") != CSV \
@@ -213,7 +213,7 @@ def _vector(base: Json, path: str) -> Any:
     if len(parts) == 1:
         return base.get(path)
     parent: Any = base.get(parts[0])
-    return parent.get(parts[1]) if isinstance(parent, dict) else None
+    return cast(Json, parent).get(parts[1]) if isinstance(parent, dict) else None
 
 
 def _remove(base: Json, path: str) -> None:
@@ -245,7 +245,7 @@ def source_snapshots(metadata: Json, evidence: Evidence) -> Json:
         return {}
     sources: Json = {}
     for name in ("file_path_or_url", "file_path"):
-        location: Any = declaration.get(name)
+        location: Any = cast(Json, declaration).get(name)
         if not isinstance(location, str) or not Path(location).is_file():
             continue
         source = Path(location).resolve()
@@ -371,9 +371,9 @@ class Reader:
         if node.get("contract") != CONTRACT:
             return round_object(self.restore(entry))
         value: Any = node.get("summary")
-        if not isinstance(value, list) or len(value) != 4:
+        if not isinstance(value, list) or len(cast(list[Any], value)) != 4:
             raise ValueError(str(node.get("error") or "Invalid cached summary"))
-        return cast(RoundSummary, tuple(value))
+        return cast(RoundSummary, tuple(cast(list[Any], value)))
 
 
 def cached_result(entry: Json, restore_record: Callable[[], Json] | None = None
@@ -392,14 +392,14 @@ def cached_result(entry: Json, restore_record: Callable[[], Json] | None = None
                              "on its host or read the archive locally")
         return RoundResult(round_object(restore_record()))
     summary: Any = node.get("summary")
-    if not isinstance(summary, list) or len(summary) != 4 or \
-            summary[0] != entry.get("_round_index") or \
-            not isinstance(summary[1], list) or not all(
-                isinstance(v, str) for v in summary[1]) or any(
+    if not isinstance(summary, list) or len(cast(list[Any], summary)) != 4 or \
+            cast(list[Any], summary)[0] != entry.get("_round_index") or \
+            not isinstance(cast(list[Any], summary)[1], list) or not all(
+                isinstance(v, str) for v in cast(list[Any], summary)[1]) or any(
                     value is not None and not isinstance(value, dict)
-                    for value in summary[2:]):
+                    for value in cast(list[Any], summary)[2:]):
         raise ValueError("Invalid retained analytical summary")
-    return RoundResult(cast(RoundSummary, tuple(summary)))
+    return RoundResult(cast(RoundSummary, tuple(cast(list[Any], summary))))
 
 
 def _gzip_copy(source: Path, target: Path) -> None:
@@ -511,6 +511,7 @@ def compact(directory: str | Path, store: str | Path, *, sealed: bool,
                     node: Json = {"contract": CONTRACT, "offset": [start, end]}
                     entry: Json = {"grid": node}
                     record: Json | None = None
+                    text = raw.decode("utf-8", errors="replace").rstrip("\n")
                     try:
                         text = raw.decode("utf-8", errors="replace").rstrip("\n")
                         if not text.strip():
