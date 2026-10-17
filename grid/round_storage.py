@@ -42,7 +42,8 @@ def round_path(directory: str) -> str:
         metadata = {}
     if not isinstance(metadata, dict):
         raise ValueError("Invalid round storage metadata")
-    return os.path.join(directory, round_name(os.listdir(directory), cast(Json, metadata)))
+    name = round_name(os.listdir(directory), cast(Json, metadata))
+    return os.path.join(directory, name)
 
 
 class Members:
@@ -122,11 +123,14 @@ def restore(record: Json, read: Callable[[str], bytes]) -> Json:
     values: Any = cast(Json, market).get("ret") \
         if isinstance(market, dict) else None
     preds: Any = record.get("preds")
-    if not isinstance(market, dict) or set(cast(Json, market)) != {"ret"} or \
-            not isinstance(values, list) or \
-            (isinstance(preds, list) and len(cast(list[Any], values)) != len(cast(list[Any], preds))) or \
-            any(v is not None and (type(v) not in (int, float) or
-                                   not math.isfinite(v)) for v in cast(list[Any], values)):
+    if not isinstance(market, dict) or set(cast(Json, market)) != {"ret"} \
+            or not isinstance(values, list):
+        raise ValueError("Invalid market returns")
+    returns = cast(list[Any], values)
+    if (isinstance(preds, list) and
+            len(returns) != len(cast(list[Any], preds))) or any(
+                v is not None and (type(v) not in (int, float) or
+                                   not math.isfinite(v)) for v in returns):
         raise ValueError("Invalid market returns or prediction length")
     return {("market" if k == "market_ref" else k):
             (market if k == "market_ref" else v) for k, v in record.items()}
