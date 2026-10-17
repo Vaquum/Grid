@@ -36,3 +36,17 @@ changes share this PR; merged work and existing PRs are recorded below.
 Release dispositions use the linked upstream PRs and the corresponding
 [Limen releases](https://github.com/Vaquum/Limen/releases). They do not imply
 new upstream support for combining factorization and parallel rounds.
+
+## 17 October 2026: compressed artifacts
+
+- [#97](https://github.com/Vaquum/Grid/issues/97): support Limen 5.29's
+  `gzip-jsonl-v1` metadata, concatenated gzip round members and shared
+  `round_market/<sha256>.json.gz` blobs. Local and SSH followers wait for
+  complete members; cohort reads retain compressed offsets. Market reads
+  validate gzip integrity, content hashes and array lengths. Training
+  exports hydrate selected records into legacy JSONL with matching metadata.
+- [#96](https://github.com/Vaquum/Grid/issues/96): install Limen 5.29.0,
+  including 5.28's XGBoost manifest controls and Python SFD extensions.
+  Grid already preserves model parameters and delegates execution to Limen.
+- #82 remains open while Limen #924 is open; this upgrade adds no native
+  factorized random traversal.

@@ -44,6 +44,7 @@ from datetime import datetime, timezone
 from typing import Any, cast
 
 from .limen import windows
+from .round_storage import frames, read_local, restore, round_path
 
 Json = dict[str, Any]
 # a member over its test window: its bars' times, its predictions (0/1, or
@@ -458,10 +459,8 @@ class RoundLines:
                 offsets = dict(offsets)
                 with open(path, "rb") as f:
                     f.seek(read)
-                    at = read
-                    for line in f:
-                        if not line.endswith(b"\n"):
-                            break       # a line still being written
+                    for line, at, end in frames(
+                            f, compact=path.endswith(".gz")):
                         m = _ROUND_ID.match(line)
                         rid = m.group(1).decode() if m else None
                         if rid is None and line.strip():
@@ -472,20 +471,21 @@ class RoundLines:
                             rid = got if isinstance(got, str) else None
                         if rid is not None:
                             offsets[rid] = at
-                        at += len(line)
-                    read = at
+                        read = end
             self.seen[path] = (st.st_ino, read, offsets)
             return offsets
 
     def get(self, directory: str, round_id: str) -> Json:
-        path = os.path.join(directory, "round_data.jsonl")
+        path = round_path(directory)
         offsets = self._offsets(path)
         if round_id not in offsets:
             raise ValueError("round %s is not in %s" % (round_id[:12], path))
         with open(path, "rb") as f:
             f.seek(offsets[round_id])
-            loaded: Any = json.loads(f.readline())
+            raw, _, _ = next(frames(f, compact=path.endswith(".gz")))
+            loaded: Any = json.loads(raw)
         if not isinstance(loaded, dict):
             raise ValueError("round %s's line is not an object"
                              % round_id[:12])
-        return cast(Json, loaded)
+        return restore(cast(Json, loaded),
+                       lambda name: read_local(directory, name))

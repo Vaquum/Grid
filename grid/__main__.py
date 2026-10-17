@@ -68,7 +68,6 @@ from .follow import (
     remote_result_dirs,
 )
 from .limen import (
-    ROUND_LOG,
     dir_reports,
     experiment_name,
     manifest_copy,
@@ -77,6 +76,7 @@ from .limen import (
     shard_labels,
     shards_problem,
 )
+from .round_storage import read_local, restore, round_name
 from .server import serve
 from .sweep import SHARD, Json, Run, Sweep
 
@@ -328,16 +328,30 @@ class Wiring:
         assert run.experiment is not None
         names = (list_remote(a.ssh, directory) if a.ssh
                  else os.listdir(directory))
-        if ROUND_LOG not in names:
+        join = posixpath.join if a.ssh else os.path.join
+        metadata = (read_remote(a.ssh, join(directory, "metadata.json"))
+                    if a.ssh else read_local(directory, "metadata.json"))
+        name = round_name(names, json.loads(metadata))
+        if name not in names:
             run.experiment.setdefault("roundLog", None)
             return
         join = posixpath.join if a.ssh else os.path.join
-        path = join(directory, ROUND_LOG)
+        path = join(directory, name)
+
+        def line(text: str, pre: bool) -> None:
+            if name.endswith(".gz"):
+                def read(blob: str) -> bytes:
+                    if a.ssh:
+                        from .follow import _quote, _ssh
+                        return _ssh(a.ssh, "cat", _quote(join(directory, blob)))
+                    return read_local(directory, blob)
+                text = json.dumps(restore(json.loads(text), read))
+            self.sweep.round_line(run, text, pre, shard)
         if run.experiment.get("roundLog") is None:
             run.experiment["roundLog"] = self.shown(path)
         sweep = self.sweep
         self.followers.append(self._follower(
-            path, lambda text, pre: sweep.round_line(run, text, pre, shard),
+            path, line,
             lambda reason: sweep.round_reset(run, reason, shard),
             lambda mtime: sweep.run_written(run, mtime)))
 
