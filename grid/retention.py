@@ -561,11 +561,13 @@ def compact(
             )
         ]
         for abandoned in pending:
+            # Publication precedes the final DB state commit. A staging row
+            # may therefore belong to a published archive, including history
+            # preserved by in-place recovery. Keep its evidence and index;
+            # reclaiming either needs an explicit reference-aware GC policy.
             evidence.db.execute(
-                "DELETE FROM round_index WHERE archive=?", (abandoned,)
-            )
-            evidence.db.execute(
-                "DELETE FROM archives WHERE id=?", (abandoned,)
+                "UPDATE archives SET state='unreconciled' WHERE id=?",
+                (abandoned,),
             )
         for old_stage in root.glob(".grid-retain-*"):
             owner = old_stage / "owner.json"
@@ -803,6 +805,9 @@ def materialize(directory: str | Path, destination: str | Path) -> Json:
     root, target = Path(directory).resolve(), Path(destination).resolve()
     if target.exists():
         raise ValueError("Materialization destination must be new")
+    # CRC alone cannot detect removal of complete gzip members. Verify the
+    # published files, proofs and occurrence count before producing an export.
+    verify(root, full=False)
     target.parent.mkdir(parents=True, exist_ok=True)
     reader = Reader(root)
     stage = Path(
@@ -824,6 +829,7 @@ def materialize(directory: str | Path, destination: str | Path) -> Json:
             else:
                 shutil.copyfile(path, stage / path.name)
         name = str(reader.desc["original_rounds"])
+        count = 0
         with (stage / name).open("wb") as out:
             for entry in reader.entries():
                 node = cast(Json, entry["grid"])
@@ -834,8 +840,12 @@ def materialize(directory: str | Path, destination: str | Path) -> Json:
                 out.write(
                     gzip.compress(raw, mtime=0) if name == COMPACT else raw
                 )
+                count += 1
             out.flush()
             os.fsync(out.fileno())
+        if count != reader.desc["records"] or file_hash(root / RETAINED) != \
+                reader.desc["rounds_sha256"]:
+            raise ValueError("Retained round file changed during export")
         for name, key in cast(Json, reader.desc.get("markets") or {}).items():
             path = stage / name
             if path.parent != stage / "round_market" or not path.name.endswith(
@@ -939,6 +949,8 @@ def materialize_in_place(directory: str | Path) -> None:
                 ) != file_hash(source):
                     raise ValueError("Native market changed during recovery")
                 os.replace(source, destination)
+            if (root / "round_market").is_dir():
+                sync_dir(root / "round_market")
             sync_dir(root)
             atomic_json(root / TRANSITION, plan)
             os.replace(root / DESCRIPTOR, root / (DESCRIPTOR + ".history"))

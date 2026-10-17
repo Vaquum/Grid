@@ -62,6 +62,88 @@ def science(path: Path, output: Path) -> dict:
 
 
 class Retention(unittest.TestCase):
+    def test_published_staging_history_survives_recompaction(self) -> None:
+        from grid import retention
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / "run"
+            shutil.copytree(FIXTURES / "limen_rule", run)
+            atomic = retention.atomic_json
+
+            def publish_then_interrupt(path: Path, value: object) -> None:
+                atomic(path, value)
+                if path.name == DESCRIPTOR:
+                    raise OSError("after publication, before state commit")
+
+            with patch("grid.retention.atomic_json", publish_then_interrupt), \
+                    self.assertRaisesRegex(OSError, "after publication"):
+                compact(run, root / "store.sqlite3", sealed=True)
+            desc = descriptor(run)
+            assert desc is not None
+            reader = Reader(run)
+            try:
+                first = next(reader.entries())
+                expected = reader.restore(first)
+            finally:
+                reader.close()
+            materialize_in_place(run)
+            compact(run, root / "store.sqlite3", sealed=True, prune=True)
+            history = run / ".grid-history" / desc["id"]
+            reader = Reader(history)
+            try:
+                self.assertEqual(record_digest(reader.get(first["round_id"])),
+                                 record_digest(expected))
+            finally:
+                reader.close()
+            self.assertTrue(verify(history)["exact"])
+
+    def test_complete_member_truncation_refuses_native_export(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / "run"
+            shutil.copytree(FIXTURES / "limen_rule", run)
+            compact(run, root / "store.sqlite3", sealed=True, prune=True)
+            archive = run / RETAINED
+            with archive.open("rb") as stream:
+                _, _, boundary = next(frames(stream, compact=True, tail=False))
+            archive.write_bytes(archive.read_bytes()[:boundary])
+            with self.assertRaisesRegex(ValueError, "digest mismatch"):
+                materialize(run, root / "export")
+            self.assertFalse((root / "export").exists())
+            with self.assertRaisesRegex(ValueError, "digest mismatch"):
+                materialize_in_place(run)
+            self.assertTrue((run / DESCRIPTOR).exists())
+
+    def test_restored_market_directory_is_durable_before_publication(self) -> None:
+        from grid import retention
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / "run"
+            shutil.copytree(FIXTURES / "limen_rule", run)
+            compress(run)
+            compact(run, root / "store.sqlite3", sealed=True, prune=True)
+            events = []
+            syncing, replacing = retention.sync_dir, os.replace
+
+            def sync(path: Path) -> None:
+                events.append(("sync", str(path)))
+                syncing(path)
+
+            def replace(source: str | Path, destination: str | Path) -> None:
+                events.append(("replace", str(destination)))
+                replacing(source, destination)
+
+            with patch("grid.retention.sync_dir", sync), \
+                    patch("grid.retention.os.replace", replace):
+                materialize_in_place(run)
+            synced = events.index(("sync", str(run / "round_market")))
+            published = events.index(("replace", str(
+                run / (DESCRIPTOR + ".history"))))
+            self.assertLess(synced, published)
+            self.assertTrue((run / "round_market").is_dir())
+
     def test_current_native_vectors_crlf_and_reconstruction(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
