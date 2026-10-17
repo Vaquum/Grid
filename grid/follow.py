@@ -66,11 +66,21 @@ class _LineBuffer:
 class _GzipLines(_LineBuffer):
     """Each complete gzip member is one round, classified by wire offset."""
 
-    def __init__(self, on_line: LineFn) -> None:
+    def __init__(self, on_line: LineFn, many: bool = False) -> None:
         super().__init__(on_line)
+        self.many = many
         self.members = Members(self._member)
 
     def _member(self, raw: bytes, start: int, end: int) -> None:
+        if self.many:
+            lines = (self.partial + raw).split(b"\n")
+            self.partial = lines.pop()
+            if len(self.partial) > 512 << 20:
+                raise ValueError("Retained CSV line size limit exceeded")
+            for line in lines:
+                self.on_line(line.decode("utf-8", errors="replace"),
+                             end <= self.preload_end)
+            return
         self.on_line(raw.decode("utf-8", errors="replace").rstrip("\n"),
                      end <= self.preload_end)
 
@@ -91,7 +101,8 @@ class FileFollower:
                  follow: bool = True,
                  on_history: HistoryFn | None = None) -> None:
         self.path = path
-        self.buffer = (_GzipLines(on_line) if path.endswith(".gz")
+        self.buffer = (_GzipLines(on_line, path.endswith("results.csv.gz"))
+                       if path.endswith(".gz")
                        else _LineBuffer(on_line))
         self.on_reset = on_reset
         self.on_error = on_error
@@ -167,7 +178,8 @@ class SSHFollower:
                  on_history: HistoryFn | None = None) -> None:
         self.host = host
         self.path = path
-        self.buffer = (_GzipLines(on_line) if path.endswith(".gz")
+        self.buffer = (_GzipLines(on_line, path.endswith("results.csv.gz"))
+                       if path.endswith(".gz")
                        else _LineBuffer(on_line))
         self.on_reset = on_reset
         self.on_error = on_error

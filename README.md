@@ -1,5 +1,8 @@
 # Grid
 
+Sealed Limen runs can use [lossless analytical retention](docs/retention.md)
+with shared exact evidence, cached summaries and checked native exports.
+
 A monitor for parameter sweeps. It follows a running sweep's results file
 and log, and shows how each parameter moves the outcome, with the
 uncertainty of every number. Built for the plate sweeps on s0 (grand,
@@ -221,7 +224,7 @@ Docker serves only `127.0.0.1:8490`; the host's Caddy, maintained in
 `https://grid.vaquum.fi` behind Portal's login and provides its landing card.
 The page, API and event stream all pass through that authentication gate.
 
-The container includes Limen 5.27.0 and creates an official Limen project
+The container includes Limen 5.29.0 and creates an official Limen project
 at `/data/project` on first start. The `grid_project` volume keeps its
 manifests, experiment results and cohorts across image rebuilds and
 redeployments. It runs as an unprivileged user with a read-only image;

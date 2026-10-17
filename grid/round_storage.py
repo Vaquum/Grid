@@ -18,6 +18,8 @@ from typing import Any, BinaryIO, cast
 FORMAT = "gzip-jsonl-v1"
 PLAIN = "round_data.jsonl"
 COMPACT = PLAIN + ".gz"
+RETAINED = "round_data.grid.jsonl.gz"
+DESCRIPTOR = ".grid-retained.json"
 MEMBER_LIMIT = 512 * 1024 * 1024
 MARKET_LIMIT = 128 * 1024 * 1024
 Json = dict[str, Any]
@@ -25,6 +27,8 @@ Json = dict[str, Any]
 
 def round_name(names: Iterable[str], metadata: Json) -> str:
     have = set(names)
+    if DESCRIPTOR in have:
+        return RETAINED
     storage = metadata.get("round_storage")
     if storage not in (None, FORMAT) or {PLAIN, COMPACT} <= have:
         raise ValueError("Conflicting or unknown round storage")

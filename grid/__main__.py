@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import hashlib
 import json
 import os
 import posixpath
@@ -51,10 +52,11 @@ import sys
 import threading
 import time
 import webbrowser
-from typing import Any, cast
+from typing import Any, BinaryIO, cast
 
 from . import __version__
 from .agent_client import cmd_agent, cmd_mcp, write_connection
+from .evidence import Evidence, MarketCache, Reducer
 from .experiment import Project
 from .follow import (
     FileFollower,
@@ -77,7 +79,16 @@ from .limen import (
     shard_labels,
     shards_problem,
 )
-from .round_storage import read_local, restore, round_name
+from .round_storage import read_local, round_name
+from .retention import (
+    CSV as RETAINED_CSV,
+    Reader as RetainedReader,
+    cached_result,
+    descriptor,
+    read_lease,
+    results_path as retained_results_path,
+)
+from .round_storage import DESCRIPTOR, RETAINED
 from .server import serve
 from .sweep import SHARD, Json, Run, Sweep
 
@@ -132,6 +143,15 @@ class Wiring:
         # a project's runs are opened later (open_limen); callers that read
         # result directories give no project
         self.project: str | None = getattr(args, "project", None)
+        cache = getattr(args, "evidence_store", None)
+        if cache is None and self.project:
+            cache = os.path.join(self.project, ".grid-evidence",
+                                 "evidence.sqlite3")
+        self.evidence = Evidence(cache, writable=True) if cache else None
+        self.reducer = Reducer(self.evidence, durable_each_round=True)
+        self.markets = MarketCache()
+        self.leases: list[BinaryIO] = []
+        self.retained_readers: list[RetainedReader] = []
         if self.project:
             name = name or os.path.basename(os.path.abspath(self.project))
         if args.limen:
@@ -215,7 +235,11 @@ class Wiring:
         a = self.args
         if directory is not None or a.limen:
             join = posixpath.join if a.ssh else os.path.join
-            return join(directory or self.dirs[0], "results.csv")
+            folder = directory or self.dirs[0]
+            if a.ssh:
+                return join(folder, RETAINED_CSV if DESCRIPTOR in
+                            list_remote(a.ssh, folder) else "results.csv")
+            return retained_results_path(folder)
         return a.results
 
     def read_experiment(self, directory: str) -> Json:
@@ -237,6 +261,10 @@ class Wiring:
             name = manifest_copy(os.listdir(directory), directory)
             with open(meta, encoding="utf-8") as f:
                 meta_text = f.read()
+            retained = descriptor(directory)
+            if retained is not None and hashlib.sha256(
+                    meta_text.encode()).hexdigest() != retained["metadata_sha256"]:
+                raise ValueError("Retained metadata changed")
             with open(os.path.join(directory, name), encoding="utf-8") as f:
                 return read_experiment(meta_text, meta, name, f.read())
         except ValueError as err:
@@ -337,8 +365,13 @@ class Wiring:
             run.experiment.setdefault("roundLog", None)
             return
         path = join(directory, name)
+        reader: RetainedReader | None = None
+        if not a.ssh:
+            lease = read_lease(directory)
+            if lease is not None:
+                self.leases.append(lease)
 
-        def decode(text: str) -> str:
+        def decode(text: str) -> Any:
             def read(blob: str) -> bytes:
                 if a.ssh:
                     return read_remote_bytes(a.ssh, join(directory, blob))
@@ -346,18 +379,34 @@ class Wiring:
             record: Any = json.loads(text)
             if not isinstance(record, dict):
                 raise ValueError("a round line is a JSON object")
-            return json.dumps(restore(cast(Json, record), read))
+            if name == RETAINED:
+                def restore_record() -> Json:
+                    nonlocal reader
+                    if reader is None:
+                        desc = descriptor(directory)
+                        assert desc is not None
+                        shared = self.evidence if self.evidence is not None \
+                            and str(self.evidence.path) == os.path.realpath(
+                                os.path.join(directory, desc["store"])) else None
+                        reader = RetainedReader(directory, evidence=shared)
+                        self.retained_readers.append(reader)
+                    return reader.restore(cast(Json, record))
+                return cached_result(cast(Json, record),
+                                     None if a.ssh else restore_record)
+            return self.reducer.reduce(self.markets.restore(
+                cast(Json, record), directory, read))
 
         def line(text: str, pre: bool) -> None:
             self.sweep.round_line(run, text, pre, shard,
-                                  decode if name.endswith(".gz") else None)
+                                  decode)
         if run.experiment.get("roundLog") is None:
             run.experiment["roundLog"] = self.shown(path)
         sweep = self.sweep
-        self.followers.append(self._follower(
+        follower = self._follower(
             path, line,
             lambda reason: sweep.round_reset(run, reason, shard),
-            lambda mtime: sweep.run_written(run, mtime)))
+            lambda mtime: sweep.run_written(run, mtime))
+        self.followers.append(follower)
 
     def add_written(self, run: Run, directory: str) -> None:
         """The time a Limen run's checkpoint and feedback audit were last
@@ -530,6 +579,17 @@ class Wiring:
                 pass
         self.merge(wait=False)
         self.sweep.log_flush()
+        if self.evidence is not None:
+            with self.evidence.lock:
+                self.evidence.db.commit()
+
+    def close(self) -> None:
+        for reader in self.retained_readers:
+            reader.close()
+        for lease in self.leases:
+            lease.close()
+        if self.evidence is not None:
+            self.evidence.close()
 
     def start(self) -> None:
         self.started = True
@@ -676,6 +736,7 @@ def cmd_serve(a: argparse.Namespace) -> int:
     finally:
         if project is not None:
             project.discovery_stop.set()
+        w.close()
     return 0
 
 
@@ -687,20 +748,24 @@ def cmd_pack(a: argparse.Namespace) -> int:
         raise SystemExit("pack reads local files; copy them first or use "
                          "serve --ssh")
     w = Wiring(a, follow=False)
-    sweep = w.build()
-    w.read_once()
-    parts, _ = sweep.pack_parts(mode="recorded")
-    def opener(path: str) -> Any:
-        if path.endswith(".gz"):
-            return gzip.open(path, "wb", compresslevel=6)
-        return open(path, "wb")
+    try:
+        sweep = w.build()
+        w.read_once()
+        parts, _ = sweep.pack_parts(mode="recorded")
 
-    with opener(a.out) as f:
-        for part in parts:
-            f.write(part.encode("utf-8"))
-    rows = sum(r.store.rows for r in sweep.runs)
-    print("wrote %s: %d runs, %d rows, %d bytes" % (
-        a.out, len(sweep.runs), rows, os.path.getsize(a.out)))
+        def opener(path: str) -> Any:
+            if path.endswith(".gz"):
+                return gzip.open(path, "wb", compresslevel=6)
+            return open(path, "wb")
+
+        with opener(a.out) as f:
+            for part in parts:
+                f.write(part.encode("utf-8"))
+        rows = sum(r.store.rows for r in sweep.runs)
+        print("wrote %s: %d runs, %d rows, %d bytes" % (
+            a.out, len(sweep.runs), rows, os.path.getsize(a.out)))
+    finally:
+        w.close()
     return 0
 
 
@@ -716,6 +781,23 @@ def main(argv: list[str] | None = None) -> int:
     inputs.add_argument("--args-file", dest="arguments_file")
     mcp = sub.add_parser("mcp", help="serve Grid tools over MCP stdio")
     mcp.add_argument("--connection", required=True)
+    retain = sub.add_parser("retain", help="compact sealed Limen result directories")
+    retain.add_argument("--run", required=True, action="append", metavar="DIR")
+    retain.add_argument("--store", required=True, metavar="SQLITE")
+    retain.add_argument("--sealed", action="store_true",
+                        help="assert producers are stopped and Grid readers closed")
+    retain.add_argument("--prune", action="store_true",
+                        help="release original logs after exact reconstruction checks")
+    retain.add_argument("--runtime", metavar="SHA256",
+                        help="optional physically pinned native replay runtime")
+    material = sub.add_parser("materialize", help="restore complete native Limen evidence")
+    material.add_argument("--run", required=True, metavar="DIR")
+    destination = material.add_mutually_exclusive_group(required=True)
+    destination.add_argument("--out", metavar="NEW_DIR")
+    destination.add_argument("--in-place", action="store_true",
+                             help="restore native files for checked checkpoint resume")
+    verification = sub.add_parser("verify-retention", help="fully reconstruct a retained run")
+    verification.add_argument("--run", required=True, metavar="DIR")
     for name in ("serve", "pack"):
         p = sub.add_parser(name)
         source = p.add_mutually_exclusive_group(required=True)
@@ -734,6 +816,9 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--run", action="append",
                        help="another results file: LABEL=PATH[#SEGMENT]")
         p.add_argument("--name", help="sweep name (default: results folder)")
+        p.add_argument("--evidence-store", metavar="PATH",
+                       help="shared exact evidence/summary cache; projects "
+                            "use .grid-evidence/evidence.sqlite3")
         p.add_argument("--ssh", help="read the files on this host over ssh")
         p.add_argument("--as", dest="as_", action="append",
                        metavar="LOCAL=SHOWN",
@@ -762,6 +847,24 @@ def main(argv: list[str] | None = None) -> int:
         else:
             p.add_argument("--out", required=True)
     a = ap.parse_args(argv)
+    if a.cmd in ("retain", "materialize", "verify-retention"):
+        from .retention import compact, materialize, materialize_in_place, verify
+        try:
+            if a.cmd == "retain":
+                result = [compact(directory, a.store, sealed=a.sealed,
+                                  prune=a.prune, runtime=a.runtime)
+                          for directory in a.run]
+            elif a.cmd == "verify-retention":
+                result = verify(a.run)
+            elif a.in_place:
+                materialize_in_place(a.run)
+                result = {"directory": a.run, "native": True}
+            else:
+                result = materialize(a.run, a.out)
+        except (ValueError, OSError) as exc:
+            ap.exit(2, "grid: %s\n" % exc)
+        print(json.dumps(result, indent=2))
+        return 0
     if a.cmd == "agent":
         return cmd_agent(a)
     if a.cmd == "mcp":
