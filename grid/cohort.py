@@ -149,6 +149,9 @@ def _numbers(v: Any, what: str, rec: Json,
 
 
 def _preds(rec: Json) -> list[float]:
+    if "preds" not in rec:
+        raise ValueError("round %s recorded no predictions; enable "
+                         "uel.recording.predictions" % _rid(rec))
     return [float(p) for p in _numbers(rec.get("preds"), "preds", rec)]
 
 

@@ -138,8 +138,16 @@ def restore(record: Json, read: Callable[[str], bytes]) -> Json:
             or not isinstance(values, list):
         raise ValueError("Invalid market returns")
     returns = cast(list[Any], values)
-    if (isinstance(preds, list) and
-            len(returns) != len(cast(list[Any], preds))) or any(
+    # Limen 5.30 can omit predictions while retaining execution/market.
+    # Such records still need a verifiable per-bar alignment witness.
+    if not isinstance(preds, list):
+        execution: Any = record.get("execution")
+        preds = cast(Json, execution).get("pos") \
+            if isinstance(execution, dict) else None
+        if not isinstance(preds, list):
+            raise ValueError("Missing execution positions for "
+                             "market alignment")
+    if len(returns) != len(cast(list[Any], preds)) or any(
                 not _finite_return(v) for v in returns):
         raise ValueError("Invalid market returns or prediction length")
     return {("market" if k == "market_ref" else k):

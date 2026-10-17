@@ -10,4 +10,5 @@ docker run --rm --cpus 2 --memory 4g --entrypoint python \
   -v "$PWD/dist/image-evidence:/evidence" \
   -v "$PWD/tests/fixtures:/fixtures:ro" \
   -v "$PWD/tools/check_image.py:/tmp/check_image.py:ro" \
+  -v "$PWD/tools/check_limen_release.py:/tmp/check_limen_release.py:ro" \
   grid-backlog-smoke /tmp/check_image.py

@@ -198,9 +198,12 @@ def get_value(text: str, dotted: str) -> str | None:
     return _scalar(_written(m["rest"])) or None
 
 
-def _version_at_least(version: str, minimum: tuple[int, int]) -> bool:
-    match = re.match(r"^(\d+)\.(\d+)(?:\.|$)", version)
-    return bool(match and tuple(map(int, match.groups())) >= minimum)
+def _version_at_least(version: str, minimum: tuple[int, ...]) -> bool:
+    # Compare release components while accepting pre/post/dev/local builds.
+    match = re.match(r"^(\d+)\.(\d+)(?:\.(\d+))?"
+                     r"(?=$|[.+-]|(?:a|b|rc)\d)", version)
+    return bool(match and tuple(int(n or 0) for n in match.groups()) >=
+                minimum + (0,) * (3 - len(minimum)))
 
 
 def manifest_workers(text: str) -> int:
@@ -549,7 +552,9 @@ class Project:
                 "parallelFactorize": False,
                 "factorizedRandom": False,
                 "factorizedGridRequiresUnshuffled": True,
-                "ruleTemporalReferences": False,
+                "ruleTemporalReferences": _version_at_least(
+                    self.version, (5, 29, 1)),
+                "recordingPolicy": _version_at_least(self.version, (5, 30)),
                 "parallelRequiresPrepEachRound": True,
                 "shardsRequireRandomSearch": True,
                 "cpuBudget": self.cores,
@@ -596,7 +601,8 @@ class Project:
                     != "true":
                 problem("uel.prep_each_round", "uel.workers > 1 requires "
                         "uel.prep_each_round: true; otherwise use workers: 1")
-        if get_value(text, "sfd.manifest.type") == "rule_based":
+        if get_value(text, "sfd.manifest.type") == "rule_based" and \
+                not self.capabilities()["ruleTemporalReferences"]:
             lines = text.splitlines()
             try:
                 span = _mapping(lines, ["sfd", "manifest", "strategy"],

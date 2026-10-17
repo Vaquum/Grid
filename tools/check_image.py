@@ -14,6 +14,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from check_limen_release import verify_release
+
 from grid.agent_client import Client
 from grid.capacity import effective_cpus
 
@@ -59,7 +61,7 @@ def main() -> None:
                 cores = status["project"]["cores"]
                 assert cores == effective_cpus() == int(
                     os.environ.get("GRID_EXPECT_CPUS", "2")), status
-                assert status["project"]["limen"]["version"] == "5.29.0"
+                assert status["project"]["limen"]["version"] == "5.30.2"
                 analysis = call("grid_analyze", analysis="schema",
                                 state={"run": status["runs"][0]["id"]})
                 assert analysis["result"]["profile"] == "limen", analysis
@@ -79,34 +81,6 @@ def main() -> None:
                     "python", "/fixtures/generate_rule_run.py", str(project)],
                     check=True)
                 rule_text = (project / "rule_smoke.yaml").read_text()
-                for field in ("recency_n", "persistence_n"):
-                    temporal = rule_text.replace(
-                        "      entry: enter",
-                        "        %s: '{hold_bars}'\n      entry: enter"
-                        % field)
-                    temporal = temporal.replace("\n  params:\n", (
-                        "\n  params:\n    hold_bars: [1, 3, 6, 12]\n"))
-                    checked = call("grid_validate", text=temporal)
-                    assert checked["schemaErrors"] == [], checked
-                    assert any(e["path"].endswith(field)
-                               for e in checked["executionErrors"]), checked
-                start = rule_text.index("      - id: enter")
-                end = rule_text.index("      entry: enter", start)
-                for field in ("recency_n", "persistence_n"):
-                    for separator in ("  ", "\n        "):
-                        flow = ("      -" + separator +
-                                "{id: enter, name: Up bar, type: relative, "
-                                "column: close, operator: '>', "
-                                "other_column: open, " + field +
-                                ": '{hold_bars}'}\n")
-                        candidate = (rule_text[:start] + flow +
-                                     rule_text[end:])
-                        candidate = candidate.replace("\n  params:\n", (
-                            "\n  params:\n    hold_bars: [1, 3]\n"))
-                        checked = call("grid_validate", text=candidate)
-                        assert checked["schemaErrors"] == [], checked
-                        assert any(e["path"].endswith("conditions") for e in
-                                   checked["executionErrors"]), checked
                 bad = rule_text.replace("workers: 1", "workers: 2")
                 preflight = call("grid_validate", text=bad)
                 assert preflight["schemaErrors"] == [], preflight
@@ -208,10 +182,11 @@ def main() -> None:
                                              "firstHalf": True})
                 assert arrow_selected["result"]["evaluation"]["available"], \
                     arrow_selected
+                verify_release(client, project, rule_text)
                 print(json.dumps({"imageAgent": "passed", "cores": cores,
                                   "node": subprocess.check_output([
                                       "node", "--version"], text=True).strip(),
-                                  "limen": "5.29.0"}))
+                                  "limen": "5.30.2"}))
             finally:
                 server.terminate()
                 server.wait(timeout=15)
