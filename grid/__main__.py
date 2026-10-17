@@ -68,8 +68,8 @@ from .follow import (
     read_remote,
     read_remote_bytes,
     remote_mtimes,
-    remote_retained_proofs,
     remote_result_dirs,
+    remote_retained_proofs,
     retained_proofs,
 )
 from .limen import (

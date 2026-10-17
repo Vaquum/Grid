@@ -102,7 +102,9 @@ class Retention(unittest.TestCase):
                 science(run, root / "bad.json")
             self.assertFalse((root / "bad.json").exists())
 
-    def test_ssh_integrity_check_streams_on_host_and_quotes_paths(self) -> None:
+    def test_ssh_integrity_check_streams_on_host_and_quotes_paths(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             run = root / "space ' $(false)"
