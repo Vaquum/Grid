@@ -118,9 +118,9 @@ def child(root: Path, output: Path, package: Path) -> dict[str, Any]:
     return result
 
 
-
-def recover_exports(native: Path, retained: Path, destination: Path
-                    ) -> dict[str, Any]:
+def recover_exports(
+    native: Path, retained: Path, destination: Path,
+) -> dict[str, Any]:
     from grid.cohort import RoundLines
     from grid.evidence import record_digest
     from grid.retention import materialize
@@ -138,31 +138,40 @@ def recover_exports(native: Path, retained: Path, destination: Path
         materialization += time.perf_counter() - started
         started = time.perf_counter()
         if (exported / "results.csv").read_bytes() != (
-                original / "results.csv").read_bytes():
+            original / "results.csv"
+        ).read_bytes():
             raise ValueError("Exported CSV differs from recorded bytes")
         identities: list[str] = []
         for folder in (original, exported):
             identity = hashlib.sha256()
             with Path(round_path(str(folder))).open("rb") as stream:
-                for raw, _, _ in frames(stream, compact=str(stream.name).endswith(
-                        ".gz"), tail=False):
-                    record = restore(json.loads(raw), lambda name, folder=folder:
-                                     read_local(str(folder), name))
+                for raw, _, _ in frames(
+                    stream, compact=str(stream.name).endswith(".gz"),
+                    tail=False,
+                ):
+                    record = restore(
+                        json.loads(raw), lambda name, folder=folder:
+                        read_local(str(folder), name),
+                    )
                     identity.update(record_digest(record).encode() + b"\n")
                     if folder == exported:
-                        actual = lines.get(str(metadata.parent), record["round_id"])
+                        actual = lines.get(
+                            str(metadata.parent), record["round_id"])
                         expected = lines.get(str(original), record["round_id"])
                         if record_digest(actual) != record_digest(expected):
-                            raise ValueError("Indexed cohort/Trainer read differs")
+                            raise ValueError(
+                                "Indexed cohort/Trainer read differs")
                         occurrences += 1
             identities.append(identity.hexdigest())
         if identities[0] != identities[1]:
             raise ValueError("Exported typed round evidence differs")
         validation += time.perf_counter() - started
-    return {"seconds": time.perf_counter() - began,
-            "materialization_seconds": materialization,
-            "validation_seconds": validation,
-            "exact_occurrences": occurrences, "peak_rss_bytes": rss()}
+    return {
+        "seconds": time.perf_counter() - began,
+        "materialization_seconds": materialization,
+        "validation_seconds": validation,
+        "exact_occurrences": occurrences, "peak_rss_bytes": rss(),
+    }
 
 
 def run(args: argparse.Namespace) -> None:
