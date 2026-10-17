@@ -27,6 +27,13 @@ def size(root: Path) -> int:
 
 
 def rss() -> int:
+    # Linux getrusage may retain a pre-exec fork high-water mark. VmHWM is
+    # specific to this process's current address space after exec.
+    status = Path("/proc/self/status")
+    if status.exists():
+        for line in status.read_text().splitlines():
+            if line.startswith("VmHWM:"):
+                return int(line.split()[1]) * 1024
     value = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     return value if sys.platform == "darwin" else value * 1024
 
