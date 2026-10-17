@@ -15,7 +15,11 @@ sudo python3 tools/pin_replay_runtime.py \
   --store "$PWD/dist/image-evidence/cas" --image grid-backlog-smoke \
   > dist/image-evidence/replay-pin.json
 replay_name=$(python3 -c 'import json; print(json.load(open("dist/image-evidence/replay-pin.json"))["name"])')
-trap 'docker rm -f "$replay_name" >/dev/null' EXIT
+cleanup() {
+  docker rm -f "$replay_name" >/dev/null || true
+  sudo chmod -R a+rX dist/image-evidence
+}
+trap cleanup EXIT
 docker run --rm --cpus 1 --memory 1g --network none --read-only \
   --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 \
   --tmpfs /tmp:rw,nosuid,nodev,size=256m --entrypoint python \

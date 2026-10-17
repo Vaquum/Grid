@@ -101,6 +101,14 @@ def main() -> None:
         original_records = records(run)
         assert len(original_records) == 6
         assert (run / "checkpoint.json").is_file()
+        control = project_root / "resume-control"
+        shutil.copytree(run, control)
+        subprocess.run(
+            ["limen", "run", "--no-progress-bar", "--resume", str(control)],
+            check=True, timeout=180,
+        )
+        control_csv = (control / "results.csv").read_bytes()
+        control_records = records(control)
         before = science(run, evidence / "before.json")
         started = time.perf_counter()
         desc = compact(
@@ -140,9 +148,11 @@ def main() -> None:
             check=True,
             timeout=180,
         )
-        assert (run / "results.csv").read_bytes() == original_csv
+        # Native resume rewrites CSV serialization. Compare with an untouched
+        # native control resumed by the same Limen, rather than its old bytes.
+        assert (run / "results.csv").read_bytes() == control_csv
         assert [record_digest(r) for r in records(run)] == [
-            record_digest(r) for r in original_records
+            record_digest(r) for r in control_records
         ]
         # Keep fully materialized evidence after this disposable runtime exits.
         shutil.copytree(
@@ -150,6 +160,7 @@ def main() -> None:
             evidence / "resumed-native",
             ignore=shutil.ignore_patterns(".grid-*"),
         )
+        elapsed = time.perf_counter() - started
         (evidence / "result.json").write_text(
             json.dumps(
                 {
@@ -158,8 +169,7 @@ def main() -> None:
                     "execution_replay": True,
                     "probability_replay": True,
                     "pack_cohort_trainer_export_resume": "exact",
-                    "seconds_including_retention_and_recovery": time.perf_counter()
-                    - started,
+                    "seconds_including_retention_and_recovery": elapsed,
                     "descriptor": desc,
                 },
                 indent=2,
