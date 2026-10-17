@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import csv
 import difflib
+import gzip
 import hashlib
 import json
 import os
@@ -43,6 +44,13 @@ from collections.abc import Callable
 from typing import IO, Any, cast
 
 from .capacity import effective_cpus
+from .retention import (
+    check_training_sources,
+    descriptor,
+    materialize_in_place,
+    open_results,
+    results_path,
+)
 from .round_storage import round_path
 
 Json = dict[str, Any]
@@ -404,6 +412,7 @@ def _slim(source: str, dst: str, records: list[Json]) -> None:
     directory ``source``: its metadata and manifest copy, their lines of
     round_data.jsonl and their rows of results.csv, so Limen does not parse
     a whole run's rounds."""
+    check_training_sources(source)
     os.mkdir(dst)
     metadata = _read_json(os.path.join(source, "metadata.json"))
     if metadata is None:
@@ -427,9 +436,11 @@ def _slim(source: str, dst: str, records: list[Json]) -> None:
 def _rows_of(src: str, dst: str, ids: set[str]) -> None:
     """results.csv's header and the rows of ``ids`` (its ``id`` column), as
     written; none when the directory has no results.csv."""
-    if not os.path.isfile(src):
+    actual = results_path(os.path.dirname(src)) \
+        if os.path.basename(src) == "results.csv" else src
+    if not os.path.isfile(actual):
         return
-    with open(src, encoding="utf-8", newline="") as f, \
+    with open_results(actual) as f, \
             open(dst, "w", encoding="utf-8", newline="") as out:
         reader = csv.reader(f)
         writer = csv.writer(out)
@@ -797,6 +808,9 @@ class Project:
         again when what was counted has changed (the file shortened,
         replaced, or written again in place: the bytes read last are no
         longer where they were)."""
+        if os.path.basename(results) == "results.csv":
+            results = results_path(os.path.dirname(results))
+        compressed = results.endswith(".gz")
         try:
             st = os.stat(results)
         except OSError:
@@ -806,10 +820,11 @@ class Project:
                 seen[0] == st.st_size and seen[1] == st.st_mtime:
             return max(0, seen[3] - 1)
         try:
-            with open(results, "rb") as f:
+            opener = gzip.open if compressed else open
+            with opener(results, "rb") as f:
                 pos, records, quoted, last = 0, 0, False, b""
-                if seen is not None and seen[2] == st.st_ino and \
-                        st.st_size >= seen[0]:
+                if not compressed and seen is not None and \
+                        seen[2] == st.st_ino and st.st_size >= seen[0]:
                     f.seek(seen[0] - len(seen[5]))
                     if f.read(len(seen[5])) == seen[5]:
                         pos, records, quoted, last = seen[0], seen[3], \
@@ -828,7 +843,8 @@ class Project:
                         quoted = not quoted
         except OSError:
             return 0
-        self.counts[results] = (pos, st.st_mtime, st.st_ino, records, quoted,
+        self.counts[results] = (st.st_size if compressed else pos,
+                                st.st_mtime, st.st_ino, records, quoted,
                                 last)
         return max(0, records - 1)
 
@@ -926,6 +942,7 @@ class Project:
         out: list[Json] = []
 
         def count(path: str) -> int | None:
+            path = results_path(os.path.dirname(path))
             if not light or rid in self.opened:
                 return self._rows(path)
             seen = self.counts.get(path)
@@ -1391,7 +1408,7 @@ class Project:
         started then opens by itself once each has."""
         rid = self._rel(folder)
         if not os.path.isfile(os.path.join(folder, RECORD)):
-            if not os.path.isfile(os.path.join(folder, "results.csv")):
+            if not os.path.isfile(results_path(folder)):
                 raise ValueError("%s has written no round yet" % rid)
             return [folder], []
         dirs: list[str] = []
@@ -1399,8 +1416,8 @@ class Project:
         for s in self._record_shards(folder):
             label = str(s.get("label"))
             d = os.path.join(folder, label)
-            if all(os.path.isfile(os.path.join(d, f))
-                   for f in ("results.csv", "metadata.json")) and \
+            if os.path.isfile(results_path(d)) and \
+                    os.path.isfile(os.path.join(d, "metadata.json")) and \
                     os.path.isfile(round_path(d)):
                 dirs.append(d)
             elif s.get("state") == "running":
@@ -1504,8 +1521,9 @@ class Project:
         run --resume``), in the same folder and log."""
         folder = self._folder(rid)
         key = self._rel(folder)
-        with self.lock:
-            path = os.path.join(folder, RECORD)
+        path = os.path.join(folder, RECORD)
+
+        def checked_record() -> tuple[Json, int, int]:
             record = _read_json(path)
             if record is None:
                 raise ValueError("%s is not a run Grid started" % rid)
@@ -1517,6 +1535,19 @@ class Project:
                 raise ValueError("resume exceeds the effective CPU budget "
                                  "(%d); restore the run's CPU allocation"
                                  % self.cores)
+            return record, workers, shard_count
+
+        with self.lock:
+            record, _, _ = checked_record()
+        # Validate first; cold materialization runs outside the shared lock.
+        for shard in cast(list[Json], record.get("shards") or []):
+            directory = os.path.join(folder, str(shard.get("label")))
+            if shard.get("state") in ("stopped", "failed") and \
+                    descriptor(directory) is not None and os.path.isfile(
+                        os.path.join(directory, "checkpoint.json")):
+                materialize_in_place(directory)
+        with self.lock:
+            record, workers, shard_count = checked_record()
             threads = 1 if workers > 1 else max(1, self.cores // max(
                 1, shard_count))
             record["threads"] = threads

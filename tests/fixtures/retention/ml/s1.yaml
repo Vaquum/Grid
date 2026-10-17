@@ -1,0 +1,99 @@
+schema_version: "1.0"
+metadata:
+  name: "storage_preflight_20261017_lgbm_tail_h24"
+  mode: development
+  limen_version: "5.29.0"
+  description: Nonlinear return/flow history; cost-aware exit policies; train-only tail labels and weighted fitting
+sfd:
+  manifest:
+    type: ml
+    data_source:
+      method: limen.data.HistoricalData.get_any_file
+      params:
+        file_path_or_url: /data/project/data/alpha_20261016/btc_spot_hourly.parquet
+    split_dates:
+      train_start: "2020-01-02"
+      train_end: "2022-12-29"
+      val_start: "2023-01-02"
+      val_end: "2023-12-29"
+      test_start: "2024-01-02"
+      test_end: "2025-12-29"
+      val_predict_guard: true
+      test_predict_guard: true
+    indicators:
+      - func: limen.indicators.window_return
+        params:
+          period: 1
+      - func: limen.indicators.window_return
+        params:
+          period: 6
+      - func: limen.indicators.window_return
+        params:
+          period: 24
+    features:
+      - func: limen.features.lag_range
+        params:
+          col: ret_1
+          start: 0
+          end: "{lookback_end}"
+      - func: limen.features.lag_range
+        params:
+          col: maker_ratio
+          start: 0
+          end: 11
+    target:
+      name: forward_tail
+      class: limen.targets.QuantileBinaryTarget
+      fit_params:
+        source_column: ret_24
+        quantile: "{positive_quantile}"
+      transform_params:
+        shift: -24
+    strict_mode: true
+    backtest:
+      fee_bps: 10.0
+      slip_bps: "{slip_bps}"
+      take_profit_bps: "{take_profit_bps}"
+      stop_loss_bps: "{stop_loss_bps}"
+    reference_architecture: limen.sfd.reference_architecture.lightgbm_binary.lightgbm_binary
+  params:
+    lookback_end: [23, 71, 5, 95, 11, 47]
+    positive_quantile: [0.35, 0.5, 0.2]
+    class_weight: [1.0, 0.5, 0.25]
+    num_leaves: [15, 7, 31]
+    min_child_samples: [100, 300]
+    learning_rate: [0.02, 0.05]
+    reg_lambda: [10.0, 1.0, 0.1]
+    objective: [binary]
+    boosting_type: [gbdt]
+    max_depth: [-1]
+    n_estimators: [400]
+    subsample_for_bin: [200000]
+    min_split_gain: [0.0]
+    min_child_weight: [0.001]
+    subsample: [1.0]
+    subsample_freq: [0]
+    colsample_bytree: [1.0]
+    reg_alpha: [1.0]
+    random_state: [42]
+    n_jobs: [1]
+    importance_type: [split]
+    early_stopping_rounds: [40]
+    deterministic: [true]
+    force_row_wise: [true]
+    verbosity: [-1]
+    slip_bps: [5.0, 15.0]
+    stop_loss_bps: [null, 75.0, 150.0, 300.0, 600.0]
+    take_profit_bps: [null, 200.0, 600.0]
+uel:
+  n_permutations: 60
+  workers: 1
+  factorize: true
+  search_strategy:
+    type: grid
+  prep_each_round: true
+  record_execution: true
+  record_model_outputs: true
+  checkpoint_interval: 1000
+  output_format: csv
+  output_path: "storage_preflight_20261017_lgbm_tail_h24/20261017_084929/s1"

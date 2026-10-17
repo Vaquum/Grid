@@ -38,11 +38,17 @@ import threading
 import time
 from array import array
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 from . import PACK_VERSION, __version__
 from .columns import Store
-from .limen import CsvRecords, round_record
+from .limen import (
+    CsvRecords,
+    RoundResult,
+    RoundSummary,
+    round_object,
+    round_record,
+)
 from .logparse import LogParser
 
 Json = dict[str, Any]
@@ -95,6 +101,7 @@ class Run:
         self.rounds_bad: list[Json] = []
         self.rounds_bad_count = 0
         self.rounds_shard_lines: dict[int, int] = {}
+        self.rounds_epochs: dict[int | None, int] = {}
         self.archived_shard: str | None = None  # the file that started over
 
     def meta(self) -> Json:
@@ -191,31 +198,53 @@ class Run:
         return records.row(fields)
 
     def add_round_line(self, text: str, shard: int | None = None,
-                       decode: Callable[[str], str] | None = None) -> None:
+                       decode: Callable[[str], Any] | None = None) -> None:
         """A line of the run's round log (of its shard-th, for a run read
         from several, whose rounds carry their shard's label); one that is
         not a round is counted with its reason, as a bad results line
         is."""
+        result = self.prepare_round(text, decode)
+        self.add_round(result.text if result.text is not None else text,
+                       result.summary, result.error, shard)
+
+    @staticmethod
+    def prepare_round(text: str, decode: Callable[[str], Any] | None = None
+                      ) -> RoundResult:
+        if not text.strip():
+            return RoundResult(None)
+        try:
+            decoded = decode(text) if decode is not None else text
+            if isinstance(decoded, RoundResult):
+                return decoded
+            if isinstance(decoded, tuple):
+                return RoundResult(cast(RoundSummary, decoded))
+            return RoundResult(round_record(decoded)
+                               if isinstance(decoded, str)
+                               else round_object(decoded))
+        except (ValueError, OSError, RuntimeError, OverflowError,
+                subprocess.SubprocessError) as exc:
+            return RoundResult(None, str(exc))
+
+    def add_round(self, text: str, summary: RoundSummary | None,
+                  error: str | None, shard: int | None = None) -> None:
+        """Publish a reduction; expensive work precedes the sweep lock."""
         self.rounds_lines += 1
         line = self.rounds_lines
         if shard is not None:
             line = self.rounds_shard_lines[shard] = \
                 self.rounds_shard_lines.get(shard, 0) + 1
-        if not text.strip():
-            return
-        try:
-            decoded = decode(text) if decode is not None else text
-            index, dropped, outputs, execution = round_record(decoded)
-        except (ValueError, OSError, RuntimeError, OverflowError,
-                subprocess.SubprocessError) as exc:
+        if error is not None:
             self.rounds_bad_count += 1
             if len(self.rounds_bad) < BAD_KEEP:
-                bad: Json = {"line": line, "error": str(exc),
+                bad: Json = {"line": line, "error": error,
                              "text": text[:300]}
                 if shard is not None and self.shards is not None:
                     bad[SHARD] = self.shards[shard]
                 self.rounds_bad.append(bad)
             return
+        if summary is None:
+            return
+        index, dropped, outputs, execution = summary
         # [index, dropped], then its directory's label, its outputs and its
         # execution (each None when it has none), as far as the last there
         label = self.shards[shard] if shard is not None and \
@@ -238,6 +267,7 @@ class Run:
             self.rounds_lines = 0
             self.rounds_bad, self.rounds_bad_count = [], 0
         self.rounds_generation += 1
+        self.rounds_epochs[shard] = self.rounds_epochs.get(shard, 0) + 1
 
     def restart(self) -> None:
         """Empty, for the next generation of the same file."""
@@ -381,9 +411,17 @@ class Sweep:
 
     def round_line(self, run: Run, text: str, preload: bool,
                    shard: int | None = None,
-                   decode: Callable[[str], str] | None = None) -> None:
+                   decode: Callable[[str], Any] | None = None) -> None:
         with self.lock:
-            run.add_round_line(text, shard, decode)
+            epoch = (run.rounds_epochs.get(None, 0),
+                     run.rounds_epochs.get(shard, 0))
+        result = run.prepare_round(text, decode)
+        with self.lock:
+            if epoch != (run.rounds_epochs.get(None, 0),
+                         run.rounds_epochs.get(shard, 0)):
+                return
+            run.add_round(result.text if result.text is not None else text,
+                          result.summary, result.error, shard)
             self._bump()
 
     def round_reset(self, run: Run, reason: str,

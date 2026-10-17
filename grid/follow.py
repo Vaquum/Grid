@@ -20,7 +20,7 @@ from __future__ import annotations
 import os
 import subprocess
 import threading
-from typing import IO, Callable
+from typing import IO, Callable, cast
 
 from .round_storage import Members
 
@@ -66,11 +66,21 @@ class _LineBuffer:
 class _GzipLines(_LineBuffer):
     """Each complete gzip member is one round, classified by wire offset."""
 
-    def __init__(self, on_line: LineFn) -> None:
+    def __init__(self, on_line: LineFn, many: bool = False) -> None:
         super().__init__(on_line)
+        self.many = many
         self.members = Members(self._member)
 
     def _member(self, raw: bytes, start: int, end: int) -> None:
+        if self.many:
+            lines = (self.partial + raw).split(b"\n")
+            self.partial = lines.pop()
+            if len(self.partial) > 512 << 20:
+                raise ValueError("Retained CSV line size limit exceeded")
+            for line in lines:
+                self.on_line(line.decode("utf-8", errors="replace"),
+                             end <= self.preload_end)
+            return
         self.on_line(raw.decode("utf-8", errors="replace").rstrip("\n"),
                      end <= self.preload_end)
 
@@ -91,7 +101,8 @@ class FileFollower:
                  follow: bool = True,
                  on_history: HistoryFn | None = None) -> None:
         self.path = path
-        self.buffer = (_GzipLines(on_line) if path.endswith(".gz")
+        self.buffer = (_GzipLines(on_line, path.endswith("results.csv.gz"))
+                       if path.endswith(".gz")
                        else _LineBuffer(on_line))
         self.on_reset = on_reset
         self.on_error = on_error
@@ -102,6 +113,7 @@ class FileFollower:
         self.ino: int | None = None
         self.stopped = threading.Event()
         self.caught_up = threading.Event()   # the preloaded part is read
+        self.thread: threading.Thread | None = None
 
     def read_available(self) -> int:
         """Read everything appended since the last call; return bytes read."""
@@ -124,7 +136,7 @@ class FileFollower:
             f.seek(self.pos)
             # in chunks, up to the size seen above: a large file is never
             # held in memory whole
-            while self.pos < end:
+            while self.pos < end and not self.stopped.is_set():
                 chunk = f.read(min(CHUNK, end - self.pos))
                 if not chunk:
                     break
@@ -152,11 +164,15 @@ class FileFollower:
             self.caught_up.set()
 
     def start(self) -> None:
-        threading.Thread(target=self.run, daemon=True,
-                         name="follow:" + self.path).start()
+        self.thread = threading.Thread(target=self.run, daemon=True,
+                                       name="follow:" + self.path)
+        self.thread.start()
 
     def stop(self) -> None:
         self.stopped.set()
+        if self.thread is not None and \
+                self.thread is not threading.current_thread():
+            self.thread.join()
 
 
 class SSHFollower:
@@ -167,7 +183,8 @@ class SSHFollower:
                  on_history: HistoryFn | None = None) -> None:
         self.host = host
         self.path = path
-        self.buffer = (_GzipLines(on_line) if path.endswith(".gz")
+        self.buffer = (_GzipLines(on_line, path.endswith("results.csv.gz"))
+                       if path.endswith(".gz")
                        else _LineBuffer(on_line))
         self.on_reset = on_reset
         self.on_error = on_error
@@ -287,3 +304,59 @@ def read_remote(host: str, path: str) -> str:
 def read_remote_bytes(host: str, path: str) -> bytes:
     """Read one remote binary artifact without a text decoding pass."""
     return _ssh(host, "cat", _quote(path))
+
+
+def retained_proofs(directory: str) -> dict[str, str | int]:
+    """Bounded integrity checks independent of CAS or the native runtime."""
+    import gzip
+    import hashlib
+    from pathlib import Path
+
+    root = Path(directory)
+    names = {"round_data.grid.jsonl.gz": "rounds_sha256",
+             "results.csv.gz": "csv_sha256",
+             "metadata.json": "metadata_sha256"}
+
+    def stamps() -> list[tuple[int, int, int, int, int]]:
+        result: list[tuple[int, int, int, int, int]] = []
+        for name in names:
+            st = (root / name).stat()
+            result.append((st.st_dev, st.st_ino, st.st_size,
+                           st.st_mtime_ns, st.st_ctime_ns))
+        return result
+
+    before = stamps()
+    proofs: dict[str, str | int] = {}
+    for name, key in names.items():
+        identity = hashlib.sha256()
+        with (root / name).open("rb") as stream:
+            for block in iter(lambda: stream.read(1 << 20), b""):
+                identity.update(block)
+        proofs[key] = identity.hexdigest()
+    count = 0
+    with gzip.open(root / "round_data.grid.jsonl.gz", "rb") as stream:
+        for block in iter(lambda: stream.read(1 << 20), b""):
+            count += block.count(b"\n")
+    proofs["records"] = count
+    if before != stamps():
+        raise ValueError("Retained files changed during validation")
+    return proofs
+
+
+def remote_retained_proofs(
+    host: str, directory: str,
+) -> dict[str, str | int]:
+    import inspect
+    import json
+
+    # The same stdlib-only bounded check runs on the host. Only hashes and
+    # a count cross SSH; Grid and its CAS need not be installed there.
+    script = "from __future__ import annotations\n" + \
+        inspect.getsource(retained_proofs) + (
+        "\nimport json,sys\n"
+        "print(json.dumps(retained_proofs(sys.argv[1])))\n"
+    )
+    return cast(dict[str, str | int], json.loads(_ssh(
+        host, "python3", "-c", _quote(script), _quote(directory),
+        timeout=300,
+    )))

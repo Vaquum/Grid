@@ -46,6 +46,7 @@ import math
 import os
 import re
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from typing import Any, cast
 
 Json = dict[str, Any]
@@ -463,8 +464,17 @@ def execution_summary(rec: Json, index: int) -> Json | None:
     return windows(pos, gross, net, ret)
 
 
-def round_record(text: str) -> tuple[int, list[str], Json | None,
-                                     Json | None]:
+RoundSummary = tuple[int, list[str], Json | None, Json | None]
+
+
+@dataclass(frozen=True)
+class RoundResult:
+    summary: RoundSummary | None
+    error: str | None = None
+    text: str | None = None
+
+
+def round_record(text: str) -> RoundSummary:
     """One line of a Limen run's round_data.jsonl: the round's index, the
     feature columns its ablation dropped, what its test probabilities say
     of its threshold when it recorded them (model_outputs), and what its
@@ -477,7 +487,11 @@ def round_record(text: str) -> tuple[int, list[str], Json | None,
     predictions on the line are not read, nor the probabilities and the
     execution kept: the page gets what they say.
     """
-    raw: Any = json.loads(text)
+    return round_object(json.loads(text))
+
+
+def round_object(raw: Any) -> RoundSummary:
+    """Reduce an already decoded round using the native numerical path."""
     if not isinstance(raw, dict):
         raise ValueError("a round line is a JSON object")
     rec = cast(Json, raw)

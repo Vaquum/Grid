@@ -153,8 +153,15 @@ def main() -> None:
                         "http://127.0.0.1:8499/api/pack?run=" +
                         run_id) as response:
                     visible = json.load(response)
-                assert any(r["id"] == run_id and r["rows"] == 40
-                           for r in visible["pack"]["runs"]), visible
+                deadline = time.monotonic() + 60
+                while not any(r["id"] == run_id and r["rows"] == 40
+                              for r in visible["pack"]["runs"]):
+                    assert time.monotonic() < deadline, visible
+                    time.sleep(0.1)
+                    with urllib.request.urlopen(
+                            "http://127.0.0.1:8499/api/pack?run=" +
+                            run_id) as response:
+                        visible = json.load(response)
                 evidence = os.environ.get("GRID_RULE_EVIDENCE")
                 if evidence:
                     shutil.copytree(project / rid / "s1", evidence,

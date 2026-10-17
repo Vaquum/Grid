@@ -44,7 +44,7 @@ from datetime import datetime, timezone
 from typing import Any, cast
 
 from .limen import windows
-from .round_storage import frames, read_local, restore, round_path
+from .round_storage import RETAINED, frames, read_local, restore, round_path
 
 Json = dict[str, Any]
 # a member over its test window: its bars' times, its predictions (0/1, or
@@ -477,6 +477,13 @@ class RoundLines:
 
     def get(self, directory: str, round_id: str) -> Json:
         path = round_path(directory)
+        if os.path.basename(path) == RETAINED:
+            from .retention import Reader
+            reader = Reader(directory)
+            try:
+                return reader.get(round_id)
+            finally:
+                reader.close()
         offsets = self._offsets(path)
         if round_id not in offsets:
             raise ValueError("round %s is not in %s" % (round_id[:12], path))
