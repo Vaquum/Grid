@@ -115,7 +115,9 @@ class Retention(unittest.TestCase):
                 materialize_in_place(run)
             self.assertTrue((run / DESCRIPTOR).exists())
 
-    def test_restored_market_directory_is_durable_before_publication(self) -> None:
+    def test_restored_market_directory_is_durable_before_publication(
+        self,
+    ) -> None:
         from grid import retention
 
         with tempfile.TemporaryDirectory() as tmp:
