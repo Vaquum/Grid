@@ -170,7 +170,8 @@ class FileFollower:
 
     def stop(self) -> None:
         self.stopped.set()
-        if self.thread is not None and self.thread is not threading.current_thread():
+        if self.thread is not None and \
+                self.thread is not threading.current_thread():
             self.thread.join()
 
 

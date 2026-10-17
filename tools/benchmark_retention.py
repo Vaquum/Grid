@@ -197,7 +197,9 @@ def run(args: argparse.Namespace) -> None:
                 ):
                     record = restore(
                         json.loads(raw),
-                        lambda name: read_local(str(folder), name),
+                        lambda name, folder=folder: read_local(
+                            str(folder), name
+                        ),
                     )
                     hashes.append(record_digest(record))
                     if folder == exported:
@@ -226,8 +228,13 @@ def run(args: argparse.Namespace) -> None:
             "order": "alternating matched fresh processes",
             "page_cache": "not flushed",
             "numeric_tolerance": 0,
-            "timing": "includes imports, setup, fsynced pack outputs; warm pass in same process",
-            "runtime_provisioning": "separate; include pin receipt and image layers",
+            "timing": (
+                "imports, setup, fsynced pack outputs; "
+                "warm pass in same process"
+            ),
+            "runtime_provisioning": (
+                "separate; include pin receipt and image layers"
+            ),
             "reference_root": str(reference),
         },
         "setup_seconds": setup_seconds,

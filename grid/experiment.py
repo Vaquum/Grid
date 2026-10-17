@@ -823,8 +823,8 @@ class Project:
             opener = gzip.open if compressed else open
             with opener(results, "rb") as f:
                 pos, records, quoted, last = 0, 0, False, b""
-                if not compressed and seen is not None and seen[2] == st.st_ino and \
-                        st.st_size >= seen[0]:
+                if not compressed and seen is not None and \
+                        seen[2] == st.st_ino and st.st_size >= seen[0]:
                     f.seek(seen[0] - len(seen[5]))
                     if f.read(len(seen[5])) == seen[5]:
                         pos, records, quoted, last = seen[0], seen[3], \
@@ -1521,14 +1521,8 @@ class Project:
         run --resume``), in the same folder and log."""
         folder = self._folder(rid)
         key = self._rel(folder)
-        # Restore outside Project.lock; a cold archive may require model fits.
-        for shard in self._record_shards(folder):
-            directory = os.path.join(folder, str(shard.get("label")))
-            if shard.get("state") in ("stopped", "failed") and \
-                    descriptor(directory) is not None and os.path.isfile(
-                        os.path.join(directory, "checkpoint.json")):
-                materialize_in_place(directory)
-        with self.lock:
+
+        def checked_record() -> tuple[Json, int, int]:
             path = os.path.join(folder, RECORD)
             record = _read_json(path)
             if record is None:
@@ -1541,6 +1535,19 @@ class Project:
                 raise ValueError("resume exceeds the effective CPU budget "
                                  "(%d); restore the run's CPU allocation"
                                  % self.cores)
+            return record, workers, shard_count
+
+        with self.lock:
+            record, _, _ = checked_record()
+        # Validate first; cold materialization runs outside the shared lock.
+        for shard in cast(list[Json], record.get("shards") or []):
+            directory = os.path.join(folder, str(shard.get("label")))
+            if shard.get("state") in ("stopped", "failed") and \
+                    descriptor(directory) is not None and os.path.isfile(
+                        os.path.join(directory, "checkpoint.json")):
+                materialize_in_place(directory)
+        with self.lock:
+            record, workers, shard_count = checked_record()
             threads = 1 if workers > 1 else max(1, self.cores // max(
                 1, shard_count))
             record["threads"] = threads

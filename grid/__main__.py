@@ -79,16 +79,21 @@ from .limen import (
     shard_labels,
     shards_problem,
 )
-from .round_storage import read_local, round_name
 from .retention import (
     CSV as RETAINED_CSV,
+)
+from .retention import (
     Reader as RetainedReader,
+)
+from .retention import (
     cached_result,
     descriptor,
     read_lease,
+)
+from .retention import (
     results_path as retained_results_path,
 )
-from .round_storage import DESCRIPTOR, RETAINED
+from .round_storage import DESCRIPTOR, RETAINED, read_local, round_name
 from .server import serve
 from .sweep import SHARD, Json, Run, Sweep
 
@@ -262,8 +267,9 @@ class Wiring:
             with open(meta, encoding="utf-8", newline="") as f:
                 meta_text = f.read()
             retained = descriptor(directory)
-            if retained is not None and hashlib.sha256(
-                    meta_text.encode()).hexdigest() != retained["metadata_sha256"]:
+            metadata_sha = hashlib.sha256(meta_text.encode()).hexdigest()
+            if retained is not None and metadata_sha != \
+                    retained["metadata_sha256"]:
                 raise ValueError("Retained metadata changed")
             with open(os.path.join(directory, name), encoding="utf-8") as f:
                 return read_experiment(meta_text, meta, name, f.read())
@@ -387,7 +393,8 @@ class Wiring:
                         assert desc is not None
                         shared = self.evidence if self.evidence is not None \
                             and str(self.evidence.path) == os.path.realpath(
-                                os.path.join(directory, desc["store"])) else None
+                                os.path.join(directory, desc["store"])) \
+                            else None
                         reader = RetainedReader(directory, evidence=shared)
                         self.retained_readers.append(reader)
                     return reader.restore(cast(Json, record))
@@ -783,22 +790,25 @@ def main(argv: list[str] | None = None) -> int:
     inputs.add_argument("--args-file", dest="arguments_file")
     mcp = sub.add_parser("mcp", help="serve Grid tools over MCP stdio")
     mcp.add_argument("--connection", required=True)
-    retain = sub.add_parser("retain", help="compact sealed Limen result directories")
+    retain = sub.add_parser(
+        "retain", help="compact sealed Limen result directories")
     retain.add_argument("--run", required=True, action="append", metavar="DIR")
     retain.add_argument("--store", required=True, metavar="SQLITE")
     retain.add_argument("--sealed", action="store_true",
-                        help="assert producers are stopped and Grid readers closed")
+                        help="assert stopped producers and closed Grid readers")
     retain.add_argument("--prune", action="store_true",
-                        help="release original logs after exact reconstruction checks")
+                        help="release originals after exact reconstruction")
     retain.add_argument("--runtime", metavar="SHA256",
-                        help="optional physically pinned native replay runtime")
-    material = sub.add_parser("materialize", help="restore complete native Limen evidence")
+                        help="optional pinned native replay runtime")
+    material = sub.add_parser(
+        "materialize", help="restore complete native Limen evidence")
     material.add_argument("--run", required=True, metavar="DIR")
     destination = material.add_mutually_exclusive_group(required=True)
     destination.add_argument("--out", metavar="NEW_DIR")
     destination.add_argument("--in-place", action="store_true",
-                             help="restore native files for checked checkpoint resume")
-    verification = sub.add_parser("verify-retention", help="fully reconstruct a retained run")
+                             help="restore native files for checkpoint resume")
+    verification = sub.add_parser(
+        "verify-retention", help="fully reconstruct a retained run")
     verification.add_argument("--run", required=True, metavar="DIR")
     for name in ("serve", "pack"):
         p = sub.add_parser(name)
@@ -850,7 +860,12 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--out", required=True)
     a = ap.parse_args(argv)
     if a.cmd in ("retain", "materialize", "verify-retention"):
-        from .retention import compact, materialize, materialize_in_place, verify
+        from .retention import (
+            compact,
+            materialize,
+            materialize_in_place,
+            verify,
+        )
         try:
             if a.cmd == "retain":
                 result = [compact(directory, a.store, sealed=a.sealed,

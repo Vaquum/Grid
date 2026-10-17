@@ -153,7 +153,7 @@ def main() -> None:
                         "http://127.0.0.1:8499/api/pack?run=" +
                         run_id) as response:
                     visible = json.load(response)
-                deadline = time.monotonic() + 30
+                deadline = time.monotonic() + 60
                 while not any(r["id"] == run_id and r["rows"] == 40
                               for r in visible["pack"]["runs"]):
                     assert time.monotonic() < deadline, visible

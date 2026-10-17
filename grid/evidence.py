@@ -238,7 +238,8 @@ class Evidence:
                 CREATE TABLE IF NOT EXISTS summaries (
                     id TEXT PRIMARY KEY, data BLOB NOT NULL);
                 CREATE TABLE IF NOT EXISTS archives (
-                    id TEXT PRIMARY KEY, state TEXT NOT NULL, run TEXT NOT NULL);
+                    id TEXT PRIMARY KEY, state TEXT NOT NULL,
+                    run TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS refs (
                     archive TEXT NOT NULL, object TEXT NOT NULL,
                     PRIMARY KEY (archive, object));

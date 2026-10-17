@@ -1,4 +1,4 @@
-"""Exact retention against recorded inputs, including interrupted publication."""
+"""Exact retention against recorded inputs and interrupted publication."""
 
 from __future__ import annotations
 
@@ -29,7 +29,15 @@ from grid.retention import (
     materialize_in_place,
     verify,
 )
-from grid.round_storage import COMPACT, DESCRIPTOR, PLAIN, RETAINED
+from grid.round_storage import (
+    COMPACT,
+    DESCRIPTOR,
+    PLAIN,
+    RETAINED,
+    frames,
+    read_local,
+    restore,
+)
 from grid.sweep import Run, Sweep
 from tests.py.test_round_storage import compress
 
@@ -54,6 +62,77 @@ def science(path: Path, output: Path) -> dict:
 
 
 class Retention(unittest.TestCase):
+    def test_current_native_vectors_crlf_and_reconstruction(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / "run"
+            shutil.copytree(FIXTURES / "retention/ml", run)
+            meta = run / "metadata.json"
+            meta.write_bytes(meta.read_bytes().replace(b"\n", b"\r\n"))
+            records = []
+            with (run / COMPACT).open("rb") as stream:
+                for raw, _, _ in frames(stream, compact=True, tail=False):
+                    records.append(
+                        restore(
+                            json.loads(raw),
+                            lambda name: read_local(str(run), name),
+                        )
+                    )
+            expected = science(run, root / "before.json")
+            compact(run, root / "evidence.sqlite3", sealed=True, prune=True)
+            reader = Reader(run)
+            try:
+                for entry, original in zip(
+                    reader.entries(), records, strict=True
+                ):
+                    self.assertNotIn("raw", entry["grid"])
+                    self.assertEqual(
+                        set(entry["grid"]["vectors"]),
+                        {
+                            "preds",
+                            "probs",
+                            "market.ret",
+                            "execution.pos",
+                            "execution.gross",
+                            "execution.net",
+                        },
+                    )
+                    self.assertEqual(
+                        record_digest(reader.restore(entry)),
+                        record_digest(original),
+                    )
+            finally:
+                reader.close()
+            self.assertEqual(expected, science(run, root / "after.json"))
+            materialize(run, root / "export/native")
+            self.assertEqual(
+                expected, science(root / "export/native", root / "native.json")
+            )
+
+    def test_refused_resume_keeps_retained_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shard = root / "s1"
+            shutil.copytree(FIXTURES / "limen_run", shard)
+            compact(shard, root / "evidence.sqlite3", sealed=True, prune=True)
+            (shard / "checkpoint.json").write_text("{}")
+            (root / "grid-run.json").write_text(
+                json.dumps({"shards": [{"label": "s1", "state": "stopped"}]})
+            )
+            (root / "experiment.yaml").write_text("uel:\n  workers: 2\n")
+            project = Project.__new__(Project)
+            project.root, project.cores = str(root), 1
+            project.lock = threading.Lock()
+            with (
+                patch.object(project, "_folder", return_value=str(root)),
+                patch("grid.experiment.materialize_in_place") as recover,
+            ):
+                with self.assertRaisesRegex(ValueError, "CPU budget"):
+                    project.resume("run")
+                recover.assert_not_called()
+            self.assertTrue((shard / DESCRIPTOR).is_file())
+            self.assertFalse((shard / PLAIN).exists())
+
     def test_lossless_numeric_types_nulls_and_float64_bits(self) -> None:
         recorded = json.loads(
             gzip.decompress(
@@ -354,7 +433,11 @@ class Retention(unittest.TestCase):
             sweep.add_run(run)
             entered, release = threading.Event(), threading.Event()
 
-            def slow(text: str) -> str:
+            def slow(
+                text: str,
+                entered: threading.Event = entered,
+                release: threading.Event = release,
+            ) -> str:
                 entered.set()
                 if not release.wait(5):
                     raise RuntimeError("test reduction did not resume")
