@@ -24,7 +24,7 @@ def verify_release(client: Client, project: Path, text: str) -> None:
     capabilities = call("grid_discover")["execution"]
     assert capabilities["ruleTemporalReferences"], capabilities
     assert capabilities["recordingPolicy"], capabilities
-    start = text.index("  params:\n")
+    start = text.index("\n  params:\n") + 1
     end = text.index("\nuel:", start)
     text = text[:start] + ("  params:\n    fee: [0, 2]\n"
                           "    hold_bars: [1, 3]\n") + text[end:]
@@ -58,6 +58,7 @@ def verify_release(client: Client, project: Path, text: str) -> None:
     for field in ("recency_n", "persistence_n"):
         candidate = text.replace("      entry: enter", (
             "        %s: '{hold_bars}'\n      entry: enter" % field))
+        assert call("grid_validate", text=candidate)["errors"] == []
         for domain in ("[0]", "[-1]", "[true]", "['2']", "[1.5]"):
             invalid = candidate.replace("hold_bars: [1, 3]",
                                         "hold_bars: " + domain)
