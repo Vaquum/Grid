@@ -202,7 +202,7 @@ class Storage(unittest.TestCase):
                 sweep = wiring.build()
                 for follower in wiring.followers:
                     follower.buffer.feed(Path(follower.path).read_bytes())
-            run = sweep.runs['r0']
+            run = sweep.runs[0]
             self.assertEqual(run.rounds_bad_count, 1)
             self.assertEqual(run.rounds_bad[0]['error'],
                              'temporary SSH failure')
