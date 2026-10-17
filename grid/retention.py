@@ -20,9 +20,9 @@ from typing import Any, TextIO, cast
 
 from .evidence import (
     CONTRACT,
+    LRU,
     VECTOR_PATHS,
     Evidence,
-    LRU,
     MarketCache,
     Reducer,
     digest,
@@ -845,6 +845,7 @@ def materialize(directory: str | Path, destination: str | Path) -> Json:
                     market: Any = wire.get("market")
                     if name == COMPACT and isinstance(market, dict) and \
                             set(cast(Json, market)) == {"ret"}:
+                        market = cast(Json, market)
                         # Keep native market sharing. Repeating hydrated
                         # markets inflated temporary exports and serialized
                         # the same immutable return vector every occurrence.
@@ -854,7 +855,7 @@ def materialize(directory: str | Path, destination: str | Path) -> Json:
                             payload = encoded(market)
                             if record_digest({"market": json.loads(payload)}) \
                                     != key:
-                                raise ValueError("Market JSON roundtrip changed")
+                                raise ValueError("Market JSON changed")
                             ref = hashlib.sha256(payload).hexdigest()
                             market_dir = stage / "round_market"
                             market_dir.mkdir(exist_ok=True)
