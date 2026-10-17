@@ -585,11 +585,11 @@ def compact(
         )
         reducer, markets = Reducer(evidence), MarketCache()
         replay: Any = None
-        if runtime is not None:
-            from .replay import ReplayClient
-
-            replay = ReplayClient(evidence.path.parent, runtime, evidence)
         try:
+            if runtime is not None:
+                from .replay import ReplayClient
+
+                replay = ReplayClient(evidence.path.parent, runtime, evidence)
             sources = source_snapshots(metadata, evidence)
             market_nodes: Json = {}
             for path in sorted((root / "round_market").glob("*.json.gz")):

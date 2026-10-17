@@ -1521,9 +1521,9 @@ class Project:
         run --resume``), in the same folder and log."""
         folder = self._folder(rid)
         key = self._rel(folder)
+        path = os.path.join(folder, RECORD)
 
         def checked_record() -> tuple[Json, int, int]:
-            path = os.path.join(folder, RECORD)
             record = _read_json(path)
             if record is None:
                 raise ValueError("%s is not a run Grid started" % rid)

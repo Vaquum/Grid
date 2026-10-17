@@ -117,7 +117,8 @@ class Native:
         inner = declaration["sfd"]["manifest"]
         data_source = inner.get("data_source", {})
         supported = (
-            data_source.get("method")
+            source["asset"].endswith(".parquet")
+            and data_source.get("method")
             == "limen.data.HistoricalData.get_any_file"
             and set(data_source.get("params", {})) == {"file_path_or_url"}
             and isinstance(inner.get("backtest"), dict)

@@ -291,6 +291,7 @@ def main() -> None:
         parser.error(
             "--corpus, new --work, --out and at least three repeats required"
         )
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     run(args)
 
 
