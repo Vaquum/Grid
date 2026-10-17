@@ -42,7 +42,8 @@ def verify_release(client: Client, project: Path, text: str) -> None:
         deadline = time.monotonic() + 120
         while True:
             status = call("grid_status")
-            found = next(r for r in status["project"]["runs"] if r["id"] == rid)
+            found = next(r for r in status["project"]["runs"]
+                         if r["id"] == rid)
             assert found["state"] != "failed", found
             if found["state"] == "finished" and found.get("open"):
                 break

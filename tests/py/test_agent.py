@@ -266,7 +266,8 @@ class TestAgent(unittest.TestCase):
                 {"path": "temporal", "message": "invalid domain"}]):
             checked = self.call("grid_validate", text=text)
         self.assertFalse(checked["executionChecked"])
-        self.assertEqual(checked["schemaErrors"][0]["message"], "invalid domain")
+        self.assertEqual(checked["schemaErrors"][0]["message"],
+                         "invalid domain")
 
     def test_worker_diagnostics_stay_in_private_logs(self):
         assert self.agent is not None
