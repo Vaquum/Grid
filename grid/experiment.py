@@ -1353,19 +1353,19 @@ class Project:
     def _open_when_written(self, rid: str, folder: str) -> None:
         """Open a run Grid started in the sweep once each shard has written
         its first round (its results.csv and its round log), or has ended."""
-        while True:
-            shards = self._record_shards(folder)
-            ready = all(
-                s.get("state") != "running" or (
-                    os.path.isfile(os.path.join(
-                        folder, str(s.get("label")), "results.csv"))
-                    and os.path.isfile(round_path(os.path.join(
-                        folder, str(s.get("label"))))))
-                for s in shards)
-            if ready:
-                break
-            time.sleep(1.0)
         try:
+            while True:
+                shards = self._record_shards(folder)
+                ready = all(
+                    s.get("state") != "running" or (
+                        os.path.isfile(os.path.join(
+                            folder, str(s.get("label")), "results.csv"))
+                        and os.path.isfile(round_path(os.path.join(
+                            folder, str(s.get("label"))))))
+                    for s in shards)
+                if ready:
+                    break
+                time.sleep(1.0)
             self.open(rid)
         except ValueError as err:
             # said where the run is listed, not lost

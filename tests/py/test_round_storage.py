@@ -9,13 +9,14 @@ import json
 import os
 import shutil
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from grid.__main__ import Wiring, main
 from grid.cohort import RoundLines
-from grid.experiment import _slim
+from grid.experiment import Project, _slim
 from grid.follow import FileFollower, _GzipLines
 from grid.round_storage import (
     COMPACT,
@@ -166,12 +167,13 @@ class Storage(unittest.TestCase):
                         '_round_index': 40, 'round_params': {},
                         'market_ref': '0' * 64, 'preds': [0]})):
                     out.write(gzip.compress((text + '\n').encode()))
+                out.write(gzip.compress(b'\xff\n'))
                 out.write(gzip.compress(json.dumps({
                     '_round_index': 41, 'round_params': {}}).encode()))
             packed = Path(tmp) / 'pack.json'
             main(['pack', '--limen', str(source), '--out', str(packed)])
             run = json.loads(packed.read_text())['runs'][0]
-            self.assertEqual(run['roundsBadCount'], 3)
+            self.assertEqual(run['roundsBadCount'], 4)
             self.assertEqual(run['rounds'][-1][0], 41)
             self.assertIn('No such file', run['roundsBad'][2]['error'])
 
@@ -208,6 +210,37 @@ class Storage(unittest.TestCase):
                              'temporary SSH failure')
             self.assertEqual(len(run.rounds), len(records) - 1)
             self.assertEqual(run.rounds[-1][0], records[-1]['_round_index'])
+
+    def test_cohort_read_reports_a_truncated_index_as_value_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / 'run'
+            shutil.copytree(FIXTURE, source)
+            records = compress(source)
+            lines = RoundLines()
+            rid = records[0]['round_id']
+            self.assertEqual(lines.get(str(source), rid), records[0])
+            # Simulate truncation between reading the index and seeking it.
+            (source / COMPACT).write_bytes(b'')
+            with patch.object(lines, '_offsets', return_value={rid: 0}), \
+                    self.assertRaisesRegex(ValueError, 'no longer in'):
+                lines.get(str(source), rid)
+
+    def test_opener_reports_conflicting_storage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / 's1'
+            source.mkdir()
+            (source / 'results.csv').touch()
+            (source / 'metadata.json').write_text(json.dumps(
+                {'round_storage': 'future'}))
+            project = Project.__new__(Project)
+            project.open_lock = threading.Lock()
+            project.notes = {}
+            with patch.object(project, '_record_shards', return_value=[
+                    {'state': 'running', 'label': 's1'}]), \
+                    patch.object(project, 'open') as opened:
+                project._open_when_written('run', tmp)
+            opened.assert_not_called()
+            self.assertIn('Conflicting or unknown', project.notes['run'])
 
     def test_shared_market_integrity(self) -> None:
         raw = b'{"ret":[null,0.25]}'

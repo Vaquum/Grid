@@ -482,8 +482,11 @@ class RoundLines:
             raise ValueError("round %s is not in %s" % (round_id[:12], path))
         with open(path, "rb") as f:
             f.seek(offsets[round_id])
-            raw, _, _ = next(frames(f, compact=path.endswith(".gz")))
-            loaded: Any = json.loads(raw)
+            frame = next(frames(f, compact=path.endswith(".gz")), None)
+            if frame is None:
+                raise ValueError("round %s is no longer in %s"
+                                 % (round_id[:12], path))
+            loaded: Any = json.loads(frame[0])
         if not isinstance(loaded, dict):
             raise ValueError("round %s's line is not an object"
                              % round_id[:12])

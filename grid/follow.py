@@ -71,7 +71,7 @@ class _GzipLines(_LineBuffer):
         self.members = Members(self._member)
 
     def _member(self, raw: bytes, start: int, end: int) -> None:
-        self.on_line(raw.decode("utf-8").rstrip("\n"),
+        self.on_line(raw.decode("utf-8", errors="replace").rstrip("\n"),
                      end <= self.preload_end)
 
     def feed(self, chunk: bytes) -> None:
