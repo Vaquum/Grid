@@ -795,7 +795,7 @@ def main(argv: list[str] | None = None) -> int:
     retain.add_argument("--run", required=True, action="append", metavar="DIR")
     retain.add_argument("--store", required=True, metavar="SQLITE")
     retain.add_argument("--sealed", action="store_true",
-                        help="assert stopped producers and closed Grid readers")
+                        help="assert stopped producers and closed readers")
     retain.add_argument("--prune", action="store_true",
                         help="release originals after exact reconstruction")
     retain.add_argument("--runtime", metavar="SHA256",
