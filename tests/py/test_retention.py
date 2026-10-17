@@ -117,7 +117,7 @@ class Retention(unittest.TestCase):
                         store.close()
                         continue
                     recipe = client.verify({}, record, {})
-                    self.assertIsNotNone(recipe)
+                    assert recipe is not None
                     self.assertEqual(rpc.call_count, 2)
                     # No native cache or worker is consulted on a repeated
                     # occurrence once source values bind to a durable proof.
