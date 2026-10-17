@@ -233,6 +233,10 @@ class Retention(unittest.TestCase):
                 reader.close()
             self.assertEqual(expected, science(run, root / "after.json"))
             materialize(run, root / "export/native")
+            with gzip.open(root / "export/native" / COMPACT, "rt") as stream:
+                exported = json.loads(next(stream))
+            self.assertIn("market_ref", exported)
+            self.assertNotIn("market", exported)
             self.assertEqual(
                 expected, science(root / "export/native", root / "native.json")
             )

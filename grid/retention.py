@@ -22,6 +22,7 @@ from .evidence import (
     CONTRACT,
     VECTOR_PATHS,
     Evidence,
+    LRU,
     MarketCache,
     Reducer,
     digest,
@@ -833,13 +834,36 @@ def materialize(directory: str | Path, destination: str | Path) -> Json:
                 shutil.copyfile(path, stage / path.name)
         name = str(reader.desc["original_rounds"])
         count = 0
+        market_refs = LRU(1 << 20)
         with (stage / name).open("wb") as out:
             for entry in reader.entries():
                 node = cast(Json, entry["grid"])
                 if "raw" in node:
                     _, _, raw = reader.evidence.get(node["raw"])
                 else:
-                    raw = encoded(reader.restore(entry)) + b"\n"
+                    wire = reader.restore(entry)
+                    market: Any = wire.get("market")
+                    if name == COMPACT and isinstance(market, dict) and \
+                            set(cast(Json, market)) == {"ret"}:
+                        # Keep native market sharing. Repeating hydrated
+                        # markets inflated temporary exports and serialized
+                        # the same immutable return vector every occurrence.
+                        key = record_digest({"market": market})
+                        ref: Any = market_refs.get(key)
+                        if ref is None:
+                            payload = encoded(market)
+                            if record_digest({"market": json.loads(payload)}) \
+                                    != key:
+                                raise ValueError("Market JSON roundtrip changed")
+                            ref = hashlib.sha256(payload).hexdigest()
+                            market_dir = stage / "round_market"
+                            market_dir.mkdir(exist_ok=True)
+                            (market_dir / (ref + ".json.gz")).write_bytes(
+                                gzip.compress(payload, mtime=0))
+                            market_refs.put(key, ref, 512)
+                        wire = {k: v for k, v in wire.items() if k != "market"}
+                        wire["market_ref"] = ref
+                    raw = encoded(wire) + b"\n"
                 out.write(
                     gzip.compress(raw, mtime=0) if name == COMPACT else raw
                 )
