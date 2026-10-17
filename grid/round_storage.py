@@ -146,8 +146,7 @@ def restore(record: Json, read: Callable[[str], bytes]) -> Json:
             if isinstance(execution, dict) else None
         if not isinstance(preds, list):
             raise ValueError("Missing execution positions for market alignment")
-    if (isinstance(preds, list) and
-            len(returns) != len(cast(list[Any], preds))) or any(
+    if len(returns) != len(cast(list[Any], preds)) or any(
                 not _finite_return(v) for v in returns):
         raise ValueError("Invalid market returns or prediction length")
     return {("market" if k == "market_ref" else k):

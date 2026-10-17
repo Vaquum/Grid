@@ -28,10 +28,12 @@ def verify_release(client: Client, project: Path, text: str) -> None:
     end = text.index("\nuel:", start)
     text = text[:start] + ("  params:\n    fee: [0, 2]\n"
                           "    hold_bars: [1, 3]\n") + text[end:]
+    text = set_values(text, {"uel.n_permutations": 4})
 
     def run(name: str, candidate: str
             ) -> tuple[Path, list[dict[str, Any]], str]:
-        assert call("grid_validate", text=candidate)["errors"] == []
+        checked = call("grid_validate", text=candidate)
+        assert checked["errors"] == [], checked
         call("grid_create", name=name, text=candidate, requestId=name)
         manifest = call("grid_manifest", name=name)
         rid = call("grid_start", name=name, version=manifest["version"],
@@ -58,11 +60,15 @@ def verify_release(client: Client, project: Path, text: str) -> None:
     for field in ("recency_n", "persistence_n"):
         candidate = text.replace("      entry: enter", (
             "        %s: '{hold_bars}'\n      entry: enter" % field))
-        assert call("grid_validate", text=candidate)["errors"] == []
+        checked = call("grid_validate", text=candidate)
+        assert checked["errors"] == [], checked
         for domain in ("[0]", "[-1]", "[true]", "['2']", "[1.5]"):
             invalid = candidate.replace("hold_bars: [1, 3]",
                                         "hold_bars: " + domain)
-            assert call("grid_validate", text=invalid)["schemaErrors"], invalid
+            checked = call("grid_validate", text=set_values(invalid, {
+                "uel.n_permutations": 1}))
+            assert any(e["path"].endswith(field) for e in
+                       checked["schemaErrors"]), checked
         condition = candidate.index("      - id: enter")
         entry = candidate.index("      entry: enter", condition)
         flow = candidate[:condition] + (
