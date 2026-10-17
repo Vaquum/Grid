@@ -250,7 +250,8 @@ class TestAgent(unittest.TestCase):
             self.project.version = version
             execution = self.call("grid_discover")["execution"]
             self.assertEqual(execution["ruleTemporalReferences"], supported)
-            self.assertEqual(execution["recordingPolicy"], version == "5.30.2")
+            self.assertEqual(execution["recordingPolicy"],
+                             version == "5.30.2")
             for field in ("recency_n", "persistence_n"):
                 candidate = text.replace("      entry: enter", (
                     "        %s: '{hold_bars}'\n      entry: enter" % field))
