@@ -268,3 +268,15 @@ class Storage(unittest.TestCase):
             restore(record, lambda _: gzip.compress(b'{"ret":[]}'))
         with self.assertRaises(FileNotFoundError):
             restore(record, lambda name: read_local('/nonexistent', name))
+
+    def test_omitted_predictions_require_execution_alignment(self) -> None:
+        raw = b'{"ret":[null,0.25]}'
+        record = {'market_ref': hashlib.sha256(raw).hexdigest(),
+                  'execution': {'pos': [0, 1]}}
+        self.assertEqual(restore(record, lambda _: gzip.compress(raw))[
+            'market'], {'ret': [None, 0.25]})
+        for execution in (None, {}, {'pos': None}, {'pos': [0]}):
+            with self.subTest(execution=execution), \
+                    self.assertRaises(ValueError):
+                restore(dict(record, execution=execution),
+                        lambda _: gzip.compress(raw))
