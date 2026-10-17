@@ -64,6 +64,7 @@ from .follow import (
     SSHFollower,
     list_remote,
     read_remote,
+    read_remote_bytes,
     remote_mtimes,
     remote_result_dirs,
 )
@@ -335,15 +336,14 @@ class Wiring:
         if name not in names:
             run.experiment.setdefault("roundLog", None)
             return
-        join = posixpath.join if a.ssh else os.path.join
         path = join(directory, name)
 
         def line(text: str, pre: bool) -> None:
             if name.endswith(".gz"):
                 def read(blob: str) -> bytes:
                     if a.ssh:
-                        from .follow import _quote, _ssh
-                        return _ssh(a.ssh, "cat", _quote(join(directory, blob)))
+                        return read_remote_bytes(
+                            a.ssh, join(directory, blob))
                     return read_local(directory, blob)
                 text = json.dumps(restore(json.loads(text), read))
             self.sweep.round_line(run, text, pre, shard)

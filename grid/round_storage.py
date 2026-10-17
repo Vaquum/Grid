@@ -13,7 +13,7 @@ import os
 import re
 import zlib
 from collections.abc import Callable, Iterable, Iterator
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, cast
 
 FORMAT = "gzip-jsonl-v1"
 PLAIN = "round_data.jsonl"
@@ -37,12 +37,12 @@ def round_name(names: Iterable[str], metadata: Json) -> str:
 def round_path(directory: str) -> str:
     try:
         with open(os.path.join(directory, "metadata.json")) as stream:
-            metadata = json.load(stream)
+            metadata: Any = json.load(stream)
     except FileNotFoundError:
         metadata = {}
     if not isinstance(metadata, dict):
         raise ValueError("Invalid round storage metadata")
-    return os.path.join(directory, round_name(os.listdir(directory), metadata))
+    return os.path.join(directory, round_name(os.listdir(directory), cast(Json, metadata)))
 
 
 class Members:
@@ -118,14 +118,15 @@ def restore(record: Json, read: Callable[[str], bytes]) -> Json:
     payload = blobs[0][0]
     if hashlib.sha256(payload).hexdigest() != digest:
         raise ValueError("Market digest mismatch")
-    market = json.loads(payload)
-    values = market.get("ret") if isinstance(market, dict) else None
-    preds = record.get("preds")
-    if not isinstance(market, dict) or set(market) != {"ret"} or \
+    market: Any = json.loads(payload)
+    values: Any = cast(Json, market).get("ret") \
+        if isinstance(market, dict) else None
+    preds: Any = record.get("preds")
+    if not isinstance(market, dict) or set(cast(Json, market)) != {"ret"} or \
             not isinstance(values, list) or \
-            (isinstance(preds, list) and len(values) != len(preds)) or \
+            (isinstance(preds, list) and len(cast(list[Any], values)) != len(cast(list[Any], preds))) or \
             any(v is not None and (type(v) not in (int, float) or
-                                   not math.isfinite(v)) for v in values):
+                                   not math.isfinite(v)) for v in cast(list[Any], values)):
         raise ValueError("Invalid market returns or prediction length")
     return {("market" if k == "market_ref" else k):
             (market if k == "market_ref" else v) for k, v in record.items()}

@@ -282,3 +282,8 @@ def list_remote(host: str, directory: str) -> list[str]:
 def read_remote(host: str, path: str) -> str:
     """Read a whole remote text file once (a Limen run's metadata)."""
     return _ssh(host, "cat", _quote(path)).decode("utf-8", errors="replace")
+
+
+def read_remote_bytes(host: str, path: str) -> bytes:
+    """Read one remote binary artifact without a text decoding pass."""
+    return _ssh(host, "cat", _quote(path))
