@@ -272,7 +272,8 @@ class Native:
             for name, value in fields.items()
             for column, values in cast(Json, value).items()
         }
-        self.executions.put(cache_key, vectors, len(encoded(vectors)) * 2 + 1024)
+        self.executions.put(
+            cache_key, vectors, len(encoded(vectors)) * 2 + 1024)
         return vectors
 
     def signal(self, recipe: Json) -> Json:
