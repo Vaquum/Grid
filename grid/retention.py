@@ -624,9 +624,6 @@ def compact(
                     record: Json | None = None
                     text = raw.decode("utf-8", errors="replace").rstrip("\n")
                     try:
-                        text = raw.decode("utf-8", errors="replace").rstrip(
-                            "\n"
-                        )
                         if not text.strip():
                             node["blank"] = True
                             node["raw"] = evidence.put("bytes", len(raw), raw)
@@ -806,6 +803,7 @@ def materialize(directory: str | Path, destination: str | Path) -> Json:
     root, target = Path(directory).resolve(), Path(destination).resolve()
     if target.exists():
         raise ValueError("Materialization destination must be new")
+    target.parent.mkdir(parents=True, exist_ok=True)
     reader = Reader(root)
     stage = Path(
         tempfile.mkdtemp(prefix=".grid-materialize-", dir=target.parent)

@@ -133,15 +133,18 @@ class Retention(unittest.TestCase):
                 self.assertEqual(
                     [json.loads(line) for line in selected], records[:2]
                 )
-                materialize(run, root / "native")
+                materialize(run, root / "export/native")
                 self.assertEqual(
-                    (root / "native/results.csv").read_bytes(), original_csv
+                    (root / "export/native/results.csv").read_bytes(),
+                    original_csv,
                 )
                 self.assertEqual(
-                    (root / "native" / PLAIN).read_bytes(), original_rounds
+                    (root / "export/native" / PLAIN).read_bytes(),
+                    original_rounds,
                 )
                 self.assertEqual(
-                    expected, science(root / "native", root / "native.json")
+                    expected,
+                    science(root / "export/native", root / "native.json"),
                 )
 
     def test_compressed_market_refs_and_duplicate_occurrences_survive(
@@ -263,9 +266,9 @@ class Retention(unittest.TestCase):
             expected = science(run, root / "before.json")
             compact(run, root / "shared.sqlite3", sealed=True, prune=True)
             self.assertEqual(expected, science(run, root / "after.json"))
-            materialize(run, root / "native")
+            materialize(run, root / "export/native")
             self.assertEqual(
-                expected, science(root / "native", root / "native.json")
+                expected, science(root / "export/native", root / "native.json")
             )
 
     def test_native_restore_requires_closed_readers_and_keeps_history(
