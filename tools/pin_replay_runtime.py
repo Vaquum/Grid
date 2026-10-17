@@ -24,8 +24,20 @@ from grid.replay import (  # noqa: E402
     numeric_platform,
     runtime_identity,
 )
-from grid.retention import atomic_json  # noqa: E402
+from grid.retention import atomic_json, sync_dir, sync_tree  # noqa: E402
 from grid.round_storage import Json  # noqa: E402
+
+
+def publish_pin(root: Path, anchor: Path, receipt: Json) -> None:
+    """Durable code and directory ancestry precede the eviction capability."""
+    sync_tree(root / "code")
+    current = root
+    while True:
+        sync_dir(current)
+        if current == anchor:
+            break
+        current = current.parent
+    atomic_json(root / "pin.json", receipt)
 
 
 def pin(
@@ -97,6 +109,9 @@ def pin(
     code = code_identity(package)
     runtime = runtime_identity(image_id, code, cast(Json, numeric))
     store = store.resolve()
+    anchor = store
+    while not anchor.exists():
+        anchor = anchor.parent
     root = store / "runtimes" / runtime[:16]
     for directory in (store, store / "assets", root, root / "socket"):
         new = not directory.exists()
@@ -240,7 +255,7 @@ def pin(
         "image_virtual_bytes": inspected.get("Size"),
         "code_bytes": sum(p.stat().st_size for p in frozen.rglob("*.py")),
     }
-    atomic_json(root / "pin.json", receipt)
+    publish_pin(root, anchor, receipt)
     if os.geteuid() == 0:
         os.chown(root / "pin.json", uid, gid)
     return receipt

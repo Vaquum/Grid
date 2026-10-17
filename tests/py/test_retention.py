@@ -62,6 +62,38 @@ def science(path: Path, output: Path) -> dict:
 
 
 class Retention(unittest.TestCase):
+    def test_runtime_code_is_durable_before_pin_publication(self) -> None:
+        from tools import pin_replay_runtime as runtime
+
+        with tempfile.TemporaryDirectory() as tmp:
+            anchor = Path(tmp)
+            root = anchor / "store/runtimes/identity"
+            code = root / "code/grid"
+            code.mkdir(parents=True)
+            (code / "native.py").write_text("PROTOCOL = 1\n")
+            events = []
+            syncing_tree, syncing = runtime.sync_tree, runtime.sync_dir
+            atomic = runtime.atomic_json
+
+            def tree(path: Path) -> None:
+                syncing_tree(path)
+                events.append(("code", path))
+
+            def directory(path: Path) -> None:
+                syncing(path)
+                events.append(("directory", path))
+
+            def publish(path: Path, value: object) -> None:
+                self.assertIn(("code", root / "code"), events)
+                self.assertEqual(events[-1], ("directory", anchor))
+                atomic(path, value)
+
+            with patch.object(runtime, "sync_tree", tree), \
+                    patch.object(runtime, "sync_dir", directory), \
+                    patch.object(runtime, "atomic_json", publish):
+                runtime.publish_pin(root, anchor, {"runtime": "identity"})
+            self.assertTrue((root / "pin.json").is_file())
+
     def test_published_staging_history_survives_recompaction(self) -> None:
         from grid import retention
 
