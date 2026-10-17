@@ -118,11 +118,55 @@ def child(root: Path, output: Path, package: Path) -> dict[str, Any]:
     return result
 
 
-def run(args: argparse.Namespace) -> None:
+
+def recover_exports(native: Path, retained: Path, destination: Path
+                    ) -> dict[str, Any]:
     from grid.cohort import RoundLines
-    from grid.evidence import digest, record_digest
-    from grid.retention import compact, materialize, verify
+    from grid.evidence import record_digest
+    from grid.retention import materialize
     from grid.round_storage import frames, read_local, restore, round_path
+
+    began = time.perf_counter()
+    materialization = validation = 0.0
+    occurrences = 0
+    lines = RoundLines()
+    for metadata in sorted(retained.rglob("metadata.json")):
+        relative = metadata.parent.relative_to(retained)
+        exported, original = destination / relative, native / relative
+        started = time.perf_counter()
+        materialize(metadata.parent, exported)
+        materialization += time.perf_counter() - started
+        started = time.perf_counter()
+        if (exported / "results.csv").read_bytes() != (
+                original / "results.csv").read_bytes():
+            raise ValueError("Exported CSV differs from recorded bytes")
+        identities: list[str] = []
+        for folder in (original, exported):
+            identity = hashlib.sha256()
+            with Path(round_path(str(folder))).open("rb") as stream:
+                for raw, _, _ in frames(stream, compact=str(stream.name).endswith(
+                        ".gz"), tail=False):
+                    record = restore(json.loads(raw), lambda name, folder=folder:
+                                     read_local(str(folder), name))
+                    identity.update(record_digest(record).encode() + b"\n")
+                    if folder == exported:
+                        actual = lines.get(str(metadata.parent), record["round_id"])
+                        expected = lines.get(str(original), record["round_id"])
+                        if record_digest(actual) != record_digest(expected):
+                            raise ValueError("Indexed cohort/Trainer read differs")
+                        occurrences += 1
+            identities.append(identity.hexdigest())
+        if identities[0] != identities[1]:
+            raise ValueError("Exported typed round evidence differs")
+        validation += time.perf_counter() - started
+    return {"seconds": time.perf_counter() - began,
+            "materialization_seconds": materialization,
+            "validation_seconds": validation,
+            "exact_occurrences": occurrences, "peak_rss_bytes": rss()}
+
+
+def run(args: argparse.Namespace) -> None:
+    from grid.retention import compact, verify
 
     corpus, work = args.corpus.resolve(), args.work.resolve()
     if work.exists() or work.is_relative_to(corpus):
@@ -194,49 +238,9 @@ def run(args: argparse.Namespace) -> None:
             measurements.append(
                 {"repetition": repetition, "mode": mode, **result}
             )
-    export_started = time.perf_counter()
-    occurrence_count = 0
-    for metadata in sorted(retained.rglob("metadata.json")):
-        relative = metadata.parent.relative_to(retained)
-        exported = work / "exports" / relative
-        materialize(metadata.parent, exported)
-        original = native / relative
-        if (exported / "results.csv").read_bytes() != (
-            original / "results.csv"
-        ).read_bytes():
-            raise ValueError("Exported CSV differs from recorded bytes")
-        restored: list[str] = []
-        for folder in (original, exported):
-            hashes: list[str] = []
-            with Path(round_path(str(folder))).open("rb") as stream:
-                for raw, _, _ in frames(
-                    stream,
-                    compact=str(stream.name).endswith(".gz"),
-                    tail=False,
-                ):
-                    record = restore(
-                        json.loads(raw),
-                        lambda name, folder=folder: read_local(
-                            str(folder), name
-                        ),
-                    )
-                    hashes.append(record_digest(record))
-                    if folder == exported:
-                        actual = RoundLines().get(
-                            str(metadata.parent), record["round_id"]
-                        )
-                        expected = RoundLines().get(
-                            str(original), record["round_id"]
-                        )
-                        if record_digest(actual) != record_digest(expected):
-                            raise ValueError(
-                                "Indexed cohort/Trainer read differs"
-                            )
-                        occurrence_count += 1
-            restored.append(digest(hashes))
-        if restored[0] != restored[1]:
-            raise ValueError("Exported typed round evidence differs")
-    export_seconds = time.perf_counter() - export_started
+    exported = recover_exports(native, retained, work / "exports")
+    export_seconds = exported["seconds"]
+    occurrence_count = exported["exact_occurrences"]
     if runtime_client is not None:
         runtime_snapshots["after_export"] = runtime_client.call(
             {"op": "identity"})
@@ -263,6 +267,7 @@ def run(args: argparse.Namespace) -> None:
         "migration_seconds": migration_seconds,
         "verification_seconds": verification_seconds,
         "export_seconds": export_seconds,
+        "export": exported,
         "exact_occurrences": occurrence_count,
         "peak_parent_rss_bytes": rss(),
         "descriptors": descriptors,
