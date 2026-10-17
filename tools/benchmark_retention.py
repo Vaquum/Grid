@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import time
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -144,15 +145,13 @@ def recover_exports(
         identities: list[str] = []
         for folder in (original, exported):
             identity = hashlib.sha256()
+            read = partial(read_local, str(folder))
             with Path(round_path(str(folder))).open("rb") as stream:
                 for raw, _, _ in frames(
                     stream, compact=str(stream.name).endswith(".gz"),
                     tail=False,
                 ):
-                    record = restore(
-                        json.loads(raw), lambda name, folder=folder:
-                        read_local(str(folder), name),
-                    )
+                    record = restore(json.loads(raw), read)
                     identity.update(record_digest(record).encode() + b"\n")
                     if folder == exported:
                         actual = lines.get(
