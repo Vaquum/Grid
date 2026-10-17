@@ -221,7 +221,7 @@ Docker serves only `127.0.0.1:8490`; the host's Caddy, maintained in
 `https://grid.vaquum.fi` behind Portal's login and provides its landing card.
 The page, API and event stream all pass through that authentication gate.
 
-The container includes Limen 5.27.0 and creates an official Limen project
+The container includes Limen 5.30.2 and creates an official Limen project
 at `/data/project` on first start. The `grid_project` volume keeps its
 manifests, experiment results and cohorts across image rebuilds and
 redeployments. It runs as an unprivileged user with a read-only image;
