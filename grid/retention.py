@@ -15,7 +15,7 @@ import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, BinaryIO, TextIO, cast
+from typing import Any, TextIO, cast
 
 from .evidence import (
     CONTRACT,
@@ -136,29 +136,38 @@ def open_results(path: str | Path) -> Iterator[TextIO]:
         yield stream
 
 
-def read_lease(directory: str | Path) -> BinaryIO | None:
-    """Readers of writable runs cooperate with offline compaction."""
+def read_lease(directory: str | Path) -> int | None:
+    """Lock the directory inode without mutating a read-only dataset."""
+    if os.name != "posix":
+        return None
     import fcntl
     try:
-        stream = open(Path(directory) / ".grid-retain.lock", "a+b")
+        fd = os.open(directory, os.O_RDONLY)
     except PermissionError:
-        # A read-only result directory cannot be compacted by this reader.
         return None
-    fcntl.flock(stream, fcntl.LOCK_SH | fcntl.LOCK_NB)
-    return stream
+    try:
+        fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
 
 
 @contextmanager
-def _exclusive(directory: Path, name: str = ".grid-retain.lock"
-               ) -> Iterator[None]:
+def _exclusive(directory: Path) -> Iterator[None]:
+    if os.name != "posix":
+        raise ValueError("Sealed migration requires POSIX advisory locks")
     import fcntl
-    with (directory / name).open("a+b") as stream:
+    fd = os.open(directory, os.O_RDONLY)
+    try:
         try:
-            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise ValueError("Run is open in Grid; close its readers before "
                              "compaction") from exc
         yield
+    finally:
+        os.close(fd)
 
 
 def _stamp(path: Path) -> tuple[int, int, int, int]:

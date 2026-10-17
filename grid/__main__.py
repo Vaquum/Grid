@@ -52,7 +52,7 @@ import sys
 import threading
 import time
 import webbrowser
-from typing import Any, BinaryIO, cast
+from typing import Any, cast
 
 from . import __version__
 from .agent_client import cmd_agent, cmd_mcp, write_connection
@@ -150,7 +150,7 @@ class Wiring:
         self.evidence = Evidence(cache, writable=True) if cache else None
         self.reducer = Reducer(self.evidence, durable_each_round=True)
         self.markets = MarketCache()
-        self.leases: list[BinaryIO] = []
+        self.leases: list[int] = []
         self.retained_readers: list[RetainedReader] = []
         if self.project:
             name = name or os.path.basename(os.path.abspath(self.project))
@@ -584,10 +584,12 @@ class Wiring:
                 self.evidence.db.commit()
 
     def close(self) -> None:
+        for follower in self.followers:
+            follower.stop()
         for reader in self.retained_readers:
             reader.close()
         for lease in self.leases:
-            lease.close()
+            os.close(lease)
         if self.evidence is not None:
             self.evidence.close()
 

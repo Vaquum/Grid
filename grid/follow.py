@@ -113,6 +113,7 @@ class FileFollower:
         self.ino: int | None = None
         self.stopped = threading.Event()
         self.caught_up = threading.Event()   # the preloaded part is read
+        self.thread: threading.Thread | None = None
 
     def read_available(self) -> int:
         """Read everything appended since the last call; return bytes read."""
@@ -135,7 +136,7 @@ class FileFollower:
             f.seek(self.pos)
             # in chunks, up to the size seen above: a large file is never
             # held in memory whole
-            while self.pos < end:
+            while self.pos < end and not self.stopped.is_set():
                 chunk = f.read(min(CHUNK, end - self.pos))
                 if not chunk:
                     break
@@ -163,11 +164,14 @@ class FileFollower:
             self.caught_up.set()
 
     def start(self) -> None:
-        threading.Thread(target=self.run, daemon=True,
-                         name="follow:" + self.path).start()
+        self.thread = threading.Thread(target=self.run, daemon=True,
+                                       name="follow:" + self.path)
+        self.thread.start()
 
     def stop(self) -> None:
         self.stopped.set()
+        if self.thread is not None and self.thread is not threading.current_thread():
+            self.thread.join()
 
 
 class SSHFollower:

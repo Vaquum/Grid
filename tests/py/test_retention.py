@@ -6,6 +6,7 @@ import csv
 import gzip
 import io
 import json
+import os
 import shutil
 import tempfile
 import threading
@@ -170,7 +171,7 @@ class Retention(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "open in Grid"):
                     compact(run, root / "shared.sqlite3", sealed=True, prune=True)
             finally:
-                lease.close()
+                os.close(lease)
             if Path("/proc").is_dir():
                 with (run / PLAIN).open("ab"), \
                         self.assertRaisesRegex(ValueError, "producer write FD"):
