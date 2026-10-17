@@ -7,6 +7,7 @@ Run on the Docker host. Grid itself receives no Docker socket or credentials.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import inspect
 import json
 import os
@@ -126,7 +127,8 @@ def pin(
         )
     if code_identity(frozen) != code:
         raise ValueError("Frozen replay code differs from its identity")
-    name = "grid-replay-" + runtime[:16]
+    namespace = hashlib.sha256(str(store).encode()).hexdigest()[:12]
+    name = "grid-replay-" + runtime[:16] + "-" + namespace
     existing = run(["container", "inspect", name], check=False)
     if existing.returncode:
         if "No such" not in existing.stderr:
@@ -197,6 +199,10 @@ def pin(
             ]
         )
     actual: Any = json.loads(run(["container", "inspect", name]).stdout)[0]
+    mounts = {m["Destination"]: m["Source"] for m in actual.get("Mounts", [])}
+    expected_mounts = {"/replay": str(frozen.parent),
+                       "/assets": str(store / "assets"),
+                       "/socket": str(root / "socket")}
     if (
         actual.get("Image") != image_id
         or actual.get("Config", {})
@@ -205,6 +211,8 @@ def pin(
         != runtime
     ):
         raise ValueError("Container name belongs to a different runtime")
+    if any(mounts.get(path) != source for path, source in expected_mounts.items()):
+        raise ValueError("Retained runtime mounts belong to another store")
     if not actual["State"]["Running"]:
         run(["start", name])
     ready: Json | None = None
