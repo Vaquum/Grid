@@ -199,7 +199,9 @@ def get_value(text: str, dotted: str) -> str | None:
 
 
 def _version_at_least(version: str, minimum: tuple[int, ...]) -> bool:
-    match = re.match(r"^(\d+)\.(\d+)(?:\.(\d+))?(?:$|\+)", version)
+    # Compare release components while accepting pre/post/dev/local builds.
+    match = re.match(r"^(\d+)\.(\d+)(?:\.(\d+))?"
+                     r"(?=$|[.+-]|(?:a|b|rc)\d)", version)
     return bool(match and tuple(int(n or 0) for n in match.groups()) >=
                 minimum + (0,) * (3 - len(minimum)))
 
