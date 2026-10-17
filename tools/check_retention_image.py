@@ -16,7 +16,10 @@ from typing import Any
 from grid.__main__ import main as grid_main
 from grid.cohort import RoundLines
 from grid.evidence import encoded, record_digest
-from grid.experiment import Project, _slim
+from grid.experiment import (
+    Project,
+    _slim,  # pyright: ignore[reportPrivateUsage]
+)
 from grid.retention import (
     Reader,
     compact,
