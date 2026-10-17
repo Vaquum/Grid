@@ -3,6 +3,7 @@
 The serving Grid process has no scientific dependencies or Docker access.
 The worker accepts evidence operations over a private filesystem socket.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -25,8 +26,8 @@ from .evidence import (
     LRU,
     digest,
     encoded,
-    record_digest,
     read_wire_vector,
+    record_digest,
     vector_digest,
     wire_vector,
 )
@@ -48,7 +49,8 @@ class Native:
         self.limen: Any = importlib.import_module("limen")
         self.compiler: Any = importlib.import_module("limen.yaml.compiler")
         self.backtest: Any = importlib.import_module(
-            "limen.sfd.reference_architecture._backtest_evaluation")
+            "limen.sfd.reference_architecture._backtest_evaluation"
+        )
         self.code = code_identity(Path(__file__).parent)
         self.image = image
         self.numeric = numeric_platform()
@@ -62,13 +64,23 @@ class Native:
         self.executions = LRU(64 << 20)
 
     def identity(self) -> Json:
-        versions = {name: str(getattr(importlib.import_module(name),
-                                      "__version__", "unavailable"))
-                    for name in ("numpy", "polars", "sklearn", "lightgbm", "scipy")}
-        return {"runtime": self.runtime, "image": self.image,
-                "code": self.code, "python": sys.version,
-                "numeric": self.numeric,
-                "limen": str(self.limen.__version__), "libraries": versions}
+        versions = {
+            name: str(
+                getattr(
+                    importlib.import_module(name), "__version__", "unavailable"
+                )
+            )
+            for name in ("numpy", "polars", "sklearn", "lightgbm", "scipy")
+        }
+        return {
+            "runtime": self.runtime,
+            "image": self.image,
+            "code": self.code,
+            "python": sys.version,
+            "numeric": self.numeric,
+            "limen": str(self.limen.__version__),
+            "libraries": versions,
+        }
 
     def definition(self, key: str) -> Json:
         if not DIGEST.fullmatch(key):
@@ -84,30 +96,45 @@ class Native:
             raise ValueError("Replay definition digest mismatch")
         metadata = cast(Json, value)["metadata"]
         source = cast(Json, value)["source"]
-        if self.limen.__version__ != "5.29.0" or \
-                metadata.get("limen_version") != self.limen.__version__:
+        if (
+            self.limen.__version__ != "5.29.0"
+            or metadata.get("limen_version") != self.limen.__version__
+        ):
             raise ValueError("Unsupported native replay version")
         asset = source["asset"]
         path = (self.assets / asset).resolve()
-        if path.parent != self.assets or not DIGEST.fullmatch(source["sha256"]):
+        if path.parent != self.assets or not DIGEST.fullmatch(
+            source["sha256"]
+        ):
             raise ValueError("Invalid retained source location")
         with path.open("rb") as stream:
-            if hashlib.file_digest(stream, "sha256").hexdigest() != source["sha256"]:
+            if (
+                hashlib.file_digest(stream, "sha256").hexdigest()
+                != source["sha256"]
+            ):
                 raise ValueError("Retained source digest mismatch")
         declaration = copy.deepcopy(metadata["yaml_reference"])
         inner = declaration["sfd"]["manifest"]
         data_source = inner.get("data_source", {})
-        supported = (data_source.get("method") ==
-                     "limen.data.HistoricalData.get_any_file" and
-                     set(data_source.get("params", {})) == {"file_path_or_url"}
-                     and isinstance(inner.get("backtest"), dict)
-                     and not inner.get("bar_formation")
-                     and not inner.get("split_walk_forward")
-                     and inner.get("reference_architecture") in (
-                         "limen.sfd.reference_architecture.lightgbm_binary.lightgbm_binary",
-                         "limen.sfd.reference_architecture.rule_based.rule_based"))
-        result: Json = {"execution": supported, "model": False,
-                        "source": source, "declaration": declaration}
+        supported = (
+            data_source.get("method")
+            == "limen.data.HistoricalData.get_any_file"
+            and set(data_source.get("params", {})) == {"file_path_or_url"}
+            and isinstance(inner.get("backtest"), dict)
+            and not inner.get("bar_formation")
+            and not inner.get("split_walk_forward")
+            and inner.get("reference_architecture")
+            in (
+                "limen.sfd.reference_architecture.lightgbm_binary.lightgbm_binary",
+                "limen.sfd.reference_architecture.rule_based.rule_based",
+            )
+        )
+        result: Json = {
+            "execution": supported,
+            "model": False,
+            "source": source,
+            "declaration": declaration,
+        }
         if not supported:
             self.definitions.put(key, result, len(raw) * 4 + 1024)
             return result
@@ -119,16 +146,25 @@ class Native:
         family["data_source"]["params"]["file_path_or_url"] = source["sha256"]
         result["family"] = digest([self.runtime, family])
         if inner.get("type") == "ml":
-            factorize: Any = importlib.import_module("limen.experiment._factorize")
-            preparation: Any = importlib.import_module("limen.experiment._factorized_prep")
+            factorize: Any = importlib.import_module(
+                "limen.experiment._factorize"
+            )
+            preparation: Any = importlib.import_module(
+                "limen.experiment._factorized_prep"
+            )
             domain = declaration["sfd"]["params"]
             try:
                 axes = factorize._axes(manifest, domain)
                 factorize._check_manifest(manifest, domain, axes)
                 fitted: Any = preparation.FittedPreparation(
-                    manifest, domain, axes, factorize._references)
-                result.update(model=True, axes=sorted(axes),
-                              names=sorted(fitted.names), domain=sorted(domain))
+                    manifest, domain, axes, factorize._references
+                )
+                result.update(
+                    model=True,
+                    axes=sorted(axes),
+                    names=sorted(fitted.names),
+                    domain=sorted(domain),
+                )
             except ValueError as exc:
                 result["model_reason"] = str(exc)
         self.definitions.put(key, result, len(raw) * 4 + 4096)
@@ -136,8 +172,17 @@ class Native:
 
     def plan(self, key: str) -> Json:
         definition = self.definition(key)
-        return {name: definition.get(name) for name in (
-            "execution", "model", "family", "axes", "names", "model_reason")}
+        return {
+            name: definition.get(name)
+            for name in (
+                "execution",
+                "model",
+                "family",
+                "axes",
+                "names",
+                "model_reason",
+            )
+        }
 
     def frame(self, source: Json) -> Any:
         key = source["sha256"]
@@ -145,7 +190,9 @@ class Native:
         if frame is None:
             frame = self.pl.read_parquet(self.assets / source["asset"])
             if frame.estimated_size() > 128 << 20:
-                raise ValueError("Native source exceeds replay memory admission")
+                raise ValueError(
+                    "Native source exceeds replay memory admission"
+                )
             self.frames.put(key, frame, int(frame.estimated_size()))
         return frame
 
@@ -166,28 +213,46 @@ class Native:
                 value = datetime.fromisoformat(text)
                 return value.replace(tzinfo=None) if naive else value
 
-            where = ((self.pl.col("datetime") >= stamp(alignment["first_test_datetime"]))
-                     & (self.pl.col("datetime") <= stamp(alignment["last_test_datetime"])))
-            gone = [stamp(value) for value in alignment.get("missing_datetimes", [])]
+            where = (
+                self.pl.col("datetime")
+                >= stamp(alignment["first_test_datetime"])
+            ) & (
+                self.pl.col("datetime")
+                <= stamp(alignment["last_test_datetime"])
+            )
+            gone = [
+                stamp(value)
+                for value in alignment.get("missing_datetimes", [])
+            ]
             if gone:
                 missing = self.pl.Series("missing", gone, dtype=dtype)
-                where = where & ~self.pl.col("datetime").is_in(missing.implode())
-            prices = frame.filter(where).select([
-                name for name in ("datetime", "open", "high", "low", "close")
-                if name in frame.columns])
+                where = where & ~self.pl.col("datetime").is_in(
+                    missing.implode()
+                )
+            prices = frame.filter(where).select(
+                [
+                    name
+                    for name in ("datetime", "open", "high", "low", "close")
+                    if name in frame.columns
+                ]
+            )
             self.windows.put(key, prices, int(prices.estimated_size()))
         if prices.height != len(predictions):
             raise ValueError("Source/alignment does not reproduce test rows")
         options = recipe["options"]
         _, execution = self.backtest.evaluate_prices(
-            prices, predictions, options, configured=True)
+            prices, predictions, options, configured=True
+        )
         data: Json = {"_record_execution": True, "_alignment": {}}
-        self.backtest.record_execution(data, execution,
-                                       options.get("notional_rate", 1.0), prices)
+        self.backtest.record_execution(
+            data, execution, options.get("notional_rate", 1.0), prices
+        )
         result = cast(Json, data["_alignment"])
         fields = {"execution": result["execution"], "market": result["market"]}
         if record_digest(fields) != recipe["expected"]:
-            raise ValueError("Execution replay differs from recorded float64 evidence")
+            raise ValueError(
+                "Execution replay differs from recorded float64 evidence"
+            )
         self.executions.put(cache_key, fields, len(predictions) * 160 + 1024)
         return fields
 
@@ -196,39 +261,77 @@ class Native:
         if not definition.get("model"):
             raise ValueError("Model is outside deterministic replay admission")
         params = recipe["params"]
-        if params.get("deterministic") is not True or \
-                type(params.get("random_state")) is not int or \
-                params.get("n_jobs") != 1:
-            raise ValueError("Model needs fixed deterministic single-thread parameters")
-        key = digest([definition["family"],
-                      {k: v for k, v in params.items()
-                       if k not in definition["axes"]}])
+        if (
+            params.get("deterministic") is not True
+            or type(params.get("random_state")) is not int
+            or params.get("n_jobs") != 1
+        ):
+            raise ValueError(
+                "Model needs fixed deterministic single-thread parameters"
+            )
+        key = digest(
+            [
+                definition["family"],
+                {
+                    k: v
+                    for k, v in params.items()
+                    if k not in definition["axes"]
+                },
+            ]
+        )
         saved: Any = self.signals.get(key)
         if saved is not None:
             if encoded(saved["signature"]) != encoded(recipe["expected"]):
-                raise ValueError("Conflicting model outputs under identical replay inputs")
+                raise ValueError(
+                    "Conflicting model outputs under identical replay inputs"
+                )
             return cast(Json, saved)
-        names = set(definition["names"]) | (set(params) - set(definition["domain"]))
-        prep_key = digest([definition["family"],
-                           {name: params[name] for name in sorted(names)}])
+        names = set(definition["names"]) | (
+            set(params) - set(definition["domain"])
+        )
+        prep_key = digest(
+            [
+                definition["family"],
+                {name: params[name] for name in sorted(names)},
+            ]
+        )
         prepared: Any = self.prepared.get(prep_key)
         if prepared is None:
             manifest = definition["manifest"]
-            prepared = manifest.prepare_data(self.frame(definition["source"]), params)
+            prepared = manifest.prepare_data(
+                self.frame(definition["source"]), params
+            )
             total = 4096
-            for name in ("x_train", "y_train", "x_val", "y_val", "x_test", "y_test"):
+            for name in (
+                "x_train",
+                "y_train",
+                "x_val",
+                "y_val",
+                "x_test",
+                "y_test",
+            ):
                 if name not in prepared:
                     continue
                 matrix = self.np.asarray(prepared[name])
                 if name.startswith("x_"):
-                    matrix_key = digest([matrix.shape, matrix.strides, matrix.dtype.str,
-                                         hashlib.sha256(matrix.tobytes(order="A")).hexdigest()])
+                    matrix_key = digest(
+                        [
+                            matrix.shape,
+                            matrix.strides,
+                            matrix.dtype.str,
+                            hashlib.sha256(
+                                matrix.tobytes(order="A")
+                            ).hexdigest(),
+                        ]
+                    )
                     shared: Any = self.features.get(matrix_key)
                     if shared is not None:
                         matrix = shared
                     else:
                         matrix.flags.writeable = False
-                        self.features.put(matrix_key, matrix, int(matrix.nbytes))
+                        self.features.put(
+                            matrix_key, matrix, int(matrix.nbytes)
+                        )
                 matrix.flags.writeable = False
                 prepared[name] = matrix
                 total += int(matrix.nbytes)
@@ -243,19 +346,32 @@ class Native:
         alignment = data["_alignment"]
         actual_alignment = {
             name: [value.isoformat() for value in alignment[name]]
-            if name == "missing_datetimes" else alignment[name].isoformat()
-            for name in ("first_test_datetime", "last_test_datetime", "missing_datetimes")}
+            if name == "missing_datetimes"
+            else alignment[name].isoformat()
+            for name in (
+                "first_test_datetime",
+                "last_test_datetime",
+                "missing_datetimes",
+            )
+        }
         probabilities = self.np.asarray(output["probs"]).tolist()
         predictions = self.np.asarray(result["_preds"]).tolist()
-        signature = {"probs": vector_digest(probabilities),
-                     "preds": vector_digest(predictions),
-                     "alignment": digest(actual_alignment),
-                     "threshold": output["optimal_threshold"],
-                     "rule": output["threshold_rule"]}
+        signature = {
+            "probs": vector_digest(probabilities),
+            "preds": vector_digest(predictions),
+            "alignment": digest(actual_alignment),
+            "threshold": output["optimal_threshold"],
+            "rule": output["threshold_rule"],
+        }
         if encoded(signature) != encoded(recipe["expected"]):
-            raise ValueError("Model replay differs from recorded float64 evidence")
-        signal: Json = {"probs": probabilities, "signature": signature,
-                        "prep": prep_key}
+            raise ValueError(
+                "Model replay differs from recorded float64 evidence"
+            )
+        signal: Json = {
+            "probs": probabilities,
+            "signature": signature,
+            "prep": prep_key,
+        }
         self.signals.put(key, signal, len(probabilities) * 40 + 4096)
         return signal
 
@@ -266,10 +382,13 @@ class Native:
         params, expected = request["params"], request["expected"]
         result: Json = {}
         execution: Json = {
-            "source": definition["source"], "alignment": request["alignment"],
+            "source": definition["source"],
+            "alignment": request["alignment"],
             "options": definition["manifest"].resolve_backtest_config(params),
-            "preds": vector_digest(predictions), "expected": expected["execution"],
-            "predictions": wire_vector(predictions)}
+            "preds": vector_digest(predictions),
+            "expected": expected["execution"],
+            "predictions": wire_vector(predictions),
+        }
         if request.get("check_execution", True):
             try:
                 self.execution(execution, predictions)
@@ -277,8 +396,11 @@ class Native:
             except ValueError as exc:
                 result["execution_reason"] = str(exc)
         if request.get("check_model") and definition.get("model"):
-            model: Json = {"definition": request["definition"],
-                           "params": params, "expected": expected["model"]}
+            model: Json = {
+                "definition": request["definition"],
+                "params": params,
+                "expected": expected["model"],
+            }
             try:
                 signal = self.signal(model)
                 result.update(model=model, prep=signal["prep"])
@@ -310,13 +432,17 @@ class Native:
                 recipe = recipes["execution"]
                 original = read_wire_vector(recipe["predictions"])
                 if vector_digest(original) != recipe["preds"]:
-                    raise ValueError("Execution replay prediction digest mismatch")
+                    raise ValueError(
+                        "Execution replay prediction digest mismatch"
+                    )
                 fields.update(self.execution(recipe, original))
             if "model" in recipes:
                 recipe = recipes["model"]
                 signal = self.signal(recipe)
                 if encoded(signal["signature"]) != encoded(recipe["expected"]):
-                    raise ValueError("Cached model output differs from its recipe")
+                    raise ValueError(
+                        "Cached model output differs from its recipe"
+                    )
                 fields["probs"] = signal["probs"]
             vectors: Json = {}
             for name, value in fields.items():
@@ -350,7 +476,9 @@ def serve(socket_path: Path, assets: Path, image: str) -> None:
                 response = native.request(cast(Json, request))
             except Exception as exc:
                 response = {"error": type(exc).__name__ + ": " + str(exc)}
-            self.wfile.write(encoded({"protocol": PROTOCOL, **response}) + b"\n")
+            self.wfile.write(
+                encoded({"protocol": PROTOCOL, **response}) + b"\n"
+            )
 
     with socketserver.UnixStreamServer(str(socket_path), Handler) as server:
         os.chmod(socket_path, 0o600)
@@ -368,7 +496,9 @@ def main() -> None:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
             client.settimeout(30)
             client.connect(args.socket)
-            client.sendall(encoded({"protocol": PROTOCOL, "op": "identity"}) + b"\n")
+            client.sendall(
+                encoded({"protocol": PROTOCOL, "op": "identity"}) + b"\n"
+            )
             with client.makefile("rb") as stream:
                 print(stream.readline(WIRE_LIMIT).decode(), end="")
         return
