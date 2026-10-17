@@ -132,6 +132,12 @@ def run(args: argparse.Namespace) -> None:
     store = (
         args.store.resolve() if args.store else work / "cas/evidence.sqlite3"
     )
+    runtime_snapshots: dict[str, Any] = {}
+    runtime_client: Any = None
+    if args.runtime:
+        from grid.replay import ReplayClient
+        runtime_client = ReplayClient(store.parent, args.runtime)
+        runtime_snapshots["before"] = runtime_client.call({"op": "identity"})
     retained = work / "retained"
     shutil.copytree(native, retained)
     descriptors: list[dict[str, Any]] = []
@@ -149,10 +155,16 @@ def run(args: argparse.Namespace) -> None:
             {**desc, "migration_seconds": time.perf_counter() - started}
         )
     migration_seconds = time.perf_counter() - migration_started
+    if runtime_client is not None:
+        runtime_snapshots["after_migration"] = runtime_client.call(
+            {"op": "identity"})
     verification_started = time.perf_counter()
     for metadata in sorted(retained.rglob("metadata.json")):
         verify(metadata.parent)
     verification_seconds = time.perf_counter() - verification_started
+    if runtime_client is not None:
+        runtime_snapshots["after_full_verification"] = runtime_client.call(
+            {"op": "identity"})
     measurements: list[dict[str, Any]] = []
     identities: list[str] | None = None
     for repetition in range(args.repeats):
@@ -218,6 +230,9 @@ def run(args: argparse.Namespace) -> None:
         if restored[0] != restored[1]:
             raise ValueError("Exported typed round evidence differs")
     export_seconds = time.perf_counter() - export_started
+    if runtime_client is not None:
+        runtime_snapshots["after_export"] = runtime_client.call(
+            {"op": "identity"})
     sources = {
         key: value for d in descriptors for key, value in d["sources"].items()
     }
@@ -255,6 +270,7 @@ def run(args: argparse.Namespace) -> None:
             "benchmark_outputs": size(work / "outputs"),
         },
         "measurements": measurements,
+        "runtime_snapshots": runtime_snapshots,
     }
     args.out.write_text(json.dumps(result, indent=2) + "\n")
     print(

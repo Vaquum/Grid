@@ -62,6 +62,9 @@ class Native:
         self.features = LRU(128 << 20)
         self.signals = LRU(64 << 20)
         self.executions = LRU(64 << 20)
+        self.statistics = {"fit_attempts": 0, "model_hits": 0,
+                           "execution_evaluations": 0, "execution_hits": 0,
+                           "preparations": 0, "preparation_hits": 0}
 
     def identity(self) -> Json:
         versions = {
@@ -80,6 +83,14 @@ class Native:
             "numeric": self.numeric,
             "limen": str(self.limen.__version__),
             "libraries": versions,
+            "statistics": dict(self.statistics),
+            "caches": {name: {"entries": len(cache.values),
+                              "accounted_bytes": cache.size,
+                              "limit": cache.limit}
+                       for name, cache in (("signals", self.signals),
+                                           ("executions", self.executions),
+                                           ("prepared", self.prepared),
+                                           ("features", self.features))},
         }
 
     def definition(self, key: str) -> Json:
@@ -201,6 +212,7 @@ class Native:
         cache_key = digest(recipe)
         cached: Any = self.executions.get(cache_key)
         if cached is not None:
+            self.statistics["execution_hits"] += 1
             return cast(Json, cached)
         source, alignment = recipe["source"], recipe["alignment"]
         key = digest([source, alignment])
@@ -241,6 +253,7 @@ class Native:
         if prices.height != len(predictions):
             raise ValueError("Source/alignment does not reproduce test rows")
         options = recipe["options"]
+        self.statistics["execution_evaluations"] += 1
         _, execution = self.backtest.evaluate_prices(
             prices, predictions, options, configured=True
         )
@@ -291,6 +304,7 @@ class Native:
                 raise ValueError(
                     "Conflicting model outputs under identical replay inputs"
                 )
+            self.statistics["model_hits"] += 1
             return cast(Json, saved)
         names = set(definition["names"]) | (
             set(params) - set(definition["domain"])
@@ -307,6 +321,7 @@ class Native:
             prepared = manifest.prepare_data(
                 self.frame(definition["source"]), params
             )
+            self.statistics["preparations"] += 1
             total = 4096
             for name in (
                 "x_train",
@@ -342,11 +357,14 @@ class Native:
                 prepared[name] = matrix
                 total += int(matrix.nbytes)
             self.prepared.put(prep_key, prepared, total)
+        else:
+            self.statistics["preparation_hits"] += 1
         data = dict(prepared)
         data["_alignment"] = copy.deepcopy(prepared["_alignment"])
         if "_fitted_params" in prepared:
             data["_fitted_params"] = copy.deepcopy(prepared["_fitted_params"])
         data.update(_record_execution=False, _record_model_outputs=True)
+        self.statistics["fit_attempts"] += 1
         result = definition["manifest"].run_model(data, dict(params))
         output = data["_alignment"]["model_outputs"]
         alignment = data["_alignment"]
