@@ -324,7 +324,7 @@ class Evidence:
                 if _expand(kind, n, wire) != raw:
                     raise ValueError("Lossless evidence codec failed")
                 self.db.execute(
-                    "INSERT INTO objects VALUES (?,?,?,?)",
+                    "INSERT OR IGNORE INTO objects VALUES (?,?,?,?)",
                     (key, kind, n, wire),
                 )
         return key

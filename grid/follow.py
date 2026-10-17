@@ -20,7 +20,7 @@ from __future__ import annotations
 import os
 import subprocess
 import threading
-from typing import IO, Callable
+from typing import IO, Callable, cast
 
 from .round_storage import Members
 
@@ -304,3 +304,59 @@ def read_remote(host: str, path: str) -> str:
 def read_remote_bytes(host: str, path: str) -> bytes:
     """Read one remote binary artifact without a text decoding pass."""
     return _ssh(host, "cat", _quote(path))
+
+
+def retained_proofs(directory: str) -> dict[str, str | int]:
+    """Bounded integrity checks independent of CAS or the native runtime."""
+    import gzip
+    import hashlib
+    from pathlib import Path
+
+    root = Path(directory)
+    names = {"round_data.grid.jsonl.gz": "rounds_sha256",
+             "results.csv.gz": "csv_sha256",
+             "metadata.json": "metadata_sha256"}
+
+    def stamps() -> list[tuple[int, int, int, int, int]]:
+        result: list[tuple[int, int, int, int, int]] = []
+        for name in names:
+            st = (root / name).stat()
+            result.append((st.st_dev, st.st_ino, st.st_size,
+                           st.st_mtime_ns, st.st_ctime_ns))
+        return result
+
+    before = stamps()
+    proofs: dict[str, str | int] = {}
+    for name, key in names.items():
+        identity = hashlib.sha256()
+        with (root / name).open("rb") as stream:
+            for block in iter(lambda: stream.read(1 << 20), b""):
+                identity.update(block)
+        proofs[key] = identity.hexdigest()
+    count = 0
+    with gzip.open(root / "round_data.grid.jsonl.gz", "rb") as stream:
+        for block in iter(lambda: stream.read(1 << 20), b""):
+            count += block.count(b"\n")
+    proofs["records"] = count
+    if before != stamps():
+        raise ValueError("Retained files changed during validation")
+    return proofs
+
+
+def remote_retained_proofs(
+    host: str, directory: str,
+) -> dict[str, str | int]:
+    import inspect
+    import json
+
+    # The same stdlib-only bounded check runs on the host. Only hashes and
+    # a count cross SSH; Grid and its CAS need not be installed there.
+    script = "from __future__ import annotations\n" + \
+        inspect.getsource(retained_proofs) + (
+        "\nimport json,sys\n"
+        "print(json.dumps(retained_proofs(sys.argv[1])))\n"
+    )
+    return cast(dict[str, str | int], json.loads(_ssh(
+        host, "python3", "-c", _quote(script), _quote(directory),
+        timeout=300,
+    )))

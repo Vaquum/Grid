@@ -68,7 +68,9 @@ from .follow import (
     read_remote,
     read_remote_bytes,
     remote_mtimes,
+    remote_retained_proofs,
     remote_result_dirs,
+    retained_proofs,
 )
 from .limen import (
     dir_reports,
@@ -372,6 +374,16 @@ class Wiring:
             return
         path = join(directory, name)
         reader: RetainedReader | None = None
+        if name == RETAINED:
+            desc = (json.loads(read_remote(a.ssh, join(directory, DESCRIPTOR)))
+                    if a.ssh else descriptor(directory))
+            if not isinstance(desc, dict):
+                raise ValueError("Missing retained descriptor")
+            proofs = (remote_retained_proofs(a.ssh, directory) if a.ssh
+                      else retained_proofs(directory))
+            for key, value in proofs.items():
+                if value != cast(Json, desc).get(key):
+                    raise ValueError("Retained run integrity mismatch: " + key)
         if not a.ssh:
             lease = read_lease(directory)
             if lease is not None:

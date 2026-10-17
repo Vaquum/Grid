@@ -450,6 +450,10 @@ def cached_result(
     if not isinstance(packet, dict):
         raise ValueError("Invalid retained round")
     node = cast(Json, packet)
+    if node.get("proof") != digest(
+        {key: value for key, value in node.items() if key != "proof"}
+    ):
+        raise ValueError("Retained record verification proof changed")
     if node.get("blank"):
         return RoundResult(None)
     if "error" in node:

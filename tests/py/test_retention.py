@@ -9,6 +9,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -25,6 +26,7 @@ from grid.evidence import (
     wire_vector,
 )
 from grid.experiment import Project, _slim
+from grid.follow import remote_retained_proofs, retained_proofs
 from grid.limen import round_object
 from grid.replay import ReplayClient
 from grid.retention import (
@@ -69,6 +71,95 @@ def science(path: Path, output: Path) -> dict:
 
 
 class Retention(unittest.TestCase):
+    def test_cached_read_refuses_truncation_and_incorrect_count(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / "run"
+            shutil.copytree(FIXTURES / "limen_rule", run)
+            compact(run, root / "store.sqlite3", sealed=True, prune=True)
+            archive = run / RETAINED
+            original = archive.read_bytes()
+            with archive.open("rb") as stream:
+                boundary = next(frames(stream, compact=True, tail=False))[2]
+            archive.write_bytes(original[:boundary])
+            for follow in (False, True):
+                args = argparse.Namespace(
+                    name=None, limen=[str(run)], ssh=None, project=None,
+                    as_=None, log=None, run=None, label=None,
+                )
+                wiring = Wiring(args, follow=follow)
+                try:
+                    with self.assertRaisesRegex(ValueError, "integrity"):
+                        wiring.build()
+                finally:
+                    wiring.close()
+            archive.write_bytes(original)
+            desc = descriptor(run)
+            assert desc is not None
+            desc["records"] += 1
+            (run / DESCRIPTOR).write_bytes(encoded(desc))
+            with self.assertRaisesRegex(ValueError, "records"):
+                science(run, root / "bad.json")
+            self.assertFalse((root / "bad.json").exists())
+
+    def test_ssh_integrity_check_streams_on_host_and_quotes_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / "space ' $(false)"
+            shutil.copytree(FIXTURES / "limen_rule", run)
+            compact(run, root / "store.sqlite3", sealed=True, prune=True)
+
+            def ssh(host, *argv, timeout):
+                self.assertEqual(host, "host")
+                return subprocess.check_output(
+                    ["/bin/sh", "-c", " ".join(argv)], timeout=timeout)
+
+            with patch("grid.follow._ssh", side_effect=ssh):
+                self.assertEqual(remote_retained_proofs("host", str(run)),
+                                 retained_proofs(str(run)))
+
+    def test_concurrent_connections_intern_identical_object_atomically(
+        self,
+    ) -> None:
+        from grid import evidence
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "store.sqlite3"
+            stores = [Evidence(path, writable=True) for _ in range(2)]
+            barrier = threading.Barrier(2, timeout=5)
+            compressing = evidence._compress
+            errors = []
+
+            def compress_at_same_missing_object(kind, n, raw):
+                barrier.wait()
+                return compressing(kind, n, raw)
+
+            def write(store):
+                try:
+                    store.put("bytes", 6, b"shared")
+                    store.db.commit()
+                except Exception as exc:
+                    errors.append(exc)
+
+            try:
+                with patch.object(evidence, "_compress",
+                                  compress_at_same_missing_object):
+                    workers = [threading.Thread(target=write, args=(store,))
+                               for store in stores]
+                    for worker in workers:
+                        worker.start()
+                    for worker in workers:
+                        worker.join(10)
+                        self.assertFalse(worker.is_alive())
+                self.assertEqual(errors, [])
+                self.assertEqual(stores[0].db.execute(
+                    "SELECT count(*) FROM objects").fetchone()[0], 1)
+                key = stores[0].put("bytes", 6, b"shared")
+                self.assertEqual(stores[1].get(key), ("bytes", 6, b"shared"))
+            finally:
+                for store in stores:
+                    store.close()
+
     def test_replay_proofs_survive_cache_loss_and_reject_bad_transport(
         self,
     ) -> None:
