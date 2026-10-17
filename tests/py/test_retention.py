@@ -165,7 +165,7 @@ class Retention(unittest.TestCase):
         from grid import retention
 
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             run = root / "run"
             shutil.copytree(FIXTURES / "limen_rule", run)
             compress(run)
