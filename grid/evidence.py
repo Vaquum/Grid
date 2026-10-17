@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import re
 import sqlite3
 import sys
@@ -41,6 +42,23 @@ VECTOR_PATHS = (
 CONTRACT = hashlib.sha256(
     Path(__file__).with_name("limen.py").read_bytes() + sys.version.encode()
 ).hexdigest()
+
+
+def sync_parents(directory: Path, anchor: Path) -> None:
+    if os.name != "posix":
+        return
+    if directory != anchor and anchor not in directory.parents:
+        raise ValueError("Durability anchor must be a directory ancestor")
+    current = directory
+    while True:
+        fd = os.open(current, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        if current == anchor:
+            break
+        current = current.parent
 
 
 def encoded(value: Any) -> bytes:
@@ -224,6 +242,9 @@ class Evidence:
         self.cache = LRU(cache_bytes)
         self.writable = writable
         if writable:
+            anchor = self.path.parent
+            while not anchor.exists():
+                anchor = anchor.parent
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.db = sqlite3.connect(
                 self.path, timeout=30, check_same_thread=False
@@ -261,6 +282,7 @@ class Evidence:
                 INSERT OR IGNORE INTO info VALUES ('format', '1');
             """)
             self.db.commit()
+            sync_parents(self.path.parent, anchor)
         else:
             self.db = sqlite3.connect(
                 self.path.as_uri() + "?mode=ro",

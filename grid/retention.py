@@ -703,6 +703,9 @@ def compact(
             _gzip_copy(csv_path, stage / CSV)
             evidence.db.commit()
             evidence.db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            # SQLite durably commits the contents; persist its directory
+            # entries and any newly linked immutable input-assets directory.
+            sync_dir(evidence.path.parent)
             desc: Json = {
                 "format": ARCHIVE_FORMAT,
                 "id": archive_id,

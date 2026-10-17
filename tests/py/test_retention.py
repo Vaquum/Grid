@@ -62,6 +62,18 @@ def science(path: Path, output: Path) -> dict:
 
 
 class Retention(unittest.TestCase):
+    def test_new_shared_store_directory_is_durable(self) -> None:
+        from grid import evidence
+
+        with tempfile.TemporaryDirectory() as tmp:
+            anchor = Path(tmp).resolve()
+            directory = anchor / "new/nested/store"
+            with patch.object(evidence, "sync_parents",
+                              wraps=evidence.sync_parents) as syncing:
+                store = Evidence(directory / "evidence.sqlite3", writable=True)
+                store.close()
+                syncing.assert_called_once_with(directory, anchor)
+
     def test_runtime_code_is_durable_before_pin_publication(self) -> None:
         from tools import pin_replay_runtime as runtime
 
