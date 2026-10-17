@@ -89,7 +89,7 @@ sharing the project, including after restart.
 in `project.limen.capabilities`: `parallelRounds`, `parallelFactorize` (false),
 `parallelRequiresPrepEachRound`, `shardsRequireRandomSearch`, `cpuBudget`,
 `factorizedRandom` (false), `factorizedGridRequiresUnshuffled` (true),
-`ruleTemporalReferences` (false), and
+`ruleTemporalReferences` (Limen >= 5.29.1), `recordingPolicy` (Limen >= 5.30.0), and
 `preflight` (scope). The effective CPU budget accounts for affinity and cgroup
 quotas; fractional quotas round down to whole worker slots, with a minimum
 of one. `shards * uel.workers` cannot exceed this budget. Native parallel
@@ -573,7 +573,10 @@ unchanged; each pinned pack is immutable across arrivals and resets. Schema,
 gates, cohort and manifest queries defer Board effect calculations. Performance
 measurements describe processing stages, not network latency or financial evidence.
 
-Rule preflight requires condition items as block mappings with their first
-key on the sequence-dash line, for example `- id: signal`. Flow mappings,
-sequence aliases and anchored items must be expanded into this form before
-launch. Both plain and single/double-quoted temporal keys are checked.
+Before Limen 5.29.1, Grid's rule preflight requires condition items as block
+mappings with their first key on the sequence-dash line, for example
+`- id: signal`. On those runtimes, expand flow mappings, sequence aliases and
+anchored items into that form; plain and quoted temporal keys are checked.
+On Limen 5.29.1 or later, native validation handles temporal fields and accepts
+supported flow-style condition mappings. Grid still edits enclosing manifest
+mappings as blocks, as described under manifest editing.
