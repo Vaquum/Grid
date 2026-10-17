@@ -109,8 +109,8 @@ class Storage(unittest.TestCase):
                 self.assertTrue(new['experiment']['roundLog'].endswith(COMPACT))
                 lines = RoundLines()
                 for record in records:
-                    self.assertEqual(lines.get(str(source), record['round_id']),
-                                     record)
+                    self.assertEqual(
+                        lines.get(str(source), record['round_id']), record)
                 slim = root / 'slim'
                 _slim(str(source), str(slim), records[:2])
                 self.assertNotIn('round_storage', json.loads(
@@ -118,8 +118,8 @@ class Storage(unittest.TestCase):
                 self.assertEqual(RoundLines().get(str(slim),
                                                  records[0]['round_id']),
                                  records[0])
-                self.assertEqual(len((slim / PLAIN).read_text().splitlines()), 2)
-
+                exported = (slim / PLAIN).read_text().splitlines()
+                self.assertEqual(len(exported), 2)
 
     def test_file_append_partial_replace_and_index_invalidation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
