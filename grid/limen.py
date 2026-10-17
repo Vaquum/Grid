@@ -7,8 +7,8 @@ appends one line to ``results.csv`` as each round finishes: the metrics,
 then every parameter, then the round's own bookkeeping. The manifest says
 which columns are parameters, so nothing is inferred about them; its copy
 is kept as written, comments and all, for the page to show and narrow.
-After a round that succeeded, it appends the round to ``round_data.jsonl.gz`` (Limen 5.29)
-or legacy ``round_data.jsonl``
+After a round that succeeded, it appends the round to
+``round_data.jsonl.gz`` (Limen 5.29) or legacy ``round_data.jsonl``
 (its parameters as the round used them, and its predictions); from it the
 page learns which feature columns the round's ablation dropped; for a run
 recorded with ``uel.record_model_outputs`` (Limen 5.17), what the round's

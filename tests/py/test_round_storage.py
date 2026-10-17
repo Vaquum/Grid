@@ -91,32 +91,35 @@ class Storage(unittest.TestCase):
                         compact=True, tail=False))
 
     def test_pack_cohort_and_training_export_match_legacy(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            source = root / 'run'
-            shutil.copytree(FIXTURE, source)
-            legacy = root / 'legacy.json'
-            main(['pack', '--limen', str(source), '--out', str(legacy)])
-            records = compress(source)
-            compact = root / 'compact.json'
-            main(['pack', '--limen', str(source), '--out', str(compact)])
-            old = json.loads(legacy.read_text())['runs'][0]
-            new = json.loads(compact.read_text())['runs'][0]
-            for key in ('rounds', 'roundsBadCount', 'data', 'columns'):
-                self.assertEqual(old.get(key), new.get(key), key)
-            self.assertTrue(new['experiment']['roundLog'].endswith(COMPACT))
-            lines = RoundLines()
-            for record in records:
-                self.assertEqual(lines.get(str(source), record['round_id']),
-                                 record)
-            slim = root / 'slim'
-            _slim(str(source), str(slim), records[:2])
-            self.assertNotIn('round_storage', json.loads(
-                (slim / 'metadata.json').read_text()))
-            self.assertEqual(RoundLines().get(str(slim),
-                                             records[0]['round_id']),
-                             records[0])
-            self.assertEqual(len((slim / PLAIN).read_text().splitlines()), 2)
+        for fixture in (FIXTURE, FIXTURE.parent / "limen_rule"):
+            with self.subTest(fixture=fixture.name), \
+                    tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                source = root / 'run'
+                shutil.copytree(fixture, source)
+                legacy = root / 'legacy.json'
+                main(['pack', '--limen', str(source), '--out', str(legacy)])
+                records = compress(source)
+                compact = root / 'compact.json'
+                main(['pack', '--limen', str(source), '--out', str(compact)])
+                old = json.loads(legacy.read_text())['runs'][0]
+                new = json.loads(compact.read_text())['runs'][0]
+                for key in ('rounds', 'roundsBadCount', 'rows', 'columns'):
+                    self.assertEqual(old.get(key), new.get(key), key)
+                self.assertTrue(new['experiment']['roundLog'].endswith(COMPACT))
+                lines = RoundLines()
+                for record in records:
+                    self.assertEqual(lines.get(str(source), record['round_id']),
+                                     record)
+                slim = root / 'slim'
+                _slim(str(source), str(slim), records[:2])
+                self.assertNotIn('round_storage', json.loads(
+                    (slim / 'metadata.json').read_text()))
+                self.assertEqual(RoundLines().get(str(slim),
+                                                 records[0]['round_id']),
+                                 records[0])
+                self.assertEqual(len((slim / PLAIN).read_text().splitlines()), 2)
+
 
     def test_file_append_partial_replace_and_index_invalidation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
