@@ -254,8 +254,13 @@ class Native:
             raise ValueError(
                 "Execution replay differs from recorded float64 evidence"
             )
-        self.executions.put(cache_key, fields, len(predictions) * 160 + 1024)
-        return fields
+        vectors = {
+            name + "." + column: wire_vector(values)
+            for name, value in fields.items()
+            for column, values in cast(Json, value).items()
+        }
+        self.executions.put(cache_key, vectors, len(encoded(vectors)) * 2 + 1024)
+        return vectors
 
     def signal(self, recipe: Json) -> Json:
         definition = self.definition(recipe["definition"])
@@ -369,11 +374,11 @@ class Native:
                 "Model replay differs from recorded float64 evidence"
             )
         signal: Json = {
-            "probs": probabilities,
+            "wire": wire_vector(probabilities),
             "signature": signature,
             "prep": prep_key,
         }
-        self.signals.put(key, signal, len(probabilities) * 40 + 4096)
+        self.signals.put(key, signal, len(encoded(signal)) * 2 + 4096)
         return signal
 
     def verify(self, request: Json, predictions: list[int]) -> Json:
@@ -428,7 +433,7 @@ class Native:
             return self.verify(request, predictions)
         if operation == "materialize":
             recipes = request["recipes"]
-            fields: Json = {}
+            vectors: Json = {}
             if "execution" in recipes:
                 recipe = recipes["execution"]
                 original = read_wire_vector(recipe["predictions"])
@@ -436,7 +441,7 @@ class Native:
                     raise ValueError(
                         "Execution replay prediction digest mismatch"
                     )
-                fields.update(self.execution(recipe, original))
+                vectors.update(self.execution(recipe, original))
             if "model" in recipes:
                 recipe = recipes["model"]
                 signal = self.signal(recipe)
@@ -444,14 +449,7 @@ class Native:
                     raise ValueError(
                         "Cached model output differs from its recipe"
                     )
-                fields["probs"] = signal["probs"]
-            vectors: Json = {}
-            for name, value in fields.items():
-                if isinstance(value, dict):
-                    for column, values in cast(Json, value).items():
-                        vectors[name + "." + column] = wire_vector(values)
-                else:
-                    vectors[name] = wire_vector(value)
+                vectors["probs"] = signal["wire"]
             return {"vectors": vectors}
         raise ValueError("Unknown native replay operation")
 
