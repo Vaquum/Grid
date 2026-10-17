@@ -162,7 +162,14 @@ class Storage(unittest.TestCase):
             source = Path(tmp) / 'run'
             shutil.copytree(FIXTURE, source)
             compress(source)
+            oversized = json.dumps({'ret': [10 ** 400]}).encode()
+            digest = hashlib.sha256(oversized).hexdigest()
+            (source / 'round_market' / (digest + '.json.gz')).write_bytes(
+                gzip.compress(oversized))
             with (source / COMPACT).open('ab') as out:
+                out.write(gzip.compress(json.dumps({
+                    '_round_index': 40, 'round_params': {},
+                    'market_ref': digest, 'preds': [0]}).encode()))
                 for text in ('not-json', '[]', json.dumps({
                         '_round_index': 40, 'round_params': {},
                         'market_ref': '0' * 64, 'preds': [0]})):
@@ -173,9 +180,9 @@ class Storage(unittest.TestCase):
             packed = Path(tmp) / 'pack.json'
             main(['pack', '--limen', str(source), '--out', str(packed)])
             run = json.loads(packed.read_text())['runs'][0]
-            self.assertEqual(run['roundsBadCount'], 4)
+            self.assertEqual(run['roundsBadCount'], 5)
             self.assertEqual(run['rounds'][-1][0], 41)
-            self.assertIn('No such file', run['roundsBad'][2]['error'])
+            self.assertIn('No such file', run['roundsBad'][3]['error'])
 
     def test_transient_ssh_market_failure_keeps_following(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -253,6 +260,10 @@ class Storage(unittest.TestCase):
         for rec in bad:
             with self.assertRaises(ValueError):
                 restore(rec, lambda _: gzip.compress(raw))
+        oversized = json.dumps({'ret': [None, 10 ** 400]}).encode()
+        with self.assertRaisesRegex(ValueError, 'Invalid market'):
+            restore(dict(record, market_ref=hashlib.sha256(
+                oversized).hexdigest()), lambda _: gzip.compress(oversized))
         with self.assertRaisesRegex(ValueError, 'digest'):
             restore(record, lambda _: gzip.compress(b'{"ret":[]}'))
         with self.assertRaises(FileNotFoundError):

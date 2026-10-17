@@ -103,6 +103,17 @@ def frames(stream: BinaryIO, *, compact: bool, tail: bool = True,
         raise ValueError("Incomplete gzip member")
 
 
+def _finite_return(value: Any) -> bool:
+    if value is None:
+        return True
+    if type(value) not in (int, float):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
 def restore(record: Json, read: Callable[[str], bytes]) -> Json:
     """Hydrate a content-addressed market after verifying bytes and shape."""
     if "market_ref" not in record:
@@ -129,8 +140,7 @@ def restore(record: Json, read: Callable[[str], bytes]) -> Json:
     returns = cast(list[Any], values)
     if (isinstance(preds, list) and
             len(returns) != len(cast(list[Any], preds))) or any(
-                v is not None and (type(v) not in (int, float) or
-                                   not math.isfinite(v)) for v in returns):
+                not _finite_return(v) for v in returns):
         raise ValueError("Invalid market returns or prediction length")
     return {("market" if k == "market_ref" else k):
             (market if k == "market_ref" else v) for k, v in record.items()}

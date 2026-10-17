@@ -206,7 +206,7 @@ class Run:
         try:
             decoded = decode(text) if decode is not None else text
             index, dropped, outputs, execution = round_record(decoded)
-        except (ValueError, OSError, RuntimeError,
+        except (ValueError, OSError, RuntimeError, OverflowError,
                 subprocess.SubprocessError) as exc:
             self.rounds_bad_count += 1
             if len(self.rounds_bad) < BAD_KEEP:
