@@ -362,7 +362,9 @@ class Reader:
             raise ValueError("Invalid retained market type")
         return raw
 
-    def restore(self, entry: Json) -> Json:
+    def restore(
+        self, entry: Json, *, verified_source: Json | None = None
+    ) -> Json:
         packet: Any = entry.get("grid")
         if not isinstance(packet, dict):
             raise ValueError("Invalid retained round")
@@ -390,7 +392,11 @@ class Reader:
                         node["replay"]["runtime"],
                         self.evidence,
                     )
-                patch: Json = self.replay.materialize(node["replay"], record)
+                patch: Json = (
+                    self.replay.proven_fields(node["replay"], verified_source)
+                    if verified_source is not None
+                    else self.replay.materialize(node["replay"], record)
+                )
                 record.update(patch)
         if record_digest(record) != node.get("sha256"):
             raise ValueError("Reconstructed round digest mismatch")
@@ -684,12 +690,12 @@ def compact(
                                 _remove(base, path)
                         node.update(record=base, vectors=vectors)
                     if "error" not in node:
-                        # The worker's just-verified outputs are still in its
-                        # bounded cache: validate storage/transport without a
-                        # second fit or execution evaluation.
+                        # Transport is certified once per immutable artifact;
+                        # bind it to this occurrence's exact original values.
                         evidence.db.commit()
                         checking.restore(
-                            cast(Json, json.loads(encoded(entry)))
+                            cast(Json, json.loads(encoded(entry))),
+                            verified_source=record,
                         )
                     node["proof"] = digest(node)
                     evidence.db.execute(
@@ -807,6 +813,8 @@ def verify(
 
 def materialize(directory: str | Path, destination: str | Path) -> Json:
     root, target = Path(directory).resolve(), Path(destination).resolve()
+    if target.is_relative_to(root):
+        raise ValueError("Materialization destination must be outside the run")
     if target.exists():
         raise ValueError("Materialization destination must be new")
     # CRC alone cannot detect removal of complete gzip members. Verify the

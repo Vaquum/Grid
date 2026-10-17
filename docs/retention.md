@@ -68,6 +68,11 @@ repeated reads. This changes availability/latency, never numeric precision.
 Identical immutable output artifacts may share a verified materialization
 recipe even when trial parameters differ. The original typed parameters and
 occurrences remain separate; only content-identical values share storage.
+Compaction validates native output and its typed transport once per immutable
+artifact. Its content-addressed proof binds that output to the pinned runtime
+and protocol. Later occurrences compare their original values with the proof;
+they need no refit, including after a worker restart or cache eviction.
+Ordinary recovery still regenerates omitted values and checks every record.
 Preparation state is keyed by its causal parameters/source/runtime; immutable
 feature matrices are interned independently from target labels, including
 shape, dtype, layout and content.

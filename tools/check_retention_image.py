@@ -27,6 +27,7 @@ from grid.retention import (
     materialize_in_place,
     verify,
 )
+from grid.replay import ReplayClient
 from grid.round_storage import COMPACT, frames, read_local, restore
 
 
@@ -61,6 +62,28 @@ def main() -> None:
     evidence = Path("/evidence")
     pin = json.loads((evidence / "replay-pin.json").read_bytes())
     store = evidence / "cas/evidence.sqlite3"
+    if (evidence / "restart-ready").exists():
+        run = evidence / "cold-recompaction"
+        shutil.copytree(evidence / "resumed-native", run)
+        client = ReplayClient(store.parent, pin["runtime"])
+        before = client.call({"op": "identity"})["statistics"]
+        assert before["fit_attempts"] == 0, before
+        assert before["execution_evaluations"] == 0, before
+        desc = compact(
+            run, store, sealed=True, prune=True, runtime=pin["runtime"]
+        )
+        assert desc["replayed_execution_records"] == 6, desc
+        assert desc["replayed_probability_records"] == 6, desc
+        after = client.call({"op": "identity"})["statistics"]
+        assert after["fit_attempts"] == 0, after
+        assert after["execution_evaluations"] == 0, after
+        assert science(run, evidence / "cold-science.json") == science(
+            evidence / "resumed-native", evidence / "resumed-science.json"
+        )
+        (evidence / "cold-recompaction.json").write_text(
+            json.dumps({"descriptor": desc, "statistics": after}, indent=2)
+        )
+        return
     yaml: Any = importlib.import_module("ruamel.yaml").YAML()
     fixture = Path("/fixtures/retention/ml")
     with gzip.open(fixture / COMPACT, "rt") as stream:

@@ -17,9 +17,12 @@ from unittest.mock import patch
 
 from grid.__main__ import Wiring, main
 from grid.cohort import RoundLines
-from grid.evidence import Evidence, Reducer, encoded, record_digest
+from grid.evidence import (
+    Evidence, Reducer, encoded, record_digest, wire_vector,
+)
 from grid.experiment import Project, _slim
 from grid.limen import round_object
+from grid.replay import ReplayClient
 from grid.retention import (
     CSV,
     Reader,
@@ -62,6 +65,95 @@ def science(path: Path, output: Path) -> dict:
 
 
 class Retention(unittest.TestCase):
+    def test_replay_proofs_survive_cache_loss_and_reject_bad_transport(
+        self,
+    ) -> None:
+        record = {
+            "preds": [0, 1], "probs": [0.2, 0.8],
+            "round_params": {"deterministic": True, "n_jobs": 1,
+                             "random_state": 42},
+            "alignment": {}, "execution": {"pos": [0, 1],
+                                              "gross": [0.0, 0.1],
+                                              "net": [-0.0, 0.09]},
+            "market": {"ret": [0.0, 0.1]},
+        }
+        for bad_transport in (False, True):
+            with self.subTest(bad_transport=bad_transport), \
+                    tempfile.TemporaryDirectory() as tmp:
+                store = Evidence(Path(tmp) / "store.sqlite3", writable=True)
+                client = ReplayClient.__new__(ReplayClient)
+                client.evidence, client.runtime = store, "a" * 64
+
+                def call(request):
+                    if request["op"] == "verify":
+                        return {
+                            "model": {"expected": request["expected"]["model"]},
+                            "execution": {
+                                "expected": request["expected"]["execution"]},
+                        }
+                    vectors = {"probs": wire_vector(
+                        [0.3, 0.8] if bad_transport else record["probs"])}
+                    for name in ("execution", "market"):
+                        vectors.update({name + "." + key: wire_vector(values)
+                                        for key, values in record[name].items()})
+                    return {"vectors": vectors}
+
+                with patch.object(client, "definition", return_value=(
+                    "definition", {"execution": True, "model": True,
+                                   "family": "family", "axes": []})), \
+                        patch.object(client, "call", side_effect=call) as rpc:
+                    if bad_transport:
+                        with self.assertRaisesRegex(ValueError, "transport"):
+                            client.verify({}, record, {})
+                        self.assertEqual(store.db.execute(
+                            "SELECT count(*) FROM artifact_recipes"
+                        ).fetchone()[0], 0)
+                        store.close()
+                        continue
+                    recipe = client.verify({}, record, {})
+                    self.assertIsNotNone(recipe)
+                    self.assertEqual(rpc.call_count, 2)
+                    # No native cache or worker is consulted on a repeated
+                    # occurrence once source values bind to a durable proof.
+                    rpc.side_effect = AssertionError("unexpected native work")
+                    self.assertEqual(client.verify({}, record, {}), recipe)
+                    fields = client.proven_fields(recipe, record)
+                    self.assertEqual(record_digest(fields), record_digest(
+                        {key: record[key] for key in fields}))
+                    with self.assertRaisesRegex(ValueError, "probabilities"):
+                        client.proven_fields(recipe, {**record,
+                                                    "probs": [0.1, 0.8]})
+                    for name in ("model", "execution"):
+                        saved = client._get_recipe(recipe[name])
+                        saved["_grid_proof"] = ["b" * 64, 1]
+                        key = client._recipe(saved)
+                        store.db.execute(
+                            "UPDATE artifact_recipes SET recipe=? WHERE kind=?",
+                            (key, name))
+                        if name == "model":
+                            store.db.execute("UPDATE model_jobs SET recipe=?",
+                                             (key,))
+                    rpc.side_effect = call
+                    self.assertIsNotNone(client.verify({}, record, {}))
+                    self.assertEqual(rpc.call_count, 4)
+                store.close()
+
+    def test_nested_materialization_refused_before_creating_destination(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / "run"
+            shutil.copytree(FIXTURES / "limen_rule", run)
+            compact(run, root / "store.sqlite3", sealed=True, prune=True)
+            alias = root / "alias"
+            alias.symlink_to(run, target_is_directory=True)
+            for path in (run / "exports/native", alias / "exports/native"):
+                with self.assertRaisesRegex(ValueError, "outside the run"):
+                    materialize(run, path)
+            self.assertFalse((run / "exports").exists())
+            self.assertTrue(verify(run)["exact"])
+
     def test_new_shared_store_directory_is_durable(self) -> None:
         from grid import evidence
 

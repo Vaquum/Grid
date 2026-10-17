@@ -188,6 +188,35 @@ class ReplayClient:
             raise ValueError("Invalid retained replay recipe")
         return cast(Json, value)
 
+    def _certified(self, recipe: Json) -> bool:
+        return recipe.get("_grid_proof") == [self.runtime, PROTOCOL]
+
+    def proven_fields(self, recipe: Json, original: Json) -> Json:
+        """Bind source values to an already checked immutable replay artifact."""
+        if recipe.get("runtime") != self.runtime:
+            raise ValueError("Retained replay runtime changed")
+        fields: Json = {}
+        for name in ("model", "execution"):
+            if name not in recipe:
+                continue
+            saved = self._get_recipe(recipe[name])
+            if not self._certified(saved):
+                raise ValueError("Replay artifact has no transport proof")
+            if name == "model":
+                probs = original.get("probs")
+                if not isinstance(probs, list) or vector_digest(
+                    cast(list[Any], probs)
+                ) != saved["expected"]["probs"]:
+                    raise ValueError("Replay probabilities differ from source")
+                fields["probs"] = probs
+            else:
+                values = {key: original.get(key)
+                          for key in ("execution", "market")}
+                if record_digest(values) != saved["expected"]:
+                    raise ValueError("Replay execution differs from source")
+                fields.update(values)
+        return fields
+
     def verify(
         self, metadata: Json, record: Json, sources: Json
     ) -> Json | None:
@@ -260,7 +289,8 @@ class ReplayClient:
             ).fetchone()
             if row is not None and row[0]:
                 saved = self._get_recipe(str(row[0]))
-                if saved.get("expected") == expected["model"]:
+                if self._certified(saved) and \
+                        saved.get("expected") == expected["model"]:
                     model = str(row[0])
             artifact = self.evidence.db.execute(
                 "SELECT recipe FROM artifact_recipes WHERE runtime=? "
@@ -273,7 +303,8 @@ class ReplayClient:
                     raise ValueError(
                         "Retained model artifact identity disagrees"
                     )
-                model = str(artifact[0])
+                if self._certified(saved):
+                    model = str(artifact[0])
         execution = self.evidence.db.execute(
             "SELECT recipe FROM artifact_recipes WHERE runtime=? "
             "AND kind='execution' AND identity=?",
@@ -286,8 +317,11 @@ class ReplayClient:
                 raise ValueError(
                     "Retained execution artifact identity disagrees"
                 )
-            result["execution"] = str(execution[0])
-            result["fields"].extend(["execution", "market"])
+            if self._certified(saved):
+                result["execution"] = str(execution[0])
+                result["fields"].extend(["execution", "market"])
+            else:
+                execution = None
         need_model = fit_key is not None and model is None
         response: Json = {}
         if execution is None or need_model:
@@ -304,11 +338,27 @@ class ReplayClient:
                     "check_execution": execution is None,
                 }
             )
-        if response.get("execution"):
-            result["execution"] = self._recipe(response["execution"])
+        fresh = {name: response[name] for name in ("model", "execution")
+                 if response.get(name)}
+        if fresh:
+            # Check native results AND their exact transport once per immutable
+            # artifact. Repeated occurrences bind to that durable proof rather
+            # than refitting after eviction from the bounded worker cache.
+            fields = self._materialize_recipes(fresh, record)
+            if "model" in fresh and vector_digest(fields["probs"]) != \
+                    expected["model"]["probs"]:
+                raise ValueError("Replay probability transport differs")
+            if "execution" in fresh and record_digest(
+                {key: fields[key] for key in ("execution", "market")}
+            ) != expected["execution"]:
+                raise ValueError("Replay execution transport differs")
+        if "execution" in fresh:
+            result["execution"] = self._recipe(
+                {**fresh["execution"], "_grid_proof": [self.runtime, PROTOCOL]}
+            )
             result["fields"].extend(["execution", "market"])
             self.evidence.db.execute(
-                "INSERT OR IGNORE INTO artifact_recipes VALUES (?,?,?,?)",
+                "INSERT OR REPLACE INTO artifact_recipes VALUES (?,?,?,?)",
                 (
                     self.runtime,
                     "execution",
@@ -316,14 +366,16 @@ class ReplayClient:
                     result["execution"],
                 ),
             )
-        if response.get("model") and fit_key is not None:
-            model = self._recipe(response["model"])
+        if "model" in fresh and fit_key is not None:
+            model = self._recipe(
+                {**fresh["model"], "_grid_proof": [self.runtime, PROTOCOL]}
+            )
             self.evidence.db.execute(
-                "INSERT OR IGNORE INTO model_jobs VALUES (?,?,?,?)",
+                "INSERT OR REPLACE INTO model_jobs VALUES (?,?,?,?)",
                 (fit_key, response.get("prep", ""), b"{}", model),
             )
             self.evidence.db.execute(
-                "INSERT OR IGNORE INTO artifact_recipes VALUES (?,?,?,?)",
+                "INSERT OR REPLACE INTO artifact_recipes VALUES (?,?,?,?)",
                 (self.runtime, "model", expected["model"]["probs"], model),
             )
         if model is not None:
@@ -332,10 +384,18 @@ class ReplayClient:
         return result if result["fields"] else None
 
     def materialize(self, recipe: Json, record: Json) -> Json:
+        if recipe.get("runtime") != self.runtime:
+            raise ValueError("Retained replay runtime changed")
         expected: Json = {}
         for name in ("model", "execution"):
             if name in recipe:
-                expected[name] = self._get_recipe(recipe[name])
+                expected[name] = {
+                    k: v for k, v in self._get_recipe(recipe[name]).items()
+                    if k != "_grid_proof"
+                }
+        return self._materialize_recipes(expected, record)
+
+    def _materialize_recipes(self, expected: Json, record: Json) -> Json:
         preds: Any = record.get("preds")
         if not isinstance(preds, list):
             raise ValueError("Retained replay lost its exact predictions")
