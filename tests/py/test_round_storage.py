@@ -280,3 +280,8 @@ class Storage(unittest.TestCase):
                     self.assertRaises(ValueError):
                 restore(dict(record, execution=execution),
                         lambda _: gzip.compress(raw))
+        for predictions in (None, "invalid"):
+            with self.subTest(predictions=predictions), \
+                    self.assertRaises(ValueError):
+                restore(dict(record, preds=predictions, execution={'pos': [0]}),
+                        lambda _: gzip.compress(raw))

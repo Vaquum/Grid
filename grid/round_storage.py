@@ -140,9 +140,10 @@ def restore(record: Json, read: Callable[[str], bytes]) -> Json:
     returns = cast(list[Any], values)
     # Limen 5.30 can omit predictions while retaining execution/market.
     # Such records still need a verifiable per-bar alignment witness.
-    if "preds" not in record:
+    if not isinstance(preds, list):
         execution: Any = record.get("execution")
-        preds = execution.get("pos") if isinstance(execution, dict) else None
+        preds = cast(Json, execution).get("pos") \
+            if isinstance(execution, dict) else None
         if not isinstance(preds, list):
             raise ValueError("Missing execution positions for market alignment")
     if (isinstance(preds, list) and
