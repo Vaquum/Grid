@@ -159,6 +159,11 @@ def main() -> None:
                 if evidence:
                     shutil.copytree(project / rid / "s1", evidence,
                                     dirs_exist_ok=True)
+                    # Limen market blobs inherit tempfile's private mode.
+                    # Only this exported CI evidence is read by the host.
+                    for artifact in Path(evidence).rglob("*"):
+                        if artifact.is_file():
+                            artifact.chmod(0o644)
                 native = call("grid_analyze", analysis="schema",
                               state={"run": run_id, "firstHalf": True})
                 assert native["target"]["id"] == "pnl_per_bar_bps_test", native
