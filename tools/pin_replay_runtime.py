@@ -211,7 +211,10 @@ def pin(
         != runtime
     ):
         raise ValueError("Container name belongs to a different runtime")
-    if any(mounts.get(path) != source for path, source in expected_mounts.items()):
+    if any(
+        mounts.get(path) != source
+        for path, source in expected_mounts.items()
+    ):
         raise ValueError("Retained runtime mounts belong to another store")
     if not actual["State"]["Running"]:
         run(["start", name])
