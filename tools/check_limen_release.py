@@ -109,7 +109,7 @@ def verify_release(client: Client, project: Path, text: str) -> None:
     while True:
         analysis = call("grid_analyze", analysis="schema", state={
             "run": lean_id, "firstHalf": True, "target": "entries"})
-        if analysis["result"]["summary"]["n"] == 4:
+        if analysis["summary"]["n"] == 4:
             break
         assert time.monotonic() < deadline, analysis
         time.sleep(0.2)
