@@ -18,7 +18,11 @@ from unittest.mock import patch
 from grid.__main__ import Wiring, main
 from grid.cohort import RoundLines
 from grid.evidence import (
-    Evidence, Reducer, encoded, record_digest, wire_vector,
+    Evidence,
+    Reducer,
+    encoded,
+    record_digest,
+    wire_vector,
 )
 from grid.experiment import Project, _slim
 from grid.limen import round_object
@@ -84,18 +88,20 @@ class Retention(unittest.TestCase):
                 client = ReplayClient.__new__(ReplayClient)
                 client.evidence, client.runtime = store, "a" * 64
 
-                def call(request):
+                def call(request, bad_transport=bad_transport):
                     if request["op"] == "verify":
                         return {
-                            "model": {"expected": request["expected"]["model"]},
+                            "model": {
+                                "expected": request["expected"]["model"]},
                             "execution": {
                                 "expected": request["expected"]["execution"]},
                         }
                     vectors = {"probs": wire_vector(
                         [0.3, 0.8] if bad_transport else record["probs"])}
                     for name in ("execution", "market"):
-                        vectors.update({name + "." + key: wire_vector(values)
-                                        for key, values in record[name].items()})
+                        vectors.update({
+                            name + "." + key: wire_vector(values)
+                            for key, values in record[name].items()})
                     return {"vectors": vectors}
 
                 with patch.object(client, "definition", return_value=(
@@ -128,7 +134,8 @@ class Retention(unittest.TestCase):
                         saved["_grid_proof"] = ["b" * 64, 1]
                         key = client._recipe(saved)
                         store.db.execute(
-                            "UPDATE artifact_recipes SET recipe=? WHERE kind=?",
+                            "UPDATE artifact_recipes SET recipe=? "
+                            "WHERE kind=?",
                             (key, name))
                         if name == "model":
                             store.db.execute("UPDATE model_jobs SET recipe=?",

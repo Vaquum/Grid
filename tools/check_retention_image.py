@@ -20,6 +20,7 @@ from grid.experiment import (
     Project,
     _slim,  # pyright: ignore[reportPrivateUsage]
 )
+from grid.replay import ReplayClient
 from grid.retention import (
     Reader,
     compact,
@@ -27,7 +28,6 @@ from grid.retention import (
     materialize_in_place,
     verify,
 )
-from grid.replay import ReplayClient
 from grid.round_storage import COMPACT, frames, read_local, restore
 
 

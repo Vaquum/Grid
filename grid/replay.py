@@ -192,7 +192,7 @@ class ReplayClient:
         return recipe.get("_grid_proof") == [self.runtime, PROTOCOL]
 
     def proven_fields(self, recipe: Json, original: Json) -> Json:
-        """Bind source values to an already checked immutable replay artifact."""
+        """Bind source values to a checked immutable replay artifact."""
         if recipe.get("runtime") != self.runtime:
             raise ValueError("Retained replay runtime changed")
         fields: Json = {}
