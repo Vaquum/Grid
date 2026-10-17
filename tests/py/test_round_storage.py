@@ -1,6 +1,7 @@
 """Compressed storage compatibility, live framing and market integrity."""
 from __future__ import annotations
 
+import argparse
 import gzip
 import hashlib
 import io
@@ -9,9 +10,10 @@ import os
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
-from grid.__main__ import main
+from grid.__main__ import Wiring, main
 from grid.cohort import RoundLines
 from grid.experiment import _slim
 from grid.follow import FileFollower, _GzipLines
@@ -153,6 +155,59 @@ class Storage(unittest.TestCase):
             self.assertEqual(lines.get(tmp, 'b')['n'], 3)
             with self.assertRaisesRegex(ValueError, 'not in'):
                 lines.get(tmp, 'a')
+
+    def test_bad_records_do_not_stop_later_rounds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / 'run'
+            shutil.copytree(FIXTURE, source)
+            compress(source)
+            with (source / COMPACT).open('ab') as out:
+                for text in ('not-json', '[]', json.dumps({
+                        '_round_index': 40, 'round_params': {},
+                        'market_ref': '0' * 64, 'preds': [0]})):
+                    out.write(gzip.compress((text + '\n').encode()))
+                out.write(gzip.compress(json.dumps({
+                    '_round_index': 41, 'round_params': {}}).encode()))
+            packed = Path(tmp) / 'pack.json'
+            main(['pack', '--limen', str(source), '--out', str(packed)])
+            run = json.loads(packed.read_text())['runs'][0]
+            self.assertEqual(run['roundsBadCount'], 3)
+            self.assertEqual(run['rounds'][-1][0], 41)
+            self.assertIn('No such file', run['roundsBad'][2]['error'])
+
+    def test_transient_ssh_market_failure_keeps_following(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / 'run'
+            shutil.copytree(FIXTURE.parent / 'limen_rule', source)
+            records = compress(source)
+            args = argparse.Namespace(
+                limen=[str(source)], results=None, name=None, ssh='host',
+                as_=None, log=None, run=None, label=None, project=None)
+            calls = 0
+
+            def read(host: str, path: str) -> bytes:
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    raise RuntimeError('temporary SSH failure')
+                return Path(path).read_bytes()
+
+            with patch('grid.__main__.list_remote',
+                       side_effect=lambda h, d: os.listdir(d)), \
+                    patch('grid.__main__.read_remote',
+                          side_effect=lambda h, p: Path(p).read_text()), \
+                    patch('grid.__main__.remote_mtimes', return_value=[]), \
+                    patch('grid.__main__.read_remote_bytes', side_effect=read):
+                wiring = Wiring(args, follow=False)
+                sweep = wiring.build()
+                for follower in wiring.followers:
+                    follower.buffer.feed(Path(follower.path).read_bytes())
+            run = sweep.runs['r0']
+            self.assertEqual(run.rounds_bad_count, 1)
+            self.assertEqual(run.rounds_bad[0]['error'],
+                             'temporary SSH failure')
+            self.assertEqual(len(run.rounds), len(records) - 1)
+            self.assertEqual(run.rounds[-1][0], records[-1]['_round_index'])
 
     def test_shared_market_integrity(self) -> None:
         raw = b'{"ret":[null,0.25]}'

@@ -338,15 +338,19 @@ class Wiring:
             return
         path = join(directory, name)
 
+        def decode(text: str) -> str:
+            def read(blob: str) -> bytes:
+                if a.ssh:
+                    return read_remote_bytes(a.ssh, join(directory, blob))
+                return read_local(directory, blob)
+            record: Any = json.loads(text)
+            if not isinstance(record, dict):
+                raise ValueError("a round line is a JSON object")
+            return json.dumps(restore(cast(Json, record), read))
+
         def line(text: str, pre: bool) -> None:
-            if name.endswith(".gz"):
-                def read(blob: str) -> bytes:
-                    if a.ssh:
-                        return read_remote_bytes(
-                            a.ssh, join(directory, blob))
-                    return read_local(directory, blob)
-                text = json.dumps(restore(json.loads(text), read))
-            self.sweep.round_line(run, text, pre, shard)
+            self.sweep.round_line(run, text, pre, shard,
+                                  decode if name.endswith(".gz") else None)
         if run.experiment.get("roundLog") is None:
             run.experiment["roundLog"] = self.shown(path)
         sweep = self.sweep
