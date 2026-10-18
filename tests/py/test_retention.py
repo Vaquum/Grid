@@ -73,7 +73,9 @@ def science(path: Path, output: Path) -> dict:
 
 
 class Retention(unittest.TestCase):
-    def test_cached_market_requires_alignment_without_predictions(self) -> None:
+    def test_cached_market_requires_alignment_without_predictions(
+        self,
+    ) -> None:
         raw = b'{"ret":[null,0.25]}'
         ref = hashlib.sha256(raw).hexdigest()
         cache = MarketCache()
@@ -493,20 +495,24 @@ class Retention(unittest.TestCase):
             self.assertTrue((shard / DESCRIPTOR).is_file())
             self.assertFalse((shard / PLAIN).exists())
 
-    def test_lighter_resume_refuses_before_materializing_any_shard(self) -> None:
+    def test_lighter_resume_refuses_before_materializing_any_shard(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             for label in ("s1", "s2"):
                 shard = root / label
                 shutil.copytree(FIXTURES / "limen_run", shard)
                 if label == "s2":
-                    metadata = json.loads((shard / "metadata.json").read_bytes())
+                    metadata = json.loads(
+                        (shard / "metadata.json").read_bytes())
                     metadata["recording"] = {"predictions": False}
                     (shard / "metadata.json").write_bytes(encoded(metadata))
                 compact(shard, root / "store.sqlite3", sealed=True, prune=True)
                 (shard / "checkpoint.json").write_text("{}")
             (root / "grid-run.json").write_bytes(encoded({"shards": [
-                {"label": label, "state": "stopped"} for label in ("s1", "s2")]}))
+                {"label": label, "state": "stopped"}
+                for label in ("s1", "s2")]}))
             (root / "experiment.yaml").write_text("uel:\n  workers: 1\n")
             project = Project.__new__(Project)
             project.root, project.cores = str(root), 2
