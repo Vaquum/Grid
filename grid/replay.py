@@ -18,7 +18,7 @@ from .evidence import (
     record_digest,
     vector_digest,
 )
-from .round_storage import Json
+from .round_storage import RETENTION_VERSIONS, Json
 
 PROTOCOL = 1
 WIRE_LIMIT = 512 << 20
@@ -154,7 +154,9 @@ class ReplayClient:
     def definition(
         self, metadata: Json, sources: Json
     ) -> tuple[str, Json] | None:
-        if metadata.get("limen_version") != "5.29.0" or len(sources) != 1:
+        version = metadata.get("limen_version")
+        if version not in RETENTION_VERSIONS or len(sources) != 1 or \
+                version != self.pin.get("identity", {}).get("limen"):
             return None
         source = next(iter(sources.values()))
         definition: Json = {"metadata": metadata, "source": source}

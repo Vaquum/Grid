@@ -50,3 +50,28 @@ new upstream support for combining factorization and parallel rounds.
   Grid already preserves model parameters and delegates execution to Limen.
 - #82 remains open while Limen #924 is open; this upgrade adds no native
   factorized random traversal.
+
+## 18 October 2026: Limen 5.29.1–5.30.2
+
+All eleven open release notices are processed together. The previous batch
+was merged in PR #98 through Limen 5.29.0; no closed release is reopened.
+The image now installs 5.30.2. Historical fixtures retain their original
+recorded versions.
+
+| Issue / release | Upstream change and Grid disposition |
+| --- | --- |
+| [#103](https://github.com/Vaquum/Grid/issues/103), 5.29.1 | [Limen #932](https://github.com/Vaquum/Limen/pull/932) resolves temporal rule parameters. Advertise support from the actual runtime; delegate modern validation to Limen and preserve rejection on older runtimes. |
+| [#104](https://github.com/Vaquum/Grid/issues/104), 5.29.2 | [Limen #931](https://github.com/Vaquum/Limen/pull/931) accelerates indicators without changing their output contract. Adopt via the image pin. |
+| [#109](https://github.com/Vaquum/Grid/issues/109), 5.29.3 | [Limen #935](https://github.com/Vaquum/Limen/pull/935) accelerates composite price lines. Adopt upstream implementation; no Grid calculation changes. |
+| [#112](https://github.com/Vaquum/Grid/issues/112), 5.29.4 | [Limen #939](https://github.com/Vaquum/Limen/pull/939) accelerates remaining candlestick indicators. Adopt via the image pin. |
+| [#113](https://github.com/Vaquum/Grid/issues/113), 5.29.5 | [Limen #956](https://github.com/Vaquum/Limen/pull/956) changes upstream coverage instrumentation only. No Grid CI or interpreter changes required. |
+| [#114](https://github.com/Vaquum/Grid/issues/114), 5.29.6 | [Limen #954](https://github.com/Vaquum/Limen/pull/954) accelerates parameter materialization and repairs upstream worker tests. Adopt native parameter construction; preserve Grid CPU admission. |
+| [#115](https://github.com/Vaquum/Grid/issues/115), 5.29.7 | [Limen #958](https://github.com/Vaquum/Limen/pull/958) corrects upstream coverage/governance contracts. No downstream CI change. |
+| [#116](https://github.com/Vaquum/Grid/issues/116), 5.29.8 | [Limen #940](https://github.com/Vaquum/Limen/pull/940) accelerates extrema and ultimate oscillator calculations. Adopt via the image pin. |
+| [#117](https://github.com/Vaquum/Grid/issues/117), 5.30.0 | [Limen #943](https://github.com/Vaquum/Limen/pull/943) adds native recording policies. Preserve manifest declarations/defaults, verify omitted-prediction market alignment, and document unavailable cohort evidence and native resume restrictions. |
+| [#118](https://github.com/Vaquum/Grid/issues/118), 5.30.1 | [Limen #941](https://github.com/Vaquum/Limen/pull/941) accelerates SMA and reuses MAMA. Adopt via the image pin; no alternate indicator implementation. |
+| [#119](https://github.com/Vaquum/Grid/issues/119), 5.30.2 | [Limen #960](https://github.com/Vaquum/Limen/pull/960) strengthens upstream coverage regression tests. No Grid CI change. |
+
+The batch does not resolve #82, #99–#102, #105, #110 or #111. Exact retained
+evidence in #106/#107 remains the separate PR #108. Configurable omission
+is not lossless analytical retention and does not enable lighter-run resume.

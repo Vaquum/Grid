@@ -35,6 +35,7 @@ from .round_storage import (
     DESCRIPTOR,
     PLAIN,
     RETAINED,
+    RETENTION_VERSIONS,
     Json,
     frames,
     round_path,
@@ -145,6 +146,24 @@ def check_training_sources(directory: str | Path) -> None:
                 + name
                 + "; restore its immutable source snapshot"
             )
+
+
+def check_resume_recording(directory: str | Path) -> None:
+    """Reject unsupported recovery before expanding a retained archive."""
+    root = Path(directory)
+    if descriptor(root) is None:
+        return
+    metadata: Any = json.loads((root / "metadata.json").read_bytes())
+    policy: Any = metadata.get("recording", {})
+    if not isinstance(policy, dict) or any(
+        key not in ("predictions", "alignment", "trade_ledger", "fold_details")
+        or value is not True
+        for key, value in cast(Json, policy).items()
+    ):
+        raise ValueError(
+            "Cannot resume a lighter or invalid recording policy: "
+            "complete recorded recovery evidence is required"
+        )
 
 
 @contextmanager
@@ -665,7 +684,7 @@ def compact(
                     admitted = (
                         record is not None
                         and "error" not in node
-                        and metadata.get("limen_version") == "5.29.0"
+                        and metadata.get("limen_version") in RETENTION_VERSIONS
                     )
                     if not admitted:
                         node["raw"] = evidence.put("bytes", len(raw), raw)

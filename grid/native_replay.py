@@ -38,7 +38,7 @@ from .replay import (
     numeric_platform,
     runtime_identity,
 )
-from .round_storage import Json
+from .round_storage import RETENTION_VERSIONS, Json
 
 
 class Native:
@@ -108,7 +108,7 @@ class Native:
         metadata = cast(Json, value)["metadata"]
         source = cast(Json, value)["source"]
         if (
-            self.limen.__version__ != "5.29.0"
+            self.limen.__version__ not in RETENTION_VERSIONS
             or metadata.get("limen_version") != self.limen.__version__
         ):
             raise ValueError("Unsupported native replay version")

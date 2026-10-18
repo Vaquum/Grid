@@ -488,9 +488,13 @@ class MarketCache:
                 self.memory.put(key, market, len(market["ret"]) * 40 + 256)
             return hydrated
         preds: Any = record.get("preds")
+        if not isinstance(preds, list):
+            execution: Any = record.get("execution")
+            preds = cast(Json, execution).get("pos") \
+                if isinstance(execution, dict) else None
         if "market" in record or (
-            isinstance(preds, list)
-            and len(cast(list[Any], preds)) != len(market["ret"])
+            not isinstance(preds, list)
+            or len(cast(list[Any], preds)) != len(market["ret"])
         ):
             raise ValueError("Invalid market returns or prediction length")
         return {

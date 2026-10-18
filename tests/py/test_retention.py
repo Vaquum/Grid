@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import gzip
+import hashlib
 import io
 import json
 import os
@@ -20,6 +21,7 @@ from grid.__main__ import Wiring, main
 from grid.cohort import RoundLines
 from grid.evidence import (
     Evidence,
+    MarketCache,
     Reducer,
     encoded,
     record_digest,
@@ -71,6 +73,40 @@ def science(path: Path, output: Path) -> dict:
 
 
 class Retention(unittest.TestCase):
+    def test_cached_market_requires_alignment_without_predictions(self) -> None:
+        raw = b'{"ret":[null,0.25]}'
+        ref = hashlib.sha256(raw).hexdigest()
+        cache = MarketCache()
+
+        def read(_):
+            return gzip.compress(raw)
+
+        cache.restore({"market_ref": ref, "preds": [0, 1]}, "", read)
+        lean = {"market_ref": ref, "execution": {"pos": [0, 1]}}
+        self.assertEqual(cache.restore(lean, "", read), restore(lean, read))
+        for execution in (None, {}, {"pos": None}, {"pos": [0]}):
+            with self.subTest(execution=execution), \
+                    self.assertRaises(ValueError):
+                cache.restore(dict(lean, execution=execution), "", read)
+
+    def test_replay_admission_requires_matching_native_version(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = ReplayClient.__new__(ReplayClient)
+            client.base = Path(tmp)
+            client.definitions = {}
+            for recorded in ("5.29.0", "5.30.2", "future"):
+                for native in ("5.29.0", "5.30.2"):
+                    client.pin = {"identity": {"limen": native}}
+                    with patch.object(client, "call", return_value={}) as rpc:
+                        result = client.definition(
+                            {"limen_version": recorded}, {"data": {}})
+                        if recorded == native:
+                            self.assertIsNotNone(result)
+                            rpc.assert_called_once()
+                        else:
+                            self.assertIsNone(result)
+                            rpc.assert_not_called()
+
     def test_cached_read_refuses_truncation_and_incorrect_count(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -456,6 +492,33 @@ class Retention(unittest.TestCase):
                 recover.assert_not_called()
             self.assertTrue((shard / DESCRIPTOR).is_file())
             self.assertFalse((shard / PLAIN).exists())
+
+    def test_lighter_resume_refuses_before_materializing_any_shard(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for label in ("s1", "s2"):
+                shard = root / label
+                shutil.copytree(FIXTURES / "limen_run", shard)
+                if label == "s2":
+                    metadata = json.loads((shard / "metadata.json").read_bytes())
+                    metadata["recording"] = {"predictions": False}
+                    (shard / "metadata.json").write_bytes(encoded(metadata))
+                compact(shard, root / "store.sqlite3", sealed=True, prune=True)
+                (shard / "checkpoint.json").write_text("{}")
+            (root / "grid-run.json").write_bytes(encoded({"shards": [
+                {"label": label, "state": "stopped"} for label in ("s1", "s2")]}))
+            (root / "experiment.yaml").write_text("uel:\n  workers: 1\n")
+            project = Project.__new__(Project)
+            project.root, project.cores = str(root), 2
+            project.lock = threading.Lock()
+            with patch.object(project, "_folder", return_value=str(root)), \
+                    patch("grid.experiment.materialize_in_place") as recover:
+                with self.assertRaisesRegex(ValueError, "recording policy"):
+                    project.resume("run")
+                recover.assert_not_called()
+            for label in ("s1", "s2"):
+                self.assertTrue((root / label / DESCRIPTOR).is_file())
+                self.assertFalse((root / label / PLAIN).exists())
 
     def test_lossless_numeric_types_nulls_and_float64_bits(self) -> None:
         recorded = json.loads(

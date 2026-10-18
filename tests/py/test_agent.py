@@ -243,6 +243,32 @@ class TestAgent(unittest.TestCase):
                 spawn.assert_not_called()
         self.assertEqual(self.project.runs(), [])
 
+    def test_native_temporal_capability_tracks_the_patch_release(self):
+        text = (ROOT / "tests/fixtures/limen_rule/s1.yaml").read_text()
+        for version, supported, recording in (
+                ("5.29.0", False, False), ("5.29.1", True, False),
+                ("5.30.2", True, True), ("5.30.2.post1", True, True),
+                ("5.31.0.dev3+gabc", True, True), ("5.29.2rc1", True, False),
+                ("5.29.0.dev1", False, False), ("unknown", False, False)):
+            self.project.version = version
+            execution = self.call("grid_discover")["execution"]
+            self.assertEqual(execution["ruleTemporalReferences"], supported)
+            self.assertEqual(execution["recordingPolicy"], recording)
+            self.assertEqual(execution["parallelRounds"], version != "unknown")
+            for field in ("recency_n", "persistence_n"):
+                candidate = text.replace("      entry: enter", (
+                    "        %s: '{hold_bars}'\n      entry: enter" % field))
+                checked = self.call("grid_validate", text=candidate)
+                self.assertEqual(checked["executionErrors"] == [], supported)
+        # Modern domains are validated by Limen, not Grid's text parser.
+        self.project.version = "5.30.2"
+        with patch.object(self.project, "schema_errors", return_value=[
+                {"path": "temporal", "message": "invalid domain"}]):
+            checked = self.call("grid_validate", text=text)
+        self.assertFalse(checked["executionChecked"])
+        self.assertEqual(checked["schemaErrors"][0]["message"],
+                         "invalid domain")
+
     def test_worker_diagnostics_stay_in_private_logs(self):
         assert self.agent is not None
         proc = subprocess.CompletedProcess([], 1, "", "private worker detail")

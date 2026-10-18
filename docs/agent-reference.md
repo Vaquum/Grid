@@ -89,7 +89,7 @@ sharing the project, including after restart.
 in `project.limen.capabilities`: `parallelRounds`, `parallelFactorize` (false),
 `parallelRequiresPrepEachRound`, `shardsRequireRandomSearch`, `cpuBudget`,
 `factorizedRandom` (false), `factorizedGridRequiresUnshuffled` (true),
-`ruleTemporalReferences` (false), and
+`ruleTemporalReferences` (Limen >= 5.29.1), `recordingPolicy` (Limen >= 5.30.0), and
 `preflight` (scope). The effective CPU budget accounts for affinity and cgroup
 quotas; fractional quotas round down to whole worker slots, with a minimum
 of one. `shards * uel.workers` cannot exceed this budget. Native parallel
@@ -532,14 +532,28 @@ Grid does not invent regular bars for an irregular file. Evaluation reports
 ## Native rule parameter references
 
 Limen 5.27.0 resolves references in predicate `column`, `other_column`,
-threshold `value`, slope `lookback`, and SQL `expr` fields. Operators,
-directions, condition IDs and temporal modifiers are not templated by that
-implementation. Write `recency_n` and `persistence_n` as block fields with
-constant positive integers. Grid preflight rejects their unresolved references
-and invalid constants with the field path and line before any run directory
-or process is created. Native temporal reference resolution depends on
-[Limen #925](https://github.com/Vaquum/Limen/issues/925); Grid does not resolve
-these fields itself or claim factorized equivalence for unsupported references.
+threshold `value`, slope `lookback`, and SQL `expr` fields. Limen 5.29.1 also
+resolves `recency_n` and `persistence_n` from each round's parameters, with
+positive integer domains checked by native validation. Operators, directions
+and condition IDs remain literal. `grid_discover.execution.ruleTemporalReferences`
+reports support from the project's actual Limen version. Older runtimes retain
+Grid's block-field preflight and reject temporal references before run creation.
+
+## Native recording policy
+
+Limen 5.30.0 adds `uel.recording`, advertised by
+`grid_discover.execution.recordingPolicy`. Its boolean groups are `predictions`,
+`alignment`, `trade_ledger` and `fold_details`; every omitted group defaults to
+`true`. Grid preserves this mapping in each shard's manifest. Existing
+`grid_start.execution` and `grid_start.outputs` flags still control execution
+and model-output recording independently; they do not restore omitted groups.
+
+Use the default policy for complete analytical, cohort and resume evidence.
+Omitting predictions prevents recorded cohort evaluation; execution summaries
+remain available when execution was recorded. Omitting alignment arrays can
+make timestamp reconstruction unavailable; Grid must not invent missing bars.
+Limen rejects resume with a lighter or changed recording policy and rejects
+`acceptance.max_pbo` when required alignment/fold evidence is disabled.
 
 
 Project page loading uses `GET /api/pack` for lightweight deferred run metadata and a `catalog`, without
@@ -559,7 +573,10 @@ unchanged; each pinned pack is immutable across arrivals and resets. Schema,
 gates, cohort and manifest queries defer Board effect calculations. Performance
 measurements describe processing stages, not network latency or financial evidence.
 
-Rule preflight requires condition items as block mappings with their first
-key on the sequence-dash line, for example `- id: signal`. Flow mappings,
-sequence aliases and anchored items must be expanded into this form before
-launch. Both plain and single/double-quoted temporal keys are checked.
+Before Limen 5.29.1, Grid's rule preflight requires condition items as block
+mappings with their first key on the sequence-dash line, for example
+`- id: signal`. On those runtimes, expand flow mappings, sequence aliases and
+anchored items into that form; plain and quoted temporal keys are checked.
+On Limen 5.29.1 or later, native validation handles temporal fields and accepts
+supported flow-style condition mappings. Grid still edits enclosing manifest
+mappings as blocks, as described under manifest editing.

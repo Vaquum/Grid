@@ -57,7 +57,10 @@ immutable image. It has no network, a read-only filesystem, bounded CPU/RAM,
 read-only input/code mounts and a private socket. Grid receives no Docker
 socket. The returned runtime identity includes image, code, CPU platform and
 numeric thread settings. Supply it to retention with `--runtime SHA256`.
-Current replay admission targets Limen 5.29.0; other versions retain vectors.
+Replay admission supports Limen 5.29.0 and 5.30.2 and requires the recorded
+version to match the pinned runtime. Other versions retain complete evidence.
+When recording omits predictions, Grid preserves that absence and execution
+alignment; it does not recreate predictions or enable unsupported resume.
 
 Keep the pin container and image for as long as archives reference them.
 A digest/version alone is not a runtime backup. Preserve its numeric platform
