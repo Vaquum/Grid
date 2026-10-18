@@ -4,15 +4,19 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import shutil
 import subprocess
 import time
 from pathlib import Path
 from typing import Any
 
+from grid.__main__ import main as grid_main
 from grid.agent_client import Client
 from grid.cohort import RoundLines
+from grid.evidence import encoded, record_digest
 from grid.experiment import set_values
 from grid.limen import execution_summary
+from grid.retention import Reader, compact, materialize, verify
 
 
 def verify_release(client: Client, project: Path, text: str) -> None:
@@ -132,6 +136,42 @@ def verify_release(client: Client, project: Path, text: str) -> None:
     assert resumed.returncode != 0, resumed.stdout
     assert "recording" in resumed.stdout + resumed.stderr, resumed.stderr
     assert snapshot() == before_resume
+    # Work on a sealed copy: the agent still holds read leases on live runs.
+    retained = project.parent / "retention-lean"
+    shutil.copytree(lean_dir, retained)
+    original_csv = (retained / "results.csv").read_bytes()
+
+    def science(directory: Path, name: str) -> bytes:
+        output = project.parent / (name + ".json")
+        grid_main(["pack", "--limen", str(directory), "--out", str(output)])
+        result = json.loads(output.read_bytes())["runs"][0]
+        return encoded({key: result.get(key) for key in (
+            "rows", "columns", "rounds", "bad", "badCount",
+            "roundsBad", "roundsBadCount")})
+
+    original_science = science(retained, "lean-original")
+    compact(retained, project.parent / "lean-cas/evidence.sqlite3",
+            sealed=True, prune=True)
+    assert verify(retained) == {"records": 4, "exact": True}
+    reader = Reader(retained)
+    try:
+        entries = list(reader.entries())
+        assert all("raw" not in entry["grid"] for entry in entries)
+        restored = [reader.restore(entry) for entry in entries]
+        assert all("preds" not in record for record in restored)
+        assert [record_digest(r) for r in restored] == [
+            record_digest(r) for r in lean]
+    finally:
+        reader.close()
+    assert science(retained, "lean-retained") == original_science
+    exported = project.parent / "lean-export"
+    materialize(retained, exported)
+    assert (exported / "results.csv").read_bytes() == original_csv
+    assert science(exported, "lean-exported") == original_science
+    lines = RoundLines()
+    assert [record_digest(lines.get(str(exported), r["round_id"]))
+            for r in lean] == [record_digest(r) for r in lean]
     print(json.dumps({"limenRelease": "5.30.2", "temporalParity": "exact",
                       "recordingExecutionParity": "exact",
+                      "lighterRetentionExport": "exact, predictions absent",
                       "lighterResume": "rejected without artifact changes"}))

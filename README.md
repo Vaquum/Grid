@@ -1,5 +1,8 @@
 # Grid
 
+Sealed Limen runs can use [lossless analytical retention](docs/retention.md)
+with shared exact evidence, cached summaries and checked native exports.
+
 A monitor for parameter sweeps. It follows a running sweep's results file
 and log, and shows how each parameter moves the outcome, with the
 uncertainty of every number. Built for the plate sweeps on s0 (grand,
