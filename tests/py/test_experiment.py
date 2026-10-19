@@ -288,6 +288,49 @@ class ProjectRuns(unittest.TestCase):
                          provenance={"sourceSeeds": [1, 2]})
         self.assertEqual(self.p.runs(), [])
 
+    def test_legacy_inline_recording_policy_is_never_guessed(self) -> None:
+        text = manifest_text().replace("uel:\n", "uel:\n  recording: "
+                                       "{predictions: false}\n")
+        self.p.create("legacy", text=text)
+        with self.assertRaisesRegex(ValueError,
+                                    "uel.recording is written inline"):
+            self.p.start("legacy", 2, 1, False, False)
+        self.assertEqual(self.p.runs(), [])
+
+    def test_historical_run_reads_native_partial_recording_policy(self) -> None:
+        self.p.create("legacy", template="lightgbm_binary")
+        rid = self.p.start("legacy", 2, 1, False, False)
+        wait(lambda: self.run_of(rid)["state"] == "finished")
+        folder = os.path.join(self.root, rid)
+        record_path = os.path.join(folder, "grid-run.json")
+        with open(record_path) as stream:
+            record = json.load(stream)
+        record.pop("recordingPolicy")
+        record.pop("recordingMode")
+        with open(record_path, "w") as stream:
+            json.dump(record, stream)
+        copy_path = os.path.join(folder, "manifests", "s1.yaml")
+        with open(copy_path) as stream:
+            text = stream.read().replace("uel:\n", "uel:\n  recording: "
+                                         "{predictions: false}\n")
+        with open(copy_path, "w") as stream:
+            stream.write(text)
+        metadata_path = os.path.join(folder, "s1", "metadata.json")
+        with open(metadata_path) as stream:
+            metadata = json.load(stream)
+        metadata["recording"] = {"predictions": False}
+        with open(metadata_path, "w") as stream:
+            json.dump(metadata, stream)
+        historical = self.run_of(rid)
+        self.assertEqual(historical["recordingMode"], "legacy")
+        self.assertFalse(historical["recordingPolicy"]["recording"][
+            "predictions"])
+        self.assertTrue(historical["recordingPolicy"]["recording"]["alignment"])
+        os.unlink(metadata_path)
+        unknown = self.run_of(rid)
+        self.assertIsNone(unknown["recordingPolicy"]["recording"]["predictions"])
+        self.assertIn("unknown", unknown["recordingReason"])
+
     def test_named_runs_persist_generated_single_shard_seed(self) -> None:
         self.p.version = "5.30.2"
         text = remove_value(manifest_text(), "uel.search_strategy.seed")

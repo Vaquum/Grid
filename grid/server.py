@@ -113,6 +113,7 @@ class Server:
                 self.public_host += ":" + str(address.port)
             self.public_origin = address.scheme + "://" + self.public_host
         self.sweep = sweep
+        self.instance = secrets.token_hex(16)
         self.page = page
         self.project = project      # the Limen project, with --project
         self.token = token          # the page's own, for the project's POSTs
@@ -455,6 +456,8 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
                             ',"selectedRun":' + json.dumps(requested)
                             if requested else "") + "}"
                 token = server.save_cursor(cursor)
+                text = text[:-1] + ',"serverInstance":' + json.dumps(
+                    server.instance) + "}"
                 body = ('{"cursor":%s,"pack":%s}' % (json.dumps(token), text))
                 return self.send_bytes(body.encode(), "application/json")
             if url.path == "/api/stream":

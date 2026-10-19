@@ -14,6 +14,7 @@ export function inspectScope(m) {
   const constraints = [], problems = [], scope = [];
   const provenance = inspectPreflight(m.ds.meta.experiment);
   if (!provenance.available) problems.push(provenance.reason);
+  if (!m.ds.meta.serverInstance) problems.push("Inspect unavailable: this run has no source server instance. Open the run from its live Grid server before launching.");
   let before = 1n, after = 1n;
   for (const values of Object.values(params)) before *= BigInt(Array.isArray(values) ? values.length : 1);
   const conditions = mergeConditions(m.state.context, m.state.pocket);
@@ -45,6 +46,10 @@ export function inspectBudget(plan, sourceRoundsPerShard) {
 
 const inspectRequests = new Map();
 
+export function inspectRequestKey(m, constraints) {
+  return JSON.stringify([m.ds.meta.serverInstance, m.ds.id, m.ds.meta.generation, constraints]);
+}
+
 function retainInspectRequest(key, req) {
   try { sessionStorage.setItem(`grid-inspect:${key}`, JSON.stringify({ ...req, busy: false })); } catch { /* storage may be unavailable in an exported page */ }
 }
@@ -53,7 +58,7 @@ export function inspectSection(m, A) {
   if (m.ds.meta.experiment?.kind !== "limen") return null;
   const plan = inspectScope(m);
   const budget = inspectBudget(plan, m.ds.meta.experiment.manifest?.uel?.n_permutations);
-  const key = JSON.stringify([m.ds.id, m.ds.meta.generation, plan.constraints]);
+  const key = inspectRequestKey(m, plan.constraints);
   let req = inspectRequests.get(key);
   if (!req) {
     req = { name: `${m.ds.meta.experiment.manifest?.metadata?.name || "pocket"}`.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 40) + "_inspect",
@@ -94,7 +99,7 @@ export function inspectSection(m, A) {
     }
     if (!req.payload) {
       req.requestId = crypto.randomUUID();
-      req.payload = { name: req.name, source: { run: m.ds.id, generation: m.ds.meta.generation }, constraints: plan.constraints, requestId: req.requestId, rounds: req.rounds };
+      req.payload = { name: req.name, source: { run: m.ds.id, generation: m.ds.meta.generation, instance: m.ds.meta.serverInstance }, constraints: plan.constraints, requestId: req.requestId, rounds: req.rounds };
       retainInspectRequest(key, req);
     }
     req.busy = true; req.error = null; A.rerender();

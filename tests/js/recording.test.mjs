@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { recordingCapabilities, inspectPreflight } from "../../web/js/capabilities.js";
-import { inspectScope, inspectBudget } from "../../web/js/inspect.js";
+import { inspectScope, inspectBudget, inspectRequestKey } from "../../web/js/inspect.js";
 import { analyzePack } from "../../web/js/agent-query.js";
+import { decodePack } from "../../web/js/pack.js";
 
 const recordingDataset = (experiment, extra = {}) => ({ meta: { experiment, ...extra }, outputs: new Map(), execution: new Map() });
 
@@ -36,7 +37,7 @@ function scopeModel(pocket, context = [], gates = []) {
     { id: "depth", column: "depth", label: "Depth", levels: [{ key: "1", value: 1 }, { key: "2", value: 2 }, { key: "string", value: "1" }] },
     { id: "shard", column: "shard", label: "Shard", levels: [{ key: "one", value: "one" }] },
   ];
-  return { ds: { meta: { experiment: { sourceIdentity: { data: { available: true } }, runtimeIdentity: { verified: true }, manifest: { sfd: { params: { flag: [false, true], depth: [1, 2, "1"] } } } } } },
+  return { ds: { id: "r0", meta: { serverInstance: "test-instance", generation: 0, experiment: { sourceIdentity: { data: { available: true } }, runtimeIdentity: { verified: true }, manifest: { sfd: { params: { flag: [false, true], depth: [1, 2, "1"] } } } } } },
     schema: { dimById: new Map(dims.map(d => [d.id, d])) }, state: { pocket, context, gates } };
 }
 
@@ -75,6 +76,19 @@ test("Inspect preflight refuses unverified historical, remote data and runtime i
   delete model.ds.meta.experiment.sourceIdentity;
   assert.ok(inspectScope(model).problems.some(p => p.includes("no verifiable source data fingerprint")));
   assert.equal(recordingCapabilities(model.ds).inspect.available, false);
+});
+
+test("Inspect request identities are scoped to the original server instance", () => {
+  for (const field of ["serverInstance", "agentInstance"]) {
+    const sweep = decodePack({ grid: 1, [field]: "original-server", runs: [{ id: "r0", rows: 0, columns: [] }] });
+    assert.equal(sweep.runs[0].meta.serverInstance, "original-server");
+  }
+  const model = scopeModel([{ dim: "flag", keys: ["false"] }]);
+  const plan = inspectScope(model), original = inspectRequestKey(model, plan.constraints);
+  model.ds.meta.serverInstance = "replacement-server";
+  assert.notEqual(inspectRequestKey(model, plan.constraints), original);
+  delete model.ds.meta.serverInstance;
+  assert.ok(inspectScope(model).problems.some(p => p.includes("no source server instance")));
 });
 
 test("offline agent queries expose the same capabilities and never substitute whole-window first-half evidence", () => {

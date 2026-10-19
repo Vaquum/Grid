@@ -104,10 +104,11 @@ def launch(server: Server, body: Json) -> Json:
     if not isinstance(raw_source, dict):
         raise ValueError("source requires run and integer generation")
     source = cast(Json, raw_source)
-    if not isinstance(source.get("run"), str) \
+    if not isinstance(source.get("instance"), str) or \
+            not isinstance(source.get("run"), str) \
             or not isinstance(source.get("generation"), int) \
             or isinstance(source.get("generation"), bool):
-        raise ValueError("source requires run and integer generation")
+        raise ValueError("source requires instance, run and integer generation")
     identity = hashlib.sha256(request_id.encode()).hexdigest()
     directory = os.path.join(project.root, ".grid", "inspect", identity)
     fingerprint = hashlib.sha256(typed(body).encode()).hexdigest()
@@ -139,6 +140,9 @@ def launch(server: Server, body: Json) -> Json:
 
     receipt("running")
     try:
+        if source["instance"] != server.instance:
+            raise ValueError("source instance changed; analyze again before "
+                             "creating a new Inspect intent")
         snapshot = source.get("snapshot")
         if snapshot:
             if server.agent is None or not isinstance(snapshot, str):

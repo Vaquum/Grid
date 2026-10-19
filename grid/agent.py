@@ -124,8 +124,8 @@ TOOLS = [
          "typed parameter region of a source generation or pinned snapshot. "
          "Reuse requestId on retries; this remains exploratory evidence.",
          obj({"name": TEXT, "source": obj({
-             "run": TEXT, "generation": integer(), "snapshot": TEXT},
-             ["run", "generation"]),
+             "run": TEXT, "generation": integer(), "snapshot": TEXT,
+             "instance": TEXT}, ["run", "generation", "instance"]),
              "constraints": {"type": "array", "minItems": 1,
                              "items": obj({"param": TEXT, "values": {
                                  "type": "array", "minItems": 1}},
@@ -229,7 +229,7 @@ def validate_input(value: Any, schema: Json, path: str = "arguments") -> None:
 class Agent:
     def __init__(self, server: Server) -> None:
         self.server = server
-        self.instance = str(uuid.uuid4())
+        self.instance = server.instance
         self.lock = threading.Lock()
         self.snapshot_lock = threading.Lock()
         self.snapshots: dict[str, tuple[float, str]] = {}

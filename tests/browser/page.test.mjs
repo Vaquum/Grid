@@ -1621,6 +1621,7 @@ test("experiment: catalog opens before results, and analysis loads only its chos
 
 test("Inspect: one unique combination is evaluated once for each preserved source seed", async () => {
   const pack = JSON.parse(gunzipSync(readFileSync(join(dir, "limen.pack.json.gz"))));
+  pack.serverInstance = "test-instance";
   const run = pack.runs[0], exp = run.experiment;
   exp.manifest.sfd.params = { use_calibration: [false, true] };
   exp.manifest.uel.n_permutations = 5;
@@ -1628,14 +1629,14 @@ test("Inspect: one unique combination is evaluated once for each preserved sourc
   exp.sourceIdentity = { data: { available: true, files: [{ path: "/source/market.csv", sha256: "mock-source-content", bytes: 100 }] } };
   exp.runtimeIdentity = { verified: true, sha256: "mock-runtime-content" };
   exp.manifestText = "metadata:\n  name: one_combination\nsfd:\n  params:\n    use_calibration: [false, true]\nuel:\n  n_permutations: 5\n";
-  const payload = gzipSync(JSON.stringify(pack)).toString("base64");
   const config = JSON.stringify({ mode: "demo", experiment: "/api/experiment", token: "test-token" });
-  const html = readFileSync(join(dir, "limen.html"), "utf8")
-    .replace(/(<script id="grid-pack"[^>]*>)[^<]*(<\/script>)/, `$1${payload}$2`)
+  const template = readFileSync(join(dir, "limen.html"), "utf8");
+  const inspectHtml = () => template
+    .replace(/(<script id="grid-pack"[^>]*>)[^<]*(<\/script>)/, `$1${gzipSync(JSON.stringify(pack)).toString("base64")}$2`)
     .replace(/(<script id="grid-config"[^>]*>)[^<]*(<\/script>)/, `$1${config}$2`);
   const { page, errors } = await limenPage();
   const requests = [];
-  await page.route("**/inspect-single", route => route.fulfill({ contentType: "text/html", body: html }));
+  await page.route("**/inspect-single", route => route.fulfill({ contentType: "text/html", body: inspectHtml() }));
   await page.route("**/api/experiment/inspect", route => {
     requests.push(route.request().postDataJSON());
     return route.fulfill({ status: requests.length === 1 ? 503 : 200, contentType: "application/json", body: JSON.stringify(requests.length === 1
@@ -1663,10 +1664,21 @@ test("Inspect: one unique combination is evaluated once for each preserved sourc
   await page.getByText("Immutable source snapshot: source-pinned", { exact: true }).waitFor();
   assert.deepEqual(requests[0], requests[1], "retry after reload preserves native request identity and exact payload");
   assert.equal(requests[0].rounds, 2);
+  assert.equal(requests[0].source.instance, "test-instance");
   assert.deepEqual(requests[0].constraints, [{ param: "use_calibration", values: [false] }]);
   assert.ok(requests[0].requestId);
   assert.ok(errors.slice(beforeInspectErrors).every(e => /status of 503/.test(e)), errors.slice(beforeInspectErrors).join("\n"));
   errors.splice(beforeInspectErrors);
+  // The same run id and generation from a replacement server cannot load
+  // the previous server's saved receipt or retarget its native request.
+  pack.serverInstance = "replacement-instance";
+  await page.reload();
+  await inspect.getByRole("button", { name: "Run in Inspect mode", exact: true }).click();
+  assert.equal(await inspect.getByRole("button", { name: "Retry Inspect request", exact: true }).count(), 0);
+  await inspect.getByRole("button", { name: "Confirm and run Inspect", exact: true }).click();
+  await page.getByText("Immutable source snapshot: source-pinned", { exact: true }).waitFor();
+  assert.equal(requests[2].source.instance, "replacement-instance");
+  assert.notEqual(requests[2].requestId, requests[0].requestId);
   assert.deepEqual(errors, []);
   await page.close();
 });

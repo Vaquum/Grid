@@ -22,6 +22,7 @@ import platform
 import resource
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, cast
@@ -343,9 +344,9 @@ def compare(left: Path, right: Path) -> Json:
             except (KeyError, ValueError):
                 difference["absolute_difference"] = None
             differences.append(difference)
-    first_fields = set(a[0]) if a else set()
-    second_fields = set(b[0]) if b else set()
-    common = first_fields & second_fields
+    first_fields: set[str] = set(a[0]) if a else set[str]()
+    second_fields: set[str] = set(b[0]) if b else set[str]()
+    common: set[str] = first_fields & second_fields
     return {"rows": len(a), "exact_agreement": not differences,
             "scalar_result_sets_agree": not differences,
             "shared_scalar_values_exact_agreement": not any(
@@ -359,6 +360,89 @@ def compare(left: Path, right: Path) -> Json:
 def evidence_hashes(folder: Path) -> dict[str, str]:
     return {str(path.relative_to(folder)): digest(path)
             for path in sorted(folder.rglob("*")) if path.is_file()}
+
+
+def grid_code_hash() -> str:
+    return hashlib.sha256(json.dumps(
+        {name: value for name, value in evidence_hashes(
+            ROOT / "grid").items() if name.endswith(".py")},
+        sort_keys=True).encode()).hexdigest()
+
+
+def check_runtime(previous: Json, current: Json) -> None:
+    for key in ("python", "executable_realpath", "limen_python_source_sha256",
+                "distributions"):
+        if previous[key] != current[key]:
+            raise ValueError("Native runtime changed: " + key)
+
+
+def check_native(work: Path, conditions: Json, original: Json,
+                 *, require_hashes: bool = False) -> tuple[Path, Json, Json]:
+    kind, repeat, mode = (original[key] for key in
+                          ("workload", "repetition", "mode"))
+    folder = work / ("%s-%d-%s" % (kind, repeat, mode))
+    run_dir = folder / "run"
+    source = ROOT / "tests/fixtures/retention/btc_spot_hourly.parquet"
+    expected = config(kind, mode, source, conditions["rounds_per_run"])
+    expected["uel"]["output_path"] = str(run_dir)
+    text = (folder / "benchmark.yaml").read_text()
+    declared = json.loads("\n".join(
+        line for line in text.splitlines() if not line.startswith("#")))
+    metadata = json.loads((run_dir / "metadata.json").read_bytes())
+    for candidate in (declared, metadata["yaml_reference"]):
+        if json.dumps(candidate, sort_keys=True) != json.dumps(
+                expected, sort_keys=True):
+            raise ValueError("Native scientific config changed")
+    if (run_dir / "benchmark.yaml").read_text() != text:
+        raise ValueError("Native manifest copy changed")
+    hashes = evidence_hashes(run_dir)
+    if require_hashes and "native_evidence_sha256" not in original:
+        raise ValueError("Report lacks native scientific evidence hashes")
+    if original.get("native_evidence_sha256", hashes) != hashes:
+        raise ValueError("Native scientific output changed")
+    for key, path in (
+        ("native_manifest_sha256", folder / "benchmark.yaml"),
+        ("native_receipt_sha256", folder / "native.json"),
+    ):
+        actual = digest(path)
+        if original.get(key, actual) != actual:
+            raise ValueError("Native generation receipt changed")
+    return run_dir, audit(run_dir, mode, conditions["rounds_per_run"]), hashes
+
+
+def verify_report(args: argparse.Namespace) -> None:
+    report = cast(Json, json.loads(args.out.read_bytes()))
+    conditions = report["conditions"]
+    if conditions.get("ingestion_grid_python_sha256") != grid_code_hash():
+        raise ValueError("Report did not ingest the current Grid Python code")
+    source = ROOT / "tests/fixtures/retention/btc_spot_hourly.parquet"
+    if digest(source) != SOURCE_SHA256 or conditions[
+            "source_sha256"] != SOURCE_SHA256:
+        raise ValueError("Benchmark source checksum differs")
+    with tempfile.TemporaryDirectory(prefix="grid-benchmark-verify-") as temp:
+        current = child(args.limen_python, "identity", {},
+                        Path(temp) / "runtime.json")
+    check_runtime(report["runtime"], current)
+    work = args.verify_report.resolve()
+    for measurement in report["measurements"]:
+        _, proof, _ = check_native(work, conditions, measurement,
+                                   require_hashes=True)
+        if proof != measurement["audit"]:
+            raise ValueError("Recorded round/parameter audit changed")
+    for comparison in report["scalar_comparisons"]:
+        label = "%s-%d-" % (comparison["workload"], comparison["repetition"])
+        fresh = compare(work / (label + "sweep") / "run",
+                        work / (label + "inspect") / "run")
+        if fresh != {key: value for key, value in comparison.items()
+                     if key not in ("workload", "repetition")}:
+            raise ValueError("Recorded scalar comparison changed")
+    for mode in report["grid_launch_overhead"]["modes"].values():
+        for file in mode["source_identity"]["data"]["files"]:
+            if digest(Path(file["path"])) != file["sha256"]:
+                raise ValueError("Grid retained source snapshot changed")
+    print(json.dumps({"verified_report": str(args.out),
+                      "grid_code_sha256": grid_code_hash(),
+                      "native_runs": len(report["measurements"])}), flush=True)
 
 
 def remeasure(args: argparse.Namespace) -> None:
@@ -381,10 +465,7 @@ def remeasure(args: argparse.Namespace) -> None:
     receipts = work / "remeasure" / str(time.time_ns())
     receipts.mkdir(parents=True)
     runtime = child(args.limen_python, "identity", {}, receipts / "runtime.json")
-    for key in ("python", "executable_realpath", "limen_python_source_sha256",
-                "distributions"):
-        if previous["runtime"][key] != runtime[key]:
-            raise ValueError("Native runtime changed: " + key)
+    check_runtime(previous["runtime"], runtime)
     native_head = conditions.get("native_generation_grid_head") or \
         args.native_head
     if not native_head:
@@ -402,28 +483,12 @@ def remeasure(args: argparse.Namespace) -> None:
             for mode in (("sweep", "inspect") if repeat % 2 == 0 else
                          ("inspect", "sweep")):
                 label = "%s-%d-%s" % (kind, repeat, mode)
-                folder, run_dir = work / label, work / label / "run"
-                expected = config(kind, mode, source,
-                                  conditions["rounds_per_run"])
-                expected["uel"]["output_path"] = str(run_dir)
-                text = (folder / "benchmark.yaml").read_text()
-                declared = json.loads("\n".join(
-                    line for line in text.splitlines()
-                    if not line.startswith("#")))
-                metadata = json.loads((run_dir / "metadata.json").read_bytes())
-                for candidate in (declared, metadata["yaml_reference"]):
-                    if json.dumps(candidate, sort_keys=True) != json.dumps(
-                            expected, sort_keys=True):
-                        raise ValueError("Native scientific config changed")
-                if (run_dir / "benchmark.yaml").read_text() != text:
-                    raise ValueError("Native manifest copy changed")
+                folder = work / label
                 original = next(m for m in previous["measurements"] if
                                 (m["workload"], m["repetition"], m["mode"])
                                 == (kind, repeat, mode))
-                hashes = evidence_hashes(run_dir)
-                if original.get("native_evidence_sha256", hashes) != hashes:
-                    raise ValueError("Native scientific output changed")
-                proof = audit(run_dir, mode, conditions["rounds_per_run"])
+                run_dir, proof, hashes = check_native(
+                    work, conditions, original)
                 if parameters is not None and proof["parameters"] != parameters:
                     raise ValueError("Matched native parameters differ")
                 parameters = proof["parameters"]
@@ -461,10 +526,7 @@ def remeasure(args: argparse.Namespace) -> None:
     result["conditions"].update(
         native_generation_grid_head=native_head,
         ingestion_grid_head=head(),
-        ingestion_grid_python_sha256=hashlib.sha256(json.dumps(
-            {name: value for name, value in evidence_hashes(
-                ROOT / "grid").items() if name.endswith(".py")},
-            sort_keys=True).encode()).hexdigest(),
+        ingestion_grid_python_sha256=grid_code_hash(),
         native_receipts_reused=True, previous_report_sha256=digest(archived),
         previous_report_archive=str(archived),
     )
@@ -583,6 +645,7 @@ def main() -> None:
     parser.add_argument("--work", type=Path)
     parser.add_argument("--out", type=Path)
     parser.add_argument("--remeasure-existing", type=Path)
+    parser.add_argument("--verify-report", type=Path)
     parser.add_argument("--native-head")
     parser.add_argument("--rounds", type=int, default=60)
     parser.add_argument("--repeats", type=int, default=3)
@@ -603,6 +666,11 @@ def main() -> None:
         if not args.limen_python or not args.out:
             parser.error("--remeasure-existing requires --limen-python --out")
         remeasure(args)
+        return
+    if args.verify_report:
+        if not args.limen_python or not args.out:
+            parser.error("--verify-report requires --limen-python --out")
+        verify_report(args)
         return
     if (not args.limen_python or not args.work or not args.out
             or args.rounds < 24 or args.repeats < 3):

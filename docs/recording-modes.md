@@ -138,3 +138,10 @@ JSON/portable-manifest bytes separately. This overhead probe does not execute
 a strategy or count a Project run journal. Native campaign totals exclude
 these explicitly itemized Grid wrapper artifacts. No size-reduction claim is
 derived from the overhead probe.
+
+For a later documentation-only commit, use `--verify-report WORK` with the
+same `--limen-python` and `--out` arguments. This reads the retained native
+evidence and verifies the report's current Grid Python digest, source/runtime,
+native configurations, manifests, hashes, round/parameter audits and scalar
+comparisons. It performs no strategy execution or ingestion and refuses a
+report measured against different Grid Python code.

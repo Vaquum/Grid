@@ -303,7 +303,15 @@ def set_parameter_values(text: str, params: Json) -> str:
         index = _find(lines, lo, hi, indent, name)
         if index is None:
             raise ValueError("source parameter is absent from exact manifest")
-        end = _block_end(lines, index, indent)
+        end = index + 1
+        for following in range(index + 1, len(lines)):
+            if not _content(lines[following]):
+                continue
+            depth = _indent(lines[following])
+            item = re.match(r"^\s*-(?:\s|$)", lines[following])
+            if depth < indent or depth == indent and not item:
+                break
+            end = following + 1
         lines[index:end] = [" " * indent + name + ": " + json.dumps(
             values, sort_keys=True, allow_nan=False, separators=(",", ":"))]
     return "\n".join(lines) + "\n"
@@ -996,9 +1004,22 @@ class Project:
                 else:
                     uel[key] = value.lower() == "true"
         metadata = _read_json(os.path.join(folder, "metadata.json"))
+        if metadata is None and record:
+            raw_shards = cast(list[Json], record.get("shards") or [])
+            if raw_shards:
+                metadata = _read_json(os.path.join(
+                    folder, str(raw_shards[0].get("label")), "metadata.json"))
+        inline_policy = get_value(text, "uel.recording") is not None
+        if metadata is None and inline_policy:
+            uel["recording"] = dict.fromkeys(uel["recording"] or (
+                "predictions", "alignment", "trade_ledger", "fold_details"))
         manifest = (metadata or {}).get("yaml_reference") or {"uel": uel}
-        return infer_recording(manifest, metadata, record,
-                               manifest_text=text)
+        recording = infer_recording(manifest, metadata, record,
+                                    manifest_text=text)
+        if metadata is None and inline_policy:
+            recording["recordingReason"] = "Recorded inline policy needs " \
+                "native metadata; its switches are unknown."
+        return recording
 
     def runs(self, light: bool = False) -> list[Json]:
         """Every run, newest first: its experiment, when it started, its
@@ -1289,6 +1310,10 @@ class Project:
             if any(value is not None and not isinstance(value, bool)
                    for value in (execution, outputs)):
                 raise ValueError("execution and outputs must be booleans")
+            if get_value(text, "uel.recording") is not None:
+                raise ValueError("uel.recording is written inline; use a block "
+                                 "mapping so Grid can preserve its policy "
+                                 "without guessing recording switches")
             text = unmark_manifest(set_values(text, {
                 "uel.record_execution": bool(execution),
                 "uel.record_model_outputs": bool(outputs)}))

@@ -208,7 +208,7 @@ async function loadRun(ds) {
 function applyMessage(msg) {
   const sw = app.sweep;
   if (msg.type === "run") {
-    const meta = msg.run;
+    const meta = { ...msg.run, serverInstance: sw.meta.serverInstance || sw.meta.agentInstance || null };
     const old = sw.runs.find(r => r.id === meta.id);
     if (old && msg.known) {
       // the run started over: its rows so far came just before, kept as an
@@ -244,7 +244,7 @@ function applyMessage(msg) {
     const ds = sw.runs.find(r => r.id === msg.run);
     if (!ds) { console.error("rows for an unknown run", msg.run); return; }
     ds.append(msg.lo, msg.hi, msg.columns, msg.arrivals);
-    ds.meta = { ...msg.meta, state: ds.meta.state || msg.meta.state };
+    ds.meta = { ...msg.meta, serverInstance: ds.meta.serverInstance, state: ds.meta.state || msg.meta.state };
     if (app.stayOn === ds.id) settleStay();
     if (app.pendingRun === ds.id) settlePending();
   } else if (msg.type === "rounds") {
@@ -259,7 +259,7 @@ function applyMessage(msg) {
       || r.id === app.state.run || r.id === app.loadingRun);
     for (const meta of msg.runs) {
       const ds = sw.runs.find(r => r.id === meta.id);
-      if (!ds) sw.runs.push(new Dataset({ ...meta, deferred: true }));
+      if (!ds) sw.runs.push(new Dataset({ ...meta, serverInstance: sw.meta.serverInstance || sw.meta.agentInstance || null, deferred: true }));
       else if (meta.state) ds.meta.state = meta.state;
     }
   } else if (msg.type === "meta") {

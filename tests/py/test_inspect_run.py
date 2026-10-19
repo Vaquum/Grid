@@ -55,14 +55,16 @@ class InspectLaunch(unittest.TestCase):
             lock=threading.Lock(), runs=[self.source_run],
             pack_text=Mock(return_value=(self.pack, None)))
         self.server = SimpleNamespace(project=self.project, sweep=self.sweep,
-                                      agent=None)
+                                      agent=None, instance="source-instance")
         self.body: Json = {"name": "inspect", "requestId": "intent-1",
-                     "source": {"run": "source", "generation": 4},
+                     "source": {"instance": "source-instance",
+                                "run": "source", "generation": 4},
                      "constraints": [{"param": "threshold", "values": [0.5]}],
                      "rounds": 2}
 
     def test_retry_after_restart_returns_one_launch_and_frozen_source(self):
         result = launch(cast(Server, self.server), self.body)
+        self.server.instance = "restarted-instance"
         self.source_run.generation = 5
         self.sweep.pack_text.return_value = ('{"runs": []}', None)
         self.assertEqual(launch(cast(Server, self.server), self.body), result)
@@ -91,6 +93,16 @@ class InspectLaunch(unittest.TestCase):
             launch(cast(Server, self.server), self.body)
         self.project.create.assert_not_called()
         self.project.start.assert_not_called()
+
+    def test_reused_run_id_after_restart_cannot_bind_a_new_inspect_intent(self):
+        self.server.instance = "restarted-instance"
+        self.source_run.generation = 0
+        self.body["source"]["generation"] = 0
+        with self.assertRaisesRegex(ValueError, "source instance changed"):
+            launch(cast(Server, self.server), self.body)
+        self.project.create.assert_not_called()
+        self.project.start.assert_not_called()
+        self.sweep.pack_text.assert_not_called()
 
     def test_full_space_and_untyped_substitution_are_refused(self):
         for constraints in ([], [{"param": "enabled", "values": [1]}],
@@ -161,6 +173,15 @@ class InspectLaunch(unittest.TestCase):
         manifest["sfd"]["params"]["size"] = [1, 1.0, 2]
         with self.assertRaisesRegex(ValueError, "ambiguous"):
             narrow(text, manifest, [{"param": "size", "values": [1]}])
+
+    def test_indentless_parameter_sequence_is_replaced_without_orphan_items(self):
+        original = TEXT.replace("    threshold: [0.25, 0.5]\n",
+                                "    threshold:\n    - 0.25\n    - 0.5\n")
+        narrowed, count = narrow(original, MANIFEST, [
+            {"param": "threshold", "values": [0.5]}])
+        self.assertEqual(count, 2)
+        self.assertEqual(narrowed, TEXT.replace("threshold: [0.25, 0.5]",
+                                               "threshold: [0.5]"))
 
     def test_unverifiable_source_stops_before_experiment_creation(self):
         self.identity_check.side_effect = ValueError("source content unavailable")
