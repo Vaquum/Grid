@@ -81,7 +81,7 @@ LightGBM 4.7.0 and the real 59,112-bar BTC snapshot. Each workload/mode ran
 The [full report](recording-benchmark-20261019.json) includes every run's file
 inventory, sampled parameters, hashes, measurements and scalar differences.
 Native generation used Grid head `1350eaa`; ingestion was remeasured against
-published head `60d65f6`, after verifying the unchanged native evidence.
+published head `fd55f94`, after verifying the unchanged native evidence.
 
 Values below are medians of three runs. Native time excludes dependency
 imports; native peak RSS includes them. Ingestion time includes reading,
@@ -90,10 +90,10 @@ the separate report-verification read.
 
 | Workload | Mode | Native run bytes | Native time, s | Native peak RSS, MiB | Ingestion, ms | Ingestion peak RSS, MiB |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| LightGBM | Sweep | 81,525 | 84.98 | 424.38 | 11.29 | 32.83 |
-| LightGBM | Inspect | 7,504,097 | 91.67 | 436.81 | 1,711.45 | 62.44 |
-| Rule | Sweep | 98,327 | 5.76 | 259.11 | 14.89 | 32.91 |
-| Rule | Inspect | 9,726,734 | 7.78 | 265.38 | 1,654.90 | 65.64 |
+| LightGBM | Sweep | 81,525 | 84.98 | 424.38 | 10.36 | 32.63 |
+| LightGBM | Inspect | 7,504,097 | 91.67 | 436.81 | 1,714.65 | 63.05 |
+| Rule | Sweep | 98,327 | 5.76 | 259.11 | 14.66 | 32.80 |
+| Rule | Inspect | 9,726,734 | 7.78 | 265.38 | 1,557.48 | 64.94 |
 
 Sweep's native run files were 98.91% smaller for LightGBM and 98.99% smaller
 for the rule workload. These percentages exclude shared inputs, runtime and
