@@ -1,4 +1,4 @@
-"""Content snapshots prevent linked reruns from following mutable data paths."""
+"""Content snapshots keep linked reruns from following mutable data paths."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ TEXT = """sfd:
 
 
 class SourceIdentity(unittest.TestCase):
-    def test_runtime_probe_resolves_native_package_without_grid_shadowing(self):
+    def test_runtime_probe_resolves_native_package_without_shadowing(self):
         with tempfile.TemporaryDirectory() as root:
             package = Path(root, "limen")
             package.mkdir()
@@ -60,7 +60,8 @@ class SourceIdentity(unittest.TestCase):
             data = snapshot_source(TEXT, root)
             source = {"data": data}
             runtime = {"verified": True, "fingerprint": "original"}
-            with patch("grid.provenance.runtime_identity", return_value=runtime):
+            with patch("grid.provenance.runtime_identity",
+                       return_value=runtime):
                 verify_identity(source, runtime, "limen", "python", "5.30.2")
             with patch("grid.provenance.runtime_identity", return_value={
                     "verified": True, "fingerprint": "different"}):
@@ -82,9 +83,10 @@ class SourceIdentity(unittest.TestCase):
                 verify_identity({"data": remote}, None, "limen", None,
                                 "5.30.2")
 
-    def test_custom_provider_file_parameter_does_not_prove_source_identity(self):
+    def test_custom_provider_file_does_not_prove_source_identity(self):
         with tempfile.TemporaryDirectory() as root:
             Path(root, "source.csv").write_text("price\n1\n")
             custom = snapshot_source(TEXT.replace(
-                "limen.data.HistoricalData.get_any_file", "custom.fetch"), root)
+                "limen.data.HistoricalData.get_any_file", "custom.fetch"),
+                root)
             self.assertFalse(custom["available"])

@@ -75,6 +75,62 @@ from per-permutation result payloads; Grid does not delete them automatically.
 
 ## Native benchmark
 
+Measured on 2026-10-19 with macOS ARM64, Python 3.12.12, Limen 5.30.2,
+LightGBM 4.7.0 and the real 59,112-bar BTC snapshot. Each workload/mode ran
+60 rounds three times: 720 native executions, with 17,424 test bars per round.
+The [full report](recording-benchmark-20261019.json) includes every run's file
+inventory, sampled parameters, hashes, measurements and scalar differences.
+Native generation used Grid head `1350eaa`; ingestion was remeasured against
+published head `60d65f6`, after verifying the unchanged native evidence.
+
+Values below are medians of three runs. Native time excludes dependency
+imports; native peak RSS includes them. Ingestion time includes reading,
+reducing and writing a fsynced compressed pack; its peak RSS is captured before
+the separate report-verification read.
+
+| Workload | Mode | Native run bytes | Native time, s | Native peak RSS, MiB | Ingestion, ms | Ingestion peak RSS, MiB |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| LightGBM | Sweep | 81,525 | 84.98 | 424.38 | 11.29 | 32.83 |
+| LightGBM | Inspect | 7,504,097 | 91.67 | 436.81 | 1,711.45 | 62.44 |
+| Rule | Sweep | 98,327 | 5.76 | 259.11 | 14.89 | 32.91 |
+| Rule | Inspect | 9,726,734 | 7.78 | 265.38 | 1,654.90 | 65.64 |
+
+Sweep's native run files were 98.91% smaller for LightGBM and 98.99% smaller
+for the rule workload. These percentages exclude shared inputs, runtime and
+Grid launch overhead. The per-run totals include Inspect's shared market blob:
+176,947 bytes for LightGBM and 176,951 for the rule workload; Sweep wrote none.
+
+Every compared common CSV value agreed exactly across all 360 matched round
+pairs, excluding elapsed time and generated row IDs; no numeric nondeterminism
+was observed in this runtime. Rule scalar sets also
+agreed completely. LightGBM scalar sets differed because `best_iteration` was
+absent from Sweep in all 180 ML comparisons, as described above. Every Sweep
+round had zero array paths; Inspect retained predictions, execution and, for
+LightGBM, probabilities over the test bars. This is observed parity for these
+inputs, parameters and seeds, not a guarantee for another runtime.
+
+Shared costs are reported separately:
+
+| Asset or overhead | Measured bytes |
+| --- | ---: |
+| Original market input | 5,368,313 |
+| Grid retained source snapshot, deduplicated across both modes | 5,368,313 |
+| Native environment before imports / after native runs | 521,291,236 / 553,936,966 |
+| Base Python installation, additional to the environment | 63,407,997 |
+| Native Limen package files at initial inventory, already inside environment total | 1,817,726 |
+| Existing global Limen dataset cache, before / after native campaign | 551,337,198 / 551,338,234 |
+| Grid identity JSON per mode, measured separately | 2,081 |
+| Portable launch manifest increase per mode | 2,165 |
+
+The local-file workload did not require a remote dataset cache. Its observed
+global cache delta was 1,036 bytes; attribution to this benchmark was not
+instrumented. Environment file growth was 32,645,730 bytes. The launch overhead
+probe used the actual Grid helper and one shared source copy; it excludes the
+Project journal and does not supply a size-reduction denominator. The native
+campaign created no retention store or replay runtime. OS libraries, symlinks
+and filesystem allocation are excluded. Disk caches were not flushed, and
+the machine was not reserved against background activity.
+
 `tools/benchmark_recording.py` executes native Limen 5.30.2 on the existing real
 BTC hourly snapshot in `tests/fixtures/retention/btc_spot_hourly.parquet`
 (SHA-256 `a8e482179a7bf2b0a2a1d006a25298618e5a89cf501304baa0dac956211d01c4`).

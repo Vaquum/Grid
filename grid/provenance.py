@@ -129,7 +129,8 @@ def snapshot_source(text: str, root: str) -> Json:
         return {"available": True, "reason": None,
                 "manifestKey": DATA_KEY, "executionPath": str(target),
                 "files": [{"path": str(target), "originalPath": str(original),
-                           "sha256": checksum, "bytes": target.stat().st_size}]}
+                           "sha256": checksum,
+                           "bytes": target.stat().st_size}]}
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
@@ -137,7 +138,8 @@ def snapshot_source(text: str, root: str) -> Json:
 
 def launch_identity(text: str, root: str, cli: str, python: str | None,
                     version: str) -> tuple[Json, Json]:
-    source: Json = {"manifestSha256": hashlib.sha256(text.encode()).hexdigest(),
+    source: Json = {"manifestSha256": hashlib.sha256(
+        text.encode()).hexdigest(),
                     "data": snapshot_source(text, root),
                     "projectCode": project_code(root)}
     return source, runtime_identity(cli, python, version)
@@ -158,8 +160,9 @@ def verify_identity(source: object, runtime: object, cli: str,
             raise ValueError("Inspect unavailable: retained source content "
                              "changed or is missing")
     if root is not None and recorded.get("projectCode") != project_code(root):
-        raise ValueError("Inspect unavailable: project strategy source changed; "
-                         "restore the recorded project code before launching")
+        raise ValueError("Inspect unavailable: project strategy source "
+                         "changed; restore the recorded project code "
+                         "before launching")
     previous = cast(Json, runtime) if isinstance(runtime, dict) else {}
     if previous.get("verified") is not True:
         raise ValueError("Inspect unavailable: source runtime has no verified "
@@ -167,8 +170,9 @@ def verify_identity(source: object, runtime: object, cli: str,
     current = runtime_identity(cli, python, version)
     if current.get("verified") is not True or current.get("fingerprint") != \
             previous.get("fingerprint"):
-        raise ValueError("Inspect unavailable: native runtime identity changed; "
-                         "restore the recorded runtime before launching")
+        raise ValueError("Inspect unavailable: native runtime identity "
+                         "changed; restore the recorded runtime "
+                         "before launching")
 
 
 if __name__ == "__main__":

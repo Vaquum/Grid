@@ -72,7 +72,8 @@ class InspectLaunch(unittest.TestCase):
         self.project.create.assert_called_once()
         path = Path(self.temp.name, result["provenance"]["sourceSnapshot"],
                     "source.json.gz")
-        self.assertEqual(gzip.decompress(path.read_bytes()).decode(), self.pack)
+        self.assertEqual(gzip.decompress(path.read_bytes()).decode(),
+                         self.pack)
         kwargs = self.project.start.call_args.kwargs
         self.assertEqual(kwargs["recording_mode"], "inspect")
         self.assertEqual(kwargs["provenance"]["sourceSeeds"], [42])
@@ -94,7 +95,7 @@ class InspectLaunch(unittest.TestCase):
         self.project.create.assert_not_called()
         self.project.start.assert_not_called()
 
-    def test_reused_run_id_after_restart_cannot_bind_a_new_inspect_intent(self):
+    def test_restart_cannot_rebind_a_reused_run_id(self):
         self.server.instance = "restarted-instance"
         self.source_run.generation = 0
         self.body["source"]["generation"] = 0
@@ -174,7 +175,7 @@ class InspectLaunch(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ambiguous"):
             narrow(text, manifest, [{"param": "size", "values": [1]}])
 
-    def test_indentless_parameter_sequence_is_replaced_without_orphan_items(self):
+    def test_indentless_sequence_is_replaced_without_orphan_items(self):
         original = TEXT.replace("    threshold: [0.25, 0.5]\n",
                                 "    threshold:\n    - 0.25\n    - 0.5\n")
         narrowed, count = narrow(original, MANIFEST, [
@@ -184,7 +185,8 @@ class InspectLaunch(unittest.TestCase):
                                                "threshold: [0.5]"))
 
     def test_unverifiable_source_stops_before_experiment_creation(self):
-        self.identity_check.side_effect = ValueError("source content unavailable")
+        self.identity_check.side_effect = ValueError(
+            "source content unavailable")
         with self.assertRaisesRegex(ValueError, "source content unavailable"):
             launch(cast(Server, self.server), self.body)
         self.project.create.assert_not_called()

@@ -133,8 +133,9 @@ def default_name(path: str) -> str:
     return parent or os.path.splitext(os.path.basename(path))[0]
 
 
-def freeze_shard_identities(experiments: list[Json], labels: list[str]) -> None:
-    """Bind future pocket launches to the evidence loaded in this generation."""
+def freeze_shard_identities(experiments: list[Json], labels: list[str]
+                            ) -> None:
+    """Bind future pocket launches to this generation's loaded evidence."""
     identities: list[Json] = []
     for label, experiment in zip(labels, experiments, strict=True):
         uel = cast(Json, experiment["manifest"].get("uel") or {})
@@ -302,9 +303,10 @@ class Wiring:
                     raise ValueError("Grid run record must be an object")
                 record = cast(Json, raw_record)
                 shards = cast(list[Json], record.get("shards") or [])
+                label = os.path.basename(os.path.normpath(directory))
                 shard = next((item for item in shards
                               if item.get("label")
-                              == os.path.basename(os.path.normpath(directory))),
+                              == label),
                              None)
                 if shard is not None:
                     for key in ("runtimeIdentity", "sourceIdentity",

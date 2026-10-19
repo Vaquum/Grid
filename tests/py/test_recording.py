@@ -1,4 +1,4 @@
-"""Recording policies retain historical semantics and explicit mode identity."""
+"""Recording policies retain historical semantics and explicit modes."""
 
 from __future__ import annotations
 
@@ -72,12 +72,12 @@ class Recording(unittest.TestCase):
         self.assertEqual(infer_recording({}, record=legacy)["recordingMode"],
                          "legacy")
 
-    def test_marker_replacement_preserves_manifest_text_and_native_schema(self):
+    def test_marker_replacement_preserves_manifest_and_native_schema(self):
         original = "schema_version: '1.0'\nuel:\n  n_permutations: 4\n"
         marked = mark_manifest(mark_manifest(original, "sweep"), "inspect")
         self.assertEqual(marked, "# grid-recording-mode: inspect\n" + original)
 
-    def test_frozen_native_seeds_and_hashes_do_not_follow_source_mutation(self):
+    def test_frozen_seeds_and_hashes_do_not_follow_source_mutation(self):
         experiments: list[Json] = [
             {"manifest": {"uel": {"search_strategy": {"seed": seed}}},
              "manifestText": "seed: %d\n" % seed, "limenVersion": version}

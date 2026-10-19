@@ -95,8 +95,8 @@ def read_experiment(text: str, path: str, manifest_file: str,
         raise ValueError("%s: yaml_reference is not a mapping" % path)
     objective: Any = meta.get("objective")
     identities: Json = {}
-    identity_marker = re.search(r"^# grid-launch-identity: (.+)$", manifest_text,
-                                re.M)
+    identity_marker = re.search(r"^# grid-launch-identity: (.+)$",
+                                manifest_text, re.M)
     if identity_marker:
         parsed_identity: Any = json.loads(identity_marker.group(1))
         if not isinstance(parsed_identity, dict):
@@ -108,7 +108,8 @@ def read_experiment(text: str, path: str, manifest_file: str,
     if marker:
         try:
             parsed = json.loads(marker.group(1))
-            provenance = cast(Json, parsed) if isinstance(parsed, dict) else None
+            provenance = cast(Json, parsed) \
+                if isinstance(parsed, dict) else None
         except ValueError:
             pass
     return {"kind": "limen", "manifest": cast(Json, manifest),

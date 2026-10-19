@@ -62,8 +62,10 @@ def narrow(text: str, manifest: Json, constraints: object
             raise ValueError("unknown or duplicate parameter constraint")
         original = params[name]
         if not isinstance(original, list) or not isinstance(values, list) \
-                or not values or len({typed(v) for v in cast(list[Any], values)}) \
-                != len(cast(list[Any], values)):
+                or not values:
+            raise ValueError("each parameter needs distinct typed values")
+        if len({typed(v) for v in cast(list[Any], values)}) != \
+                len(cast(list[Any], values)):
             raise ValueError("each parameter needs distinct typed values")
         matched: list[Any] = []
         for value in cast(list[Any], values):
@@ -108,7 +110,8 @@ def launch(server: Server, body: Json) -> Json:
             not isinstance(source.get("run"), str) \
             or not isinstance(source.get("generation"), int) \
             or isinstance(source.get("generation"), bool):
-        raise ValueError("source requires instance, run and integer generation")
+        raise ValueError("source requires instance, run and integer "
+                         "generation")
     identity = hashlib.sha256(request_id.encode()).hexdigest()
     directory = os.path.join(project.root, ".grid", "inspect", identity)
     fingerprint = hashlib.sha256(typed(body).encode()).hexdigest()
@@ -123,11 +126,13 @@ def launch(server: Server, body: Json) -> Json:
             raise ValueError("Inspect outcome unknown; inspect project status "
                              "before issuing a new intent") from exc
         if previous.get("fingerprint") != fingerprint:
-            raise ValueError("requestId belongs to another Inspect intent")
+            raise ValueError(
+                "requestId belongs to another Inspect intent") from None
         if previous.get("state") == "complete":
             return cast(Json, previous["result"])
         raise ValueError(str(previous.get("error") or
-                             "Inspect outcome unknown; inspect project status"))
+                             "Inspect outcome unknown; inspect project "
+                             "status")) from None
 
     def receipt(state: str, **extra: Any) -> None:
         path = os.path.join(directory, "receipt.json")
@@ -161,7 +166,8 @@ def launch(server: Server, body: Json) -> Json:
         frozen = next((r for r in data["runs"] if r["id"] == source["run"]
                        and r["generation"] == source["generation"]), None)
         if frozen is None:
-            raise ValueError("snapshot does not contain this source generation")
+            raise ValueError("snapshot does not contain this source "
+                             "generation")
         exp = cast(Json, frozen.get("experiment") or {})
         if exp.get("kind") != "limen" or not exp.get("manifestText"):
             raise ValueError("source needs its exact Limen manifest")

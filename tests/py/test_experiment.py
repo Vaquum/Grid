@@ -243,7 +243,7 @@ class ProjectRuns(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Sweep cannot resume"):
             self.p.resume(rid)
 
-    def test_inspect_enables_all_evidence_and_retains_source_seeds(self) -> None:
+    def test_inspect_enables_evidence_and_retains_source_seeds(self) -> None:
         self.p.version = "5.30.2"
         self.p.create("inspect", text=set_values(manifest_text(),
                                                   manifest_values("sweep")))
@@ -297,7 +297,7 @@ class ProjectRuns(unittest.TestCase):
             self.p.start("legacy", 2, 1, False, False)
         self.assertEqual(self.p.runs(), [])
 
-    def test_historical_run_reads_native_partial_recording_policy(self) -> None:
+    def test_historical_run_reads_native_partial_policy(self) -> None:
         self.p.create("legacy", template="lightgbm_binary")
         rid = self.p.start("legacy", 2, 1, False, False)
         wait(lambda: self.run_of(rid)["state"] == "finished")

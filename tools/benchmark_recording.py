@@ -468,12 +468,14 @@ def remeasure(args: argparse.Namespace) -> None:
     archived.write_bytes(raw)
     receipts = work / "remeasure" / str(time.time_ns())
     receipts.mkdir(parents=True)
-    runtime = child(args.limen_python, "identity", {}, receipts / "runtime.json")
+    runtime = child(args.limen_python, "identity", {},
+                    receipts / "runtime.json")
     check_runtime(previous["runtime"], runtime)
     native_head = conditions.get("native_generation_grid_head") or \
         args.native_head
     if not native_head:
-        raise ValueError("--native-head must identify original native receipts")
+        raise ValueError("--native-head must identify original native "
+                         "receipts")
     native_head = subprocess.check_output(
         ["git", "rev-parse", "--verify", native_head + "^{commit}"],
         cwd=ROOT, text=True).strip()
@@ -493,7 +495,8 @@ def remeasure(args: argparse.Namespace) -> None:
                                 == (kind, repeat, mode))
                 run_dir, proof, hashes = check_native(
                     work, conditions, original)
-                if parameters is not None and proof["parameters"] != parameters:
+                if parameters is not None and \
+                        proof["parameters"] != parameters:
                     raise ValueError("Matched native parameters differ")
                 parameters = proof["parameters"]
                 print("remeasure ingest " + label, flush=True)
@@ -506,7 +509,8 @@ def remeasure(args: argparse.Namespace) -> None:
                 measurements.append({
                     **original, "ingestion": ingestion, "audit": proof,
                     "native_evidence_sha256": hashes,
-                    "native_manifest_sha256": digest(folder / "benchmark.yaml"),
+                    "native_manifest_sha256": digest(
+                        folder / "benchmark.yaml"),
                     "native_receipt_sha256": digest(folder / "native.json"),
                 })
                 pair[mode] = run_dir

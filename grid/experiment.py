@@ -1311,14 +1311,15 @@ class Project:
                    for value in (execution, outputs)):
                 raise ValueError("execution and outputs must be booleans")
             if get_value(text, "uel.recording") is not None:
-                raise ValueError("uel.recording is written inline; use a block "
-                                 "mapping so Grid can preserve its policy "
-                                 "without guessing recording switches")
+                raise ValueError("uel.recording is written inline; use a "
+                                 "block mapping so Grid can preserve its "
+                                 "policy without guessing recording switches")
             text = unmark_manifest(set_values(text, {
                 "uel.record_execution": bool(execution),
                 "uel.record_model_outputs": bool(outputs)}))
-            text = re.sub(r"^# grid-(?:launch-identity|inspect-provenance): .*\n?",
-                          "", text, flags=re.M)
+            text = re.sub(
+                r"^# grid-(?:launch-identity|inspect-provenance): .*\n?",
+                "", text, flags=re.M)
             recording_policy = infer_recording({}, record={
                 "record": {"execution": bool(execution),
                            "outputs": bool(outputs)}})["recordingPolicy"]
@@ -1328,7 +1329,7 @@ class Project:
                 for key in recording_policy["recording"]}
         if provenance is not None and not isinstance(provenance, dict):
             raise ValueError("provenance must be an object")
-        # A JSON copy detaches immutable launch provenance from caller mutation.
+        # A JSON copy detaches immutable provenance from caller mutation.
         saved_provenance: Json | None = json.loads(json.dumps(
             provenance, allow_nan=False))
         problems = self.validate(text)
@@ -1382,8 +1383,8 @@ class Project:
             source_identity["manifestSha256"] = source_identity["sha256"]
             data_identity = cast(Json, source_identity["data"])
             if data_identity.get("available") is True:
-                text = set_values(text, {
-                    data_identity["manifestKey"]: data_identity["executionPath"]})
+                text = set_values(text, {data_identity["manifestKey"]:
+                                         data_identity["executionPath"]})
             # Exact native copies preserve this link through offline exports.
             text = re.sub(r"^# grid-launch-identity: .*\n?", "", text,
                           flags=re.M)
@@ -1445,7 +1446,8 @@ class Project:
                         "workers": workers,
                         "record": {
                             "execution": recording_policy["record_execution"],
-                            "outputs": recording_policy["record_model_outputs"]},
+                            "outputs": recording_policy[
+                                "record_model_outputs"]},
                         "recordingMode": named_mode or "legacy",
                         "recordingPolicy": recording_policy,
                         "provenance": saved_provenance,
@@ -1714,7 +1716,8 @@ class Project:
                                  "linked Inspect run")
             recorded_policy = self._recording_state(folder, record)[
                 "recordingPolicy"]["recording"]
-            if any(enabled is not True for enabled in recorded_policy.values()):
+            if any(enabled is not True
+                   for enabled in recorded_policy.values()):
                 raise ValueError("Cannot resume a lighter recording policy: "
                                  "complete recorded recovery evidence is "
                                  "required")

@@ -64,8 +64,8 @@ CURSOR_TTL = 600.0
 PING_EVERY = 15.0
 MAX_BODY = 4 << 20     # a manifest is a few kilobytes
 CHOSEN_MAX = 64 << 10   # how a predictor's members were chosen, as JSON
-ACTIONS = ("validate", "save", "create", "start", "inspect", "stop", "resume", "open",
-           "diff", "cohort")
+ACTIONS = ("validate", "save", "create", "start", "inspect", "stop", "resume",
+           "open", "diff", "cohort")
 
 
 PageFn = Callable[[], bytes]
