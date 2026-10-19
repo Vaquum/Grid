@@ -81,7 +81,7 @@ LightGBM 4.7.0 and the real 59,112-bar BTC snapshot. Each workload/mode ran
 The [full report](recording-benchmark-20261019.json) includes every run's file
 inventory, sampled parameters, hashes, measurements and scalar differences.
 Native generation used Grid head `1350eaa`; ingestion was remeasured against
-published head `fd55f94`, after verifying the unchanged native evidence.
+published head `6350a6f`, after verifying the unchanged native evidence.
 
 Values below are medians of three runs. Native time excludes dependency
 imports; native peak RSS includes them. Ingestion time includes reading,
@@ -90,10 +90,10 @@ the separate report-verification read.
 
 | Workload | Mode | Native run bytes | Native time, s | Native peak RSS, MiB | Ingestion, ms | Ingestion peak RSS, MiB |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| LightGBM | Sweep | 81,525 | 84.98 | 424.38 | 10.36 | 32.63 |
-| LightGBM | Inspect | 7,504,097 | 91.67 | 436.81 | 1,714.65 | 63.05 |
-| Rule | Sweep | 98,327 | 5.76 | 259.11 | 14.66 | 32.80 |
-| Rule | Inspect | 9,726,734 | 7.78 | 265.38 | 1,557.48 | 64.94 |
+| LightGBM | Sweep | 81,525 | 84.98 | 424.38 | 10.86 | 32.73 |
+| LightGBM | Inspect | 7,504,097 | 91.67 | 436.81 | 1,713.15 | 63.33 |
+| Rule | Sweep | 98,327 | 5.76 | 259.11 | 14.66 | 32.86 |
+| Rule | Inspect | 9,726,734 | 7.78 | 265.38 | 1,542.34 | 63.19 |
 
 Sweep's native run files were 98.91% smaller for LightGBM and 98.99% smaller
 for the rule workload. These percentages exclude shared inputs, runtime and
@@ -126,8 +126,10 @@ The local-file workload did not require a remote dataset cache. Its observed
 global cache delta was 1,036 bytes; attribution to this benchmark was not
 instrumented. Environment file growth was 32,645,730 bytes. The launch overhead
 probe used the actual Grid helper and one shared source copy; it excludes the
-Project journal and does not supply a size-reduction denominator. The native
-campaign created no retention store or replay runtime. OS libraries, symlinks
+Project journal, linked-pocket analytical snapshots and linked-pocket
+provenance/manifest differences. It does not supply a size-reduction
+denominator. The native campaign created no retention store or replay runtime.
+OS libraries, symlinks
 and filesystem allocation are excluded. Disk caches were not flushed, and
 the machine was not reserved against background activity.
 
@@ -191,7 +193,8 @@ Grid head and code digest.
 Remeasurement also invokes Grid's actual launch-identity helper for both modes,
 retains the shared content-addressed source snapshot, and measures identity
 JSON/portable-manifest bytes separately. This overhead probe does not execute
-a strategy or count a Project run journal. Native campaign totals exclude
+a strategy or count a Project run journal, linked-pocket analytical snapshot,
+or linked-pocket provenance/manifest difference. Native campaign totals exclude
 these explicitly itemized Grid wrapper artifacts. No size-reduction claim is
 derived from the overhead probe.
 
@@ -201,3 +204,6 @@ evidence and verifies the report's current Grid Python digest, source/runtime,
 native configurations, manifests, hashes, round/parameter audits and scalar
 comparisons. It performs no strategy execution or ingestion and refuses a
 report measured against different Grid Python code.
+Fresh generation and remeasurement use the same report finalization, including
+native evidence hashes, the ingestion code digest and launch overhead; a fresh
+report can be verified directly without first remeasuring it.

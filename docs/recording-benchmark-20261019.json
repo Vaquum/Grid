@@ -12,11 +12,11 @@
     "factorize": false,
     "interpretation": "Observed workload totals; no campaign extrapolation. Scalar differences are reported, never rounded away. Runtime/import and generation memory differ from ingestion.",
     "native_generation_grid_head": "1350eaaf042bf3d68ea7a63931bafcf2bf8ac602",
-    "ingestion_grid_head": "fd55f948499884fc12bc3e25cec230aaff9a8bb6",
-    "ingestion_grid_python_sha256": "5f348d64c09a706b943f3bf384285aabf0beeda2e403c21195c72f2c5c335784",
+    "ingestion_grid_head": "6350a6fd6683b2c2ab3c166991e505637a5b9149",
+    "ingestion_grid_python_sha256": "ceefd8cfedfc09408bd58fa192f8e485ab8d7ab8ba07d09ae3f2646812be0517",
     "native_receipts_reused": true,
-    "previous_report_sha256": "cb879baf95c5b8c25fcd1cfa8268090bd6c855e9be0cfb9fb94a61bd7e1c51c2",
-    "previous_report_archive": "/private/tmp/grid-133/recording-60x3/report-history/cb879baf95c5b8c25fcd1cfa8268090bd6c855e9be0cfb9fb94a61bd7e1c51c2.json"
+    "previous_report_sha256": "9cb446aafd238f33de6047b3dea6eaeb99c6a435eab54b2c95633b9dae117fa9",
+    "previous_report_archive": "/private/tmp/grid-133/recording-60x3/report-history/9cb446aafd238f33de6047b3dea6eaeb99c6a435eab54b2c95633b9dae117fa9.json"
   },
   "runtime": {
     "python": "3.12.12 (main, Nov 19 2025, 22:30:44) [Clang 21.1.4 ]",
@@ -100,13 +100,13 @@
         "process_seconds": 130.62963529210538
       },
       "ingestion": {
-        "import_seconds": 0.057069458067417145,
-        "ingestion_and_pack_seconds": 0.010362708941102028,
-        "seconds": 0.06743216700851917,
-        "peak_rss_bytes": 40173568,
-        "pack_bytes": 14307,
+        "import_seconds": 0.04192983312532306,
+        "ingestion_and_pack_seconds": 0.01073233294300735,
+        "seconds": 0.05266216606833041,
+        "peak_rss_bytes": 40419328,
+        "pack_bytes": 14310,
         "rows": 60,
-        "process_seconds": 0.12808595807291567
+        "process_seconds": 0.1130233749281615
       },
       "run_files": {
         "total_bytes": 81527,
@@ -1948,13 +1948,13 @@
         "process_seconds": 93.42315045907162
       },
       "ingestion": {
-        "import_seconds": 0.017473667161539197,
-        "ingestion_and_pack_seconds": 2.402128499932587,
-        "seconds": 2.4196021670941263,
-        "peak_rss_bytes": 68829184,
-        "pack_bytes": 19215,
+        "import_seconds": 0.017027082853019238,
+        "ingestion_and_pack_seconds": 1.7105550421401858,
+        "seconds": 1.727582124993205,
+        "peak_rss_bytes": 65896448,
+        "pack_bytes": 19219,
         "rows": 60,
-        "process_seconds": 2.494890083093196
+        "process_seconds": 1.7918862500227988
       },
       "run_files": {
         "total_bytes": 7504097,
@@ -3805,13 +3805,13 @@
         "process_seconds": 94.70018558297306
       },
       "ingestion": {
-        "import_seconds": 0.016793249873444438,
-        "ingestion_and_pack_seconds": 1.665217291098088,
-        "seconds": 1.6820105409715325,
-        "peak_rss_bytes": 66109440,
-        "pack_bytes": 19222,
+        "import_seconds": 0.01699245790950954,
+        "ingestion_and_pack_seconds": 1.713146333117038,
+        "seconds": 1.7301387910265476,
+        "peak_rss_bytes": 66404352,
+        "pack_bytes": 19225,
         "rows": 60,
-        "process_seconds": 1.7472179168835282
+        "process_seconds": 1.7937397500500083
       },
       "run_files": {
         "total_bytes": 7504100,
@@ -5662,13 +5662,13 @@
         "process_seconds": 86.48271579085849
       },
       "ingestion": {
-        "import_seconds": 0.015581791987642646,
-        "ingestion_and_pack_seconds": 0.012701333034783602,
-        "seconds": 0.028283125022426248,
-        "peak_rss_bytes": 34209792,
-        "pack_bytes": 14291,
+        "import_seconds": 0.01642591692507267,
+        "ingestion_and_pack_seconds": 0.010855333181098104,
+        "seconds": 0.027281250106170774,
+        "peak_rss_bytes": 34324480,
+        "pack_bytes": 14290,
         "rows": 60,
-        "process_seconds": 0.08814404206350446
+        "process_seconds": 0.08946304093115032
       },
       "run_files": {
         "total_bytes": 81522,
@@ -7510,13 +7510,13 @@
         "process_seconds": 86.59743775008246
       },
       "ingestion": {
-        "import_seconds": 0.015635750023648143,
-        "ingestion_and_pack_seconds": 0.010354457888752222,
-        "seconds": 0.025990207912400365,
-        "peak_rss_bytes": 34209792,
-        "pack_bytes": 14288,
+        "import_seconds": 0.016453957883641124,
+        "ingestion_and_pack_seconds": 0.010989875067025423,
+        "seconds": 0.027443832950666547,
+        "peak_rss_bytes": 34078720,
+        "pack_bytes": 14286,
         "rows": 60,
-        "process_seconds": 0.08709979197010398
+        "process_seconds": 0.08735020901076496
       },
       "run_files": {
         "total_bytes": 81525,
@@ -9358,13 +9358,13 @@
         "process_seconds": 90.68021299992688
       },
       "ingestion": {
-        "import_seconds": 0.01481979200616479,
-        "ingestion_and_pack_seconds": 1.7146536658983678,
-        "seconds": 1.7294734579045326,
-        "peak_rss_bytes": 65536000,
+        "import_seconds": 0.016636166023090482,
+        "ingestion_and_pack_seconds": 2.0374234998598695,
+        "seconds": 2.05405966588296,
+        "peak_rss_bytes": 70352896,
         "pack_bytes": 19204,
         "rows": 60,
-        "process_seconds": 1.7947692919988185
+        "process_seconds": 2.120691374875605
       },
       "run_files": {
         "total_bytes": 7504092,
@@ -11215,13 +11215,13 @@
         "process_seconds": 7.63315450004302
       },
       "ingestion": {
-        "import_seconds": 0.017906291875988245,
-        "ingestion_and_pack_seconds": 0.01551083312369883,
-        "seconds": 0.033417124999687076,
-        "peak_rss_bytes": 34390016,
-        "pack_bytes": 36089,
+        "import_seconds": 0.036087082931771874,
+        "ingestion_and_pack_seconds": 0.03748345887288451,
+        "seconds": 0.07357054180465639,
+        "peak_rss_bytes": 34455552,
+        "pack_bytes": 36087,
         "rows": 60,
-        "process_seconds": 0.10463641700334847
+        "process_seconds": 0.21719025005586445
       },
       "run_files": {
         "total_bytes": 98324,
@@ -11623,13 +11623,13 @@
         "process_seconds": 9.998362208949402
       },
       "ingestion": {
-        "import_seconds": 0.018971417099237442,
-        "ingestion_and_pack_seconds": 1.6376364580355585,
-        "seconds": 1.656607875134796,
-        "peak_rss_bytes": 68091904,
-        "pack_bytes": 42337,
+        "import_seconds": 0.015631957910954952,
+        "ingestion_and_pack_seconds": 1.567886957898736,
+        "seconds": 1.583518915809691,
+        "peak_rss_bytes": 67321856,
+        "pack_bytes": 42340,
         "rows": 60,
-        "process_seconds": 1.7263097080867738
+        "process_seconds": 1.645700124790892
       },
       "run_files": {
         "total_bytes": 9726734,
@@ -12039,13 +12039,13 @@
         "process_seconds": 9.302385415881872
       },
       "ingestion": {
-        "import_seconds": 0.015279249986633658,
-        "ingestion_and_pack_seconds": 1.5534446248784661,
-        "seconds": 1.5687238748650998,
-        "peak_rss_bytes": 67682304,
+        "import_seconds": 0.015547042014077306,
+        "ingestion_and_pack_seconds": 1.5420830000657588,
+        "seconds": 1.5576300420798361,
+        "peak_rss_bytes": 66256896,
         "pack_bytes": 42336,
         "rows": 60,
-        "process_seconds": 1.6270815830212086
+        "process_seconds": 1.6160275829024613
       },
       "run_files": {
         "total_bytes": 9726732,
@@ -12455,13 +12455,13 @@
         "process_seconds": 7.13500866596587
       },
       "ingestion": {
-        "import_seconds": 0.015000958926975727,
-        "ingestion_and_pack_seconds": 0.014661249937489629,
-        "seconds": 0.029662208864465356,
-        "peak_rss_bytes": 34406400,
-        "pack_bytes": 36080,
+        "import_seconds": 0.014608666067942977,
+        "ingestion_and_pack_seconds": 0.014656709041446447,
+        "seconds": 0.029265375109389424,
+        "peak_rss_bytes": 34553856,
+        "pack_bytes": 36077,
         "rows": 60,
-        "process_seconds": 0.08932966692373157
+        "process_seconds": 0.08809958305209875
       },
       "run_files": {
         "total_bytes": 98327,
@@ -12863,13 +12863,13 @@
         "process_seconds": 7.046728917164728
       },
       "ingestion": {
-        "import_seconds": 0.01606466597877443,
-        "ingestion_and_pack_seconds": 0.014555374858900905,
-        "seconds": 0.030620040837675333,
-        "peak_rss_bytes": 34373632,
-        "pack_bytes": 36090,
+        "import_seconds": 0.015172166982665658,
+        "ingestion_and_pack_seconds": 0.014280416071414948,
+        "seconds": 0.029452583054080606,
+        "peak_rss_bytes": 34258944,
+        "pack_bytes": 36091,
         "rows": 60,
-        "process_seconds": 0.09212662489153445
+        "process_seconds": 0.09171125013381243
       },
       "run_files": {
         "total_bytes": 98332,
@@ -13271,13 +13271,13 @@
         "process_seconds": 8.513409875100479
       },
       "ingestion": {
-        "import_seconds": 0.015967417042702436,
-        "ingestion_and_pack_seconds": 1.5574773747939616,
-        "seconds": 1.573444791836664,
-        "peak_rss_bytes": 69271552,
-        "pack_bytes": 42308,
+        "import_seconds": 0.014754083938896656,
+        "ingestion_and_pack_seconds": 1.542341500055045,
+        "seconds": 1.5570955839939415,
+        "peak_rss_bytes": 65978368,
+        "pack_bytes": 42310,
         "rows": 60,
-        "process_seconds": 1.638099042000249
+        "process_seconds": 1.6159538340289146
       },
       "run_files": {
         "total_bytes": 9726735,
@@ -15056,10 +15056,10 @@
             "available": true,
             "reason": null,
             "manifestKey": "sfd.manifest.data_source.params.file_path_or_url",
-            "executionPath": "/private/tmp/grid-133/recording-60x3/remeasure/1792399154227199000/grid-launch/.grid/sources/a8e482179a7bf2b0a2a1d006a25298618e5a89cf501304baa0dac956211d01c4.parquet",
+            "executionPath": "/private/tmp/grid-133/recording-60x3/remeasure/1792400798319230000/grid-launch/.grid/sources/a8e482179a7bf2b0a2a1d006a25298618e5a89cf501304baa0dac956211d01c4.parquet",
             "files": [
               {
-                "path": "/private/tmp/grid-133/recording-60x3/remeasure/1792399154227199000/grid-launch/.grid/sources/a8e482179a7bf2b0a2a1d006a25298618e5a89cf501304baa0dac956211d01c4.parquet",
+                "path": "/private/tmp/grid-133/recording-60x3/remeasure/1792400798319230000/grid-launch/.grid/sources/a8e482179a7bf2b0a2a1d006a25298618e5a89cf501304baa0dac956211d01c4.parquet",
                 "originalPath": "/Users/mikkokotila/.codex/worktrees/sweep-inspect-133/Grid/tests/fixtures/retention/btc_spot_hourly.parquet",
                 "sha256": "a8e482179a7bf2b0a2a1d006a25298618e5a89cf501304baa0dac956211d01c4",
                 "bytes": 5368313
@@ -15228,10 +15228,10 @@
             "available": true,
             "reason": null,
             "manifestKey": "sfd.manifest.data_source.params.file_path_or_url",
-            "executionPath": "/private/tmp/grid-133/recording-60x3/remeasure/1792399154227199000/grid-launch/.grid/sources/a8e482179a7bf2b0a2a1d006a25298618e5a89cf501304baa0dac956211d01c4.parquet",
+            "executionPath": "/private/tmp/grid-133/recording-60x3/remeasure/1792400798319230000/grid-launch/.grid/sources/a8e482179a7bf2b0a2a1d006a25298618e5a89cf501304baa0dac956211d01c4.parquet",
             "files": [
               {
-                "path": "/private/tmp/grid-133/recording-60x3/remeasure/1792399154227199000/grid-launch/.grid/sources/a8e482179a7bf2b0a2a1d006a25298618e5a89cf501304baa0dac956211d01c4.parquet",
+                "path": "/private/tmp/grid-133/recording-60x3/remeasure/1792400798319230000/grid-launch/.grid/sources/a8e482179a7bf2b0a2a1d006a25298618e5a89cf501304baa0dac956211d01c4.parquet",
                 "originalPath": "/Users/mikkokotila/.codex/worktrees/sweep-inspect-133/Grid/tests/fixtures/retention/btc_spot_hourly.parquet",
                 "sha256": "a8e482179a7bf2b0a2a1d006a25298618e5a89cf501304baa0dac956211d01c4",
                 "bytes": 5368313
@@ -15397,7 +15397,7 @@
       }
     },
     "scope": "Actual launch_identity helper, source snapshot, runtime identity JSON and portable manifest comment. No strategy execution or Project run journal is included in this overhead probe; native campaign run totals exclude these separately measured Grid wrapper artifacts.",
-    "process_seconds": 0.300816249800846
+    "process_seconds": 0.30149741703644395
   },
   "runtime_after": {
     "python": "3.12.12 (main, Nov 19 2025, 22:30:44) [Clang 21.1.4 ]",
@@ -15452,6 +15452,6 @@
     "source_rows": 59112,
     "source_first_datetime": "2020-01-01 01:00:00+00:00",
     "source_last_datetime": "2026-10-01 00:00:00+00:00",
-    "process_seconds": 1.070105749880895
+    "process_seconds": 1.5408416248392314
   }
 }

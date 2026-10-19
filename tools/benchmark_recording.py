@@ -449,6 +449,47 @@ def verify_report(args: argparse.Namespace) -> None:
                       "native_runs": len(report["measurements"])}), flush=True)
 
 
+def finalize_report(args: argparse.Namespace, work: Path, result: Json,
+                    receipts: Path, runtime: Json | None = None) -> None:
+    """Fresh and reused campaigns publish the same verifiable contract."""
+    receipts.mkdir(parents=True, exist_ok=True)
+    if runtime is None:
+        runtime = child(args.limen_python, "identity", {},
+                        receipts / "runtime.json")
+    check_runtime(result["runtime"], runtime)
+    for measurement in result["measurements"]:
+        _, proof, hashes = check_native(work, result["conditions"], measurement)
+        label = "%s-%d-%s" % tuple(measurement[key] for key in
+                                   ("workload", "repetition", "mode"))
+        folder = work / label
+        measurement.update(
+            audit=proof, native_evidence_sha256=hashes,
+            native_manifest_sha256=digest(folder / "benchmark.yaml"),
+            native_receipt_sha256=digest(folder / "native.json"),
+        )
+    overhead = child(
+        args.limen_python, "overhead",
+        {"root": str(receipts / "grid-launch"),
+         "rounds": result["conditions"]["rounds_per_run"]},
+        receipts / "grid-launch.json",
+    )
+    result.update(grid_launch_overhead=overhead, runtime_after=runtime)
+    result["shared_bytes"].update(
+        runtime_files_after=runtime["runtime_files_bytes"],
+        runtime_files_growth=(runtime["runtime_files_bytes"]
+                              - result["runtime"]["runtime_files_bytes"]),
+        grid_retained_source_snapshot=overhead[
+            "shared_source_snapshot"]["total_bytes"],
+    )
+    result["conditions"].update(
+        ingestion_grid_head=head(),
+        ingestion_grid_python_sha256=grid_code_hash(),
+    )
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(json.dumps(result, indent=2) + "\n")
+    print(str(args.out), flush=True)
+
+
 def remeasure(args: argparse.Namespace) -> None:
     """Reuse native science only after checking its exact recorded inputs."""
     work = args.remeasure_existing.resolve()
@@ -516,30 +557,13 @@ def remeasure(args: argparse.Namespace) -> None:
                 pair[mode] = run_dir
             comparisons.append({"workload": kind, "repetition": repeat,
                                 **compare(pair["sweep"], pair["inspect"])})
-    overhead = child(
-        args.limen_python, "overhead",
-        {"root": str(receipts / "grid-launch"),
-         "rounds": conditions["rounds_per_run"]},
-        receipts / "grid-launch.json",
-    )
-    result.update(measurements=measurements, scalar_comparisons=comparisons,
-                  grid_launch_overhead=overhead, runtime_after=runtime)
-    result["shared_bytes"].update(
-        runtime_files_after=runtime["runtime_files_bytes"],
-        runtime_files_growth=(runtime["runtime_files_bytes"]
-                              - previous["runtime"]["runtime_files_bytes"]),
-        grid_retained_source_snapshot=overhead[
-            "shared_source_snapshot"]["total_bytes"],
-    )
+    result.update(measurements=measurements, scalar_comparisons=comparisons)
     result["conditions"].update(
         native_generation_grid_head=native_head,
-        ingestion_grid_head=head(),
-        ingestion_grid_python_sha256=grid_code_hash(),
         native_receipts_reused=True, previous_report_sha256=digest(archived),
         previous_report_archive=str(archived),
     )
-    args.out.write_text(json.dumps(result, indent=2) + "\n")
-    print(str(args.out), flush=True)
+    finalize_report(args, work, result, receipts, runtime)
 
 
 def run(args: argparse.Namespace) -> None:
@@ -606,6 +630,7 @@ def run(args: argparse.Namespace) -> None:
     result = {
         "conditions": {
             "native_generation_grid_head": native_head,
+            "native_receipts_reused": False,
             "rounds_per_run": args.rounds, "repetitions": args.repeats,
             "order": "alternating fresh native and ingestion processes",
             "page_cache": "not flushed; no cold-I/O claim",
@@ -642,9 +667,7 @@ def run(args: argparse.Namespace) -> None:
         ),
         "measurements": measurements, "scalar_comparisons": comparisons,
     }
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(result, indent=2) + "\n")
-    print(str(args.out), flush=True)
+    finalize_report(args, work, result, work / "finalize")
 
 
 def main() -> None:
