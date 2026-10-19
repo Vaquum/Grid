@@ -113,11 +113,25 @@ TOOLS = [
               "requestId": TEXT}, ["name", "text", "version", "requestId"]),
          True),
     tool("grid_start", "Run the exact manifest version read, sharing rounds "
-         "across shards. Reuse requestId when retrying this same intent.",
+         "across shards. New runs default to Sweep. Reuse requestId when "
+         "retrying this same intent.",
          obj({"name": TEXT, "rounds": integer(1), "shards": integer(1),
               "execution": BOOL, "outputs": BOOL, "version": TEXT,
-              "requestId": TEXT}, ["name", "rounds", "shards", "execution",
-                                   "outputs", "version", "requestId"]), True),
+              "recordingMode": {"enum": ["sweep", "inspect"]},
+              "requestId": TEXT}, ["name", "rounds", "shards",
+                                   "version", "requestId"]), True),
+    tool("grid_inspect", "Launch a linked Inspect run only in an explicit "
+         "typed parameter region of a source generation or pinned snapshot. "
+         "Reuse requestId on retries; this remains exploratory evidence.",
+         obj({"name": TEXT, "source": obj({
+             "run": TEXT, "generation": integer(), "snapshot": TEXT},
+             ["run", "generation"]),
+             "constraints": {"type": "array", "minItems": 1,
+                             "items": obj({"param": TEXT, "values": {
+                                 "type": "array", "minItems": 1}},
+                                 ["param", "values"])},
+             "rounds": integer(1, 10000000), "requestId": TEXT},
+             ["name", "source", "constraints", "requestId"]), True),
     tool("grid_stop", "Stop a project run with Limen's stop operation.",
          obj({"run": TEXT, "requestId": TEXT}, ["run", "requestId"]), True),
     tool("grid_resume", "Resume a stopped project run.",
@@ -425,6 +439,9 @@ class Agent:
             return self.server.make_cohort(self.project(), body)
         if operation == "grid_manifest":
             return self.project().manifest(args["name"])
+        if operation == "grid_inspect":
+            from .inspect_run import launch
+            return launch(self.server, args)
         from .server import act
         return act(self.project(), operation.removeprefix("grid_"), args)
 

@@ -49,6 +49,8 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any, cast
 
+from .recording import infer_recording
+
 Json = dict[str, Any]
 _INT = re.compile(r"[+-]?\d+\Z")
 ROUND_LOG = "round_data.jsonl"
@@ -93,6 +95,7 @@ def read_experiment(text: str, path: str, manifest_file: str,
         raise ValueError("%s: yaml_reference is not a mapping" % path)
     objective: Any = meta.get("objective")
     return {"kind": "limen", "manifest": cast(Json, manifest),
+            **infer_recording(manifest, meta, manifest_text=manifest_text),
             "manifestFile": manifest_file, "manifestText": manifest_text,
             "limenVersion": meta.get("limen_version"),
             "createdAt": meta.get("created_at"),

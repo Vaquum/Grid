@@ -44,6 +44,7 @@ from collections.abc import Callable
 from typing import IO, Any, cast
 
 from .capacity import effective_cpus
+from .recording import infer_recording, manifest_values, mark_manifest, policy
 from .retention import (
     check_resume_recording,
     check_training_sources,
@@ -567,6 +568,8 @@ class Project:
                 "ruleTemporalReferences": _version_at_least(
                     self.version, (5, 29, 1)),
                 "recordingPolicy": _version_at_least(self.version, (5, 30)),
+                "recordingModes": _version_at_least(self.version, (5, 30, 2)),
+                "defaultRecordingMode": "sweep",
                 "parallelRequiresPrepEachRound": True,
                 "shardsRequireRandomSearch": True,
                 "cpuBudget": self.cores,
@@ -957,9 +960,11 @@ class Project:
         for folder, kind in self._run_folders():
             rid = self._rel(folder)
             stopping = False
+            recording: Json
             if kind == "grid":
                 with self.lock:
                     record = _read_json(os.path.join(folder, RECORD)) or {}
+                recording = infer_recording({}, record=record)
                 shards: list[Json] = []
                 raw: Any = record.get("shards")
                 for s in cast(list[Any], raw) if isinstance(raw, list) else []:
@@ -982,6 +987,9 @@ class Project:
                 started = record.get("started_at")
                 name = str(record.get("experiment") or "")
             else:
+                metadata = _read_json(os.path.join(folder, "metadata.json"))
+                recording = infer_recording(
+                    (metadata or {}).get("yaml_reference"), metadata)
                 name_got, planned = self._meta(folder)
                 rows = count(os.path.join(folder, "results.csv"))
                 shards = [{"label": os.path.basename(folder), "seed": None,
@@ -1007,7 +1015,9 @@ class Project:
                 if all(s["rows"] is not None for s in shards) else None,
                 "planned": sum(int(s["planned"] or 0) for s in shards),
                 "open": self.opened.get(rid), "note": self.notes.get(rid),
-                "stopping": stopping})
+                "stopping": stopping, **recording,
+                "provenance": record.get("provenance")
+                if kind == "grid" else None})
         out.sort(key=lambda r: float(r["started"] or 0), reverse=True)
         return out
 
@@ -1173,8 +1183,9 @@ class Project:
             out.close()
 
     def start(self, name: str, rounds: object, shards: object,
-              execution: object, outputs: object,
-              version: object = None) -> str:
+              execution: object = None, outputs: object = None,
+              version: object = None, recording_mode: object = None,
+              provenance: object = None) -> str:
         """Run an experiment: its manifest copied once per shard with the
         shard's seed, its share of the rounds, its output path and the
         recording asked for, and ``limen run`` on each copy side by side.
@@ -1202,6 +1213,41 @@ class Project:
         if version is not None and _version_of(text) != version:
             raise ValueError("%s changed on disk since it was opened; open it "
                              "again before running it" % self._rel(path))
+        source_text = text
+        named_mode = recording_mode
+        if named_mode is None and execution is None and outputs is None:
+            named_mode = "sweep"
+        if named_mode is not None:
+            recording_policy = policy(named_mode)
+            if not self.capabilities()["recordingModes"]:
+                raise ValueError("Sweep and Inspect recording modes require "
+                                 "Limen >= 5.30.2; this runtime is "
+                                 + self.version)
+            for key, value in (("record_execution", execution),
+                               ("record_model_outputs", outputs)):
+                if value is not None and value is not recording_policy[key]:
+                    raise ValueError("recording mode %s conflicts with %s; "
+                                     "omit legacy recording flags" % (
+                                         named_mode, key))
+            text = mark_manifest(set_values(text, manifest_values(named_mode)),
+                                 named_mode)
+        else:
+            if any(value is not None and not isinstance(value, bool)
+                   for value in (execution, outputs)):
+                raise ValueError("execution and outputs must be booleans")
+            text = set_values(text, {"uel.record_execution": bool(execution),
+                                     "uel.record_model_outputs": bool(outputs)})
+            recording_policy = infer_recording({}, record={
+                "record": {"execution": bool(execution),
+                           "outputs": bool(outputs)}})["recordingPolicy"]
+            recording_policy["recording"] = {
+                key: (get_value(text, "uel.recording." + key) or
+                      "true").lower() == "true"
+                for key in recording_policy["recording"]}
+        if provenance is not None and not isinstance(provenance, dict):
+            raise ValueError("provenance must be an object")
+        # A JSON copy detaches immutable launch provenance from caller mutation.
+        provenance = json.loads(json.dumps(provenance, allow_nan=False))
         problems = self.validate(text)
         if problems:
             raise ValueError("manifest preflight: %s: %s" % (
@@ -1221,8 +1267,19 @@ class Project:
             seed = int(seed_text) if seed_text is not None else None
         except ValueError:
             seed = None
-        if shards > 1 and seed is None:
+        if seed is None and (named_mode is not None or shards > 1):
             seed = random.randrange(1, 2 ** 31)
+        if named_mode is not None and seed is not None:
+            text = set_values(text, {"uel.search_strategy.seed": seed})
+        source_seeds = (provenance or {}).get("sourceSeeds")
+        if source_seeds is not None and (
+                not isinstance(source_seeds, list) or
+                len(source_seeds) != shards or
+                any(not isinstance(s, int) or isinstance(s, bool)
+                    for s in source_seeds) or
+                len(set(source_seeds)) != len(source_seeds)):
+            raise ValueError("sourceSeeds must retain one distinct integer "
+                             "seed per source shard")
         mode = get_value(text, "metadata.mode")
         base = "results" if mode == "production" else "results/dev"
         stamp = time.strftime("%Y%m%d_%H%M%S")
@@ -1242,25 +1299,24 @@ class Project:
         rel_out = os.path.relpath(folder, os.path.join(self.root, base))
         os.makedirs(os.path.join(folder, "manifests"))
         os.makedirs(os.path.join(folder, "logs"))
-        _write_text(os.path.join(folder, BASE_COPY), text)
+        _write_text(os.path.join(folder, BASE_COPY), source_text)
         # Limen's native parallel workers each enforce one native thread.
         threads = 1 if workers > 1 else max(1, self.cores // shards)
         share = -(-rounds // shards)
         records: list[Json] = []
         for j in range(shards):
             label = "s%d" % (j + 1)
+            shard_seed = source_seeds[j] if source_seeds is not None else \
+                seed + j if shards > 1 and seed is not None else seed
             values: dict[str, object] = {
                 "uel.n_permutations": share,
-                "uel.output_path": "%s/%s" % (rel_out, label),
-                "uel.record_execution": bool(execution),
-                "uel.record_model_outputs": bool(outputs)}
-            if shards > 1 and seed is not None:
-                values["uel.search_strategy.seed"] = seed + j
+                "uel.output_path": "%s/%s" % (rel_out, label)}
+            if shard_seed is not None:
+                values["uel.search_strategy.seed"] = shard_seed
             _write_text(os.path.join(folder, "manifests", label + ".yaml"),
                         set_values(text, values))
             records.append({"label": label, "rounds": share,
-                            "seed": seed + j if shards > 1 and
-                            seed is not None else seed,
+                            "seed": shard_seed,
                             "pid": None, "state": "running", "exit": None,
                             "stopping": False})
         # the copies must pass too: the recording keys are Limen 5.16 and
@@ -1275,8 +1331,20 @@ class Project:
         record: Json = {"experiment": name, "started_at": _now(),
                         "rounds": share * shards, "threads": threads,
                         "workers": workers,
-                        "record": {"execution": bool(execution),
-                                   "outputs": bool(outputs)},
+                        "record": {
+                            "execution": recording_policy["record_execution"],
+                            "outputs": recording_policy["record_model_outputs"]},
+                        "recordingMode": named_mode or "legacy",
+                        "recordingPolicy": recording_policy,
+                        "provenance": provenance,
+                        "sourceIdentity": {
+                            "manifest": self._rel(path),
+                            "sha256": hashlib.sha256(
+                                source_text.encode("utf-8")).hexdigest()},
+                        "runtimeIdentity": {"limenVersion": self.version,
+                                            "executable": os.path.realpath(
+                                                self.cli),
+                                            "python": self.python},
                         "shards": records}
         rid = self._rel(folder)
         failed: str | None = None
@@ -1534,6 +1602,10 @@ class Project:
             record = _read_json(path)
             if record is None:
                 raise ValueError("%s is not a run Grid started" % rid)
+            if record.get("recordingMode") == "sweep":
+                raise ValueError("Sweep cannot resume: omitted recording "
+                                 "evidence cannot be recovered; start a new "
+                                 "linked Inspect run")
             with open(os.path.join(folder, BASE_COPY),
                       encoding="utf-8") as f:
                 workers = manifest_workers(f.read())

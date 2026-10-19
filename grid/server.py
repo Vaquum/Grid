@@ -64,7 +64,7 @@ CURSOR_TTL = 600.0
 PING_EVERY = 15.0
 MAX_BODY = 4 << 20     # a manifest is a few kilobytes
 CHOSEN_MAX = 64 << 10   # how a predictor's members were chosen, as JSON
-ACTIONS = ("validate", "save", "create", "start", "stop", "resume", "open",
+ACTIONS = ("validate", "save", "create", "start", "inspect", "stop", "resume", "open",
            "diff", "cohort")
 
 
@@ -522,6 +522,9 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
             try:
                 if action == "cohort":
                     return self.send_json(server.make_cohort(project, body))
+                if action == "inspect":
+                    from .inspect_run import launch
+                    return self.send_json(launch(server, body))
                 return self.send_json(act(project, action, body))
             except (ValueError, OSError) as exc:
                 return self.fail(400, str(exc))
@@ -655,7 +658,8 @@ def act(project: Project, action: str, body: dict[str, Any]) -> Any:
                                      body.get("shards"),
                                      body.get("execution"),
                                      body.get("outputs"),
-                                     body.get("version"))}
+                                     body.get("version"),
+                                     recording_mode=body.get("recordingMode"))}
     if action == "stop":
         project.stop(body.get("run"))
         return {"ok": True}
