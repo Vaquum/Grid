@@ -1619,7 +1619,7 @@ test("experiment: catalog opens before results, and analysis loads only its chos
   }
 });
 
-test("Inspect: one unique combination is evaluated once for each preserved source seed", async () => {
+test("Inspect: insecure HTTP preserves seed scope and native request identities across retries", async () => {
   const pack = JSON.parse(gunzipSync(readFileSync(join(dir, "limen.pack.json.gz"))));
   pack.serverInstance = "test-instance";
   const run = pack.runs[0], exp = run.experiment;
@@ -1637,6 +1637,7 @@ test("Inspect: one unique combination is evaluated once for each preserved sourc
   const { page, errors } = await limenPage();
   const requests = [];
   let failNextInspect = false;
+  await page.route("http://grid-inspect.test/favicon.ico", route => route.fulfill({ status: 204, body: "" }));
   await page.route("**/inspect-single", route => route.fulfill({ contentType: "text/html", body: inspectHtml() }));
   await page.route("**/api/experiment/inspect", route => {
     requests.push(route.request().postDataJSON());
@@ -1648,7 +1649,8 @@ test("Inspect: one unique combination is evaluated once for each preserved sourc
       ? { error: "temporary connection failure" } : { run: "two-seeds", provenance: { sourceSnapshot: "source-pinned" }, ...(requests.length === 5 ? { launchError: "runtime worker launch failed" } : {}) }) });
   });
   const state = Buffer.from(JSON.stringify({ v: "pocket", r: run.id, p: [{ dim: "use_calibration", keys: ["false"] }] })).toString("base64url");
-  await page.goto(`${base}inspect-single#s1.${state}`);
+  await page.goto(`http://grid-inspect.test/inspect-single#s1.${state}`);
+  assert.deepEqual(await page.evaluate(() => [isSecureContext, typeof crypto.randomUUID, typeof crypto.getRandomValues]), [false, "undefined", "function"]);
   const inspect = page.getByRole("region", { name: "Run pocket in Inspect mode" });
   await inspect.getByRole("button", { name: "Run in Inspect mode", exact: true }).click();
   assert.match(await inspect.innerText(), /1 unique parameter combinations of 2/);
@@ -1661,6 +1663,12 @@ test("Inspect: one unique combination is evaluated once for each preserved sourc
   assert.match(await inspect.innerText(), /divisible by 2/);
   assert.equal(requests.length, 0);
   await rounds.fill("2");
+  await page.evaluate(() => { Object.defineProperty(crypto, "getRandomValues", { configurable: true, value: () => { throw new Error("Random source failed."); } }); });
+  await inspect.getByRole("button", { name: "Confirm and run Inspect", exact: true }).click();
+  assert.match(await inspect.innerText(), /Random source failed.*No Inspect request was submitted/s);
+  assert.equal(requests.length, 0);
+  assert.equal(await rounds.isDisabled(), false);
+  await page.evaluate(() => { delete crypto.getRandomValues; });
   const beforeInspectErrors = errors.length;
   await inspect.getByRole("button", { name: "Confirm and run Inspect", exact: true }).click();
   await inspect.getByRole("button", { name: "Retry Inspect request", exact: true }).waitFor();
@@ -1671,7 +1679,7 @@ test("Inspect: one unique combination is evaluated once for each preserved sourc
   assert.equal(requests[0].rounds, 2);
   assert.equal(requests[0].source.instance, "test-instance");
   assert.deepEqual(requests[0].constraints, [{ param: "use_calibration", values: [false] }]);
-  assert.ok(requests[0].requestId);
+  assert.match(requests[0].requestId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   assert.ok(errors.slice(beforeInspectErrors).every(e => /status of 503/.test(e)), errors.slice(beforeInspectErrors).join("\n"));
   errors.splice(beforeInspectErrors);
   // The same run id and generation from a replacement server cannot load

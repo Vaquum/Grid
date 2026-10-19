@@ -46,6 +46,17 @@ export function inspectBudget(plan, sourceRoundsPerShard) {
 
 const inspectRequests = new Map();
 
+function newInspectRequestId() {
+  const random = globalThis.crypto;
+  if (typeof random?.randomUUID === "function") return random.randomUUID();
+  if (typeof random?.getRandomValues !== "function") throw new Error("Secure random values are unavailable in this browser.");
+  const bytes = random.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 15) | 64;
+  bytes[8] = (bytes[8] & 63) | 128;
+  const hex = Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 export function inspectRequestKey(m, constraints) {
   return JSON.stringify([m.ds.meta.serverInstance, m.ds.id, m.ds.meta.generation, constraints]);
 }
@@ -102,8 +113,11 @@ export function inspectSection(m, A) {
       req.error = `Use a valid experiment name and a round count within this region, divisible by ${plan.shards} to preserve all source seeds.`; A.rerender(); return;
     }
     if (!req.payload) {
-      req.requestId = crypto.randomUUID();
-      req.payload = { name: req.name, source: { run: m.ds.id, generation: m.ds.meta.generation, instance: m.ds.meta.serverInstance }, constraints: plan.constraints, requestId: req.requestId, rounds: req.rounds };
+      try {
+        const requestId = newInspectRequestId();
+        const payload = { name: req.name, source: { run: m.ds.id, generation: m.ds.meta.generation, instance: m.ds.meta.serverInstance }, constraints: plan.constraints, requestId, rounds: req.rounds };
+        Object.assign(req, { requestId, payload });
+      } catch (err) { req.error = `${String(err.message || err)} No Inspect request was submitted.`; A.rerender(); return; }
       retainInspectRequest(key, req);
     }
     req.busy = true; req.error = null; req.canReplace = false; A.rerender();
