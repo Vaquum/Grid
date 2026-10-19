@@ -12,8 +12,8 @@ from types import SimpleNamespace
 from typing import cast
 from unittest.mock import Mock, patch
 
-from grid.inspect_run import failure_details, launch, narrow
 from grid.experiment import Project
+from grid.inspect_run import failure_details, launch, narrow
 from grid.server import Server
 from grid.sweep import Json
 
@@ -81,8 +81,8 @@ class InspectLaunch(unittest.TestCase):
         kwargs = self.project.start.call_args.kwargs
         self.assertEqual(kwargs["recording_mode"], "inspect")
         self.assertEqual(kwargs["provenance"]["sourceSeeds"], [42])
-        self.assertIn("threshold: [0.5]", self.project.create_versioned.call_args.kwargs[
-            "text"])
+        created_text = self.project.create_versioned.call_args.kwargs["text"]
+        self.assertIn("threshold: [0.5]", created_text)
 
     def test_reused_identity_cannot_change_the_region(self):
         launch(cast(Server, self.server), self.body)
@@ -124,7 +124,8 @@ class InspectLaunch(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "data unavailable"):
                 launch(cast(Server, self.server), self.body)
         self.project.start.assert_called_once()
-        self.assertEqual(failure_details(cast(Project, self.project), self.body),
+        outcome = failure_details(cast(Project, self.project), self.body)
+        self.assertEqual(outcome,
                          {"intentState": "failed", "canReplace": True})
 
     def test_created_version_is_used_without_adopting_a_later_edit(self):
@@ -144,8 +145,8 @@ class InspectLaunch(unittest.TestCase):
         self.assertEqual(first["launchError"], "second shard failed")
         self.assertEqual(launch(cast(Server, self.server), self.body), first)
         self.project.start.assert_called_once()
-        self.assertFalse(failure_details(cast(Project, self.project), self.body)[
-            "canReplace"])
+        outcome = failure_details(cast(Project, self.project), self.body)
+        self.assertFalse(outcome["canReplace"])
 
     def test_uncertain_admission_never_allows_a_replacement_request(self):
         self.project.start.side_effect = ValueError("launch interrupted")

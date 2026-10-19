@@ -365,7 +365,7 @@ class ProjectRuns(unittest.TestCase):
             with self.subTest(mode=mode, provenance=provenance):
                 rid = self.p.start("inherited", 2, 1, recording_mode=mode,
                                    provenance=provenance)
-                wait(lambda: self.run_of(rid)["state"] == "finished")
+                wait(lambda rid=rid: self.run_of(rid)["state"] == "finished")
                 folder = os.path.join(self.root, rid, "s1")
                 with open(os.path.join(folder, "metadata.json")) as stream:
                     metadata = stream.read()
@@ -797,7 +797,7 @@ class Routes(unittest.TestCase):
 
     def test_inspect_http_replaces_only_known_unadmitted_failures(self):
         with urllib.request.urlopen(self.base + "/api/pack") as response:
-            instance = json.loads(response.read())["serverInstance"]
+            instance = json.loads(response.read())["pack"]["serverInstance"]
         body = {"name": "inspect", "requestId": "known-failure",
                 "source": {"instance": instance, "run": "missing",
                            "generation": 0},
