@@ -458,7 +458,8 @@ def finalize_report(args: argparse.Namespace, work: Path, result: Json,
                         receipts / "runtime.json")
     check_runtime(result["runtime"], runtime)
     for measurement in result["measurements"]:
-        _, proof, hashes = check_native(work, result["conditions"], measurement)
+        _, proof, hashes = check_native(work, result["conditions"],
+                                        measurement)
         label = "%s-%d-%s" % tuple(measurement[key] for key in
                                    ("workload", "repetition", "mode"))
         folder = work / label
