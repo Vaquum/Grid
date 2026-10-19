@@ -32,6 +32,16 @@ def typed(value: Any) -> str:
                       separators=(",", ":"))
 
 
+def same_value(a: Any, b: Any) -> bool:
+    # Browser JSON cannot distinguish 1.0 from 1; retain the source spelling
+    # and type after matching, while keeping booleans separate from numbers.
+    if isinstance(a, bool) or isinstance(b, bool):
+        return type(a) is type(b) and a == b
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return a == b
+    return typed(a) == typed(b)
+
+
 def narrow(text: str, manifest: Json, constraints: object
            ) -> tuple[str, int]:
     """Replace only named parameter lists; refuse any partial selection."""
@@ -53,9 +63,14 @@ def narrow(text: str, manifest: Json, constraints: object
         if not isinstance(original, list) or not isinstance(values, list) \
                 or not values or len({typed(v) for v in values}) != len(values):
             raise ValueError("each parameter needs distinct typed values")
-        if any(typed(v) not in {typed(x) for x in original} for v in values):
-            raise ValueError("selection is outside source parameter space")
-        chosen[name] = values
+        matched = []
+        for value in values:
+            found = [item for item in original if same_value(item, value)]
+            if len(found) != 1:
+                raise ValueError("selection is outside source parameter space "
+                                 "or its numeric type is ambiguous")
+            matched.append(found[0])
+        chosen[name] = matched
     lines = text.splitlines()
     for name, values in chosen.items():
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", name):
@@ -70,11 +85,15 @@ def narrow(text: str, manifest: Json, constraints: object
         end = _block_end(lines, index, indent)
         lines[index:end] = [" " * indent + name + ": " + typed(values)]
     projected = 1
+    original_count = 1
     for name, values in params.items():
         selected = chosen.get(name, values)
         if not isinstance(selected, list) or not selected:
             raise ValueError("source parameter space is not enumerable")
         projected *= len(selected)
+        original_count *= len(values)
+    if projected >= original_count:
+        raise ValueError("Inspect region must narrow the source search space")
     return "\n".join(lines) + "\n", projected
 
 
@@ -198,6 +217,11 @@ def launch(server: Server, body: Json) -> Json:
                 fromfile="source.yaml", tofile="inspect.yaml")),
             "exploratory": True,
         }
+        # Native exact manifest copies keep this small link in offline exports.
+        portable = {key: value for key, value in provenance.items()
+                    if key != "manifestDifference"}
+        narrowed = "# grid-inspect-provenance: " + typed(portable) + "\n" \
+            + narrowed
         project.create(name, text=narrowed)
         version = project.manifest(name)["version"]
         rid = project.start(name, rounds, len(seeds), version=version,

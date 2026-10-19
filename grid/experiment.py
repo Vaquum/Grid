@@ -928,6 +928,7 @@ class Project:
         out: list[Json] = []
         for folder, kind in self._run_folders():
             rid = self._rel(folder)
+            record: Json = {}
             if kind == "grid":
                 record = _read_json(os.path.join(folder, RECORD)) or {}
                 states = {str(s.get("state"))
@@ -942,8 +943,36 @@ class Project:
                         "id": self.opened.get(rid, "project:" + rid),
                         "label": "%s / %s" % (name or "experiment",
                                                os.path.basename(folder)),
-                        "state": state, "rows": None, "live": True})
+                        "state": state, "rows": None, "live": True,
+                        **self._recording_state(folder, record)})
         return out
+
+    def _recording_state(self, folder: str, record: Json) -> Json:
+        if record.get("recordingPolicy"):
+            return infer_recording({}, record=record)
+        copies = os.path.join(folder, "manifests") if record else folder
+        names = [name for name in _listdir(copies)
+                 if name.endswith((".yaml", ".yml"))]
+        text = ""
+        if names:
+            with open(os.path.join(copies, sorted(names)[0]),
+                      encoding="utf-8") as stream:
+                text = stream.read()
+        uel: Json = {"recording": {}}
+        for key in ("record_execution", "record_model_outputs",
+                    "recording.predictions", "recording.alignment",
+                    "recording.trade_ledger", "recording.fold_details"):
+            value = get_value(text, "uel." + key)
+            if value is not None:
+                if key.startswith("recording."):
+                    uel["recording"][key.removeprefix("recording.")] = \
+                        value.lower() == "true"
+                else:
+                    uel[key] = value.lower() == "true"
+        metadata = _read_json(os.path.join(folder, "metadata.json"))
+        manifest = (metadata or {}).get("yaml_reference") or {"uel": uel}
+        return infer_recording(manifest, metadata, record,
+                               manifest_text=text)
 
     def runs(self, light: bool = False) -> list[Json]:
         """Every run, newest first: its experiment, when it started, its
@@ -960,11 +989,12 @@ class Project:
         for folder, kind in self._run_folders():
             rid = self._rel(folder)
             stopping = False
+            record: Json = {}
             recording: Json
             if kind == "grid":
                 with self.lock:
                     record = _read_json(os.path.join(folder, RECORD)) or {}
-                recording = infer_recording({}, record=record)
+                recording = self._recording_state(folder, record)
                 shards: list[Json] = []
                 raw: Any = record.get("shards")
                 for s in cast(list[Any], raw) if isinstance(raw, list) else []:
@@ -987,9 +1017,7 @@ class Project:
                 started = record.get("started_at")
                 name = str(record.get("experiment") or "")
             else:
-                metadata = _read_json(os.path.join(folder, "metadata.json"))
-                recording = infer_recording(
-                    (metadata or {}).get("yaml_reference"), metadata)
+                recording = self._recording_state(folder, {})
                 name_got, planned = self._meta(folder)
                 rows = count(os.path.join(folder, "results.csv"))
                 shards = [{"label": os.path.basename(folder), "seed": None,
@@ -1258,6 +1286,9 @@ class Project:
                              "CPU budget (%d); reduce shards or workers"
                              % self.cores)
         search = get_value(text, "uel.search_strategy.type")
+        if named_mode is not None and search not in ("random", "grid"):
+            raise ValueError("recording modes require an explicit native "
+                             "random or grid search strategy")
         if shards > 1 and search != "random":
             raise ValueError("shards draw apart only in a random search "
                              "(uel.search_strategy.type: random); this "
@@ -1606,6 +1637,12 @@ class Project:
                 raise ValueError("Sweep cannot resume: omitted recording "
                                  "evidence cannot be recovered; start a new "
                                  "linked Inspect run")
+            recorded_policy = self._recording_state(folder, record)[
+                "recordingPolicy"]["recording"]
+            if any(enabled is not True for enabled in recorded_policy.values()):
+                raise ValueError("Cannot resume a lighter recording policy: "
+                                 "complete recorded recovery evidence is "
+                                 "required")
             with open(os.path.join(folder, BASE_COPY),
                       encoding="utf-8") as f:
                 workers = manifest_workers(f.read())

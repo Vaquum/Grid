@@ -6,6 +6,7 @@ import { rowsIn, summarize, board, boardOrder } from "./engine.js";
 import { boardDims } from "./model.js";
 import { applyGates } from "./gates.js";
 import { halfTargets, twice, firstHalfOnly } from "./halves.js";
+import { recordingCapabilities } from "./capabilities.js";
 
 export const DEFAULT_STATE = {
   run: null, view: "board", target: null, context: [], pocket: [], pocketB: null,
@@ -95,6 +96,6 @@ export function createModel(sweep, st, c = {}, { effects = true } = {}) {
     if (halves) twice(c.board, halves.map(ht => board(schema, ht, c.rows, dims)));
     c.order = boardOrder(c.board.effects);
   }
-  return { sweep, ds, schema, target, edge, rows: c.rows, allRows: c.allRows, base: c.base,
+  return { sweep, ds, schema, target, edge, capabilities: recordingCapabilities(ds), rows: c.rows, allRows: c.allRows, base: c.base,
     board: c.board, order: c.order, state: st, context: ctx, cache: c };
 }

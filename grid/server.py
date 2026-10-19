@@ -172,6 +172,9 @@ class Server:
             exp = run.experiment
             if not exp or exp.get("kind") != "limen":
                 raise ValueError("a cohort is made of a Limen run's rounds")
+            if exp.get("recordingMode") == "sweep":
+                raise ValueError("cohort diagnostics unavailable by Sweep "
+                                 "recording policy; run the region in Inspect")
             if walk_forward(exp.get("manifest")):
                 raise ValueError("a walk-forward run's trials make no "
                                  "cohort: Limen replays none of them and "

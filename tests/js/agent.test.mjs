@@ -133,7 +133,8 @@ test("sparse recorded halves never use whole-window gate evidence", () => {
   const mixed = analyzePack(structuredClone(original), { analysis: "cohort", state: {
     firstHalf: true, target: "backtest_pnl_per_bar_bps", gates: [{ id: "auc", target: "auc", op: ">", value: 0 }] } });
   assert.equal(mixed.result.firstHalfSelection, false);
-  assert.ok(mixed.warnings.some(w => w.includes("selection is not isolated")));
+  assert.ok(mixed.warnings.some(w => w.includes("no first-half evidence")));
+  assert.equal(mixed.result.pool, 0);
 });
 
 test("walk-forward trials do not offer cohort selection", () => {

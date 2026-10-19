@@ -648,7 +648,7 @@ function formOf(p, e) {
   if (!f) {
     const d = lab.drafts.get(e.name);
     f = { name: e.name, cores: p.cores, rounds: nPerm(d.text) || 1000, roundsSet: false, shards: Math.max(1, Math.min(4, Math.floor(p.cores / 2))),
-      execution: true, outputs: true, bad: new Set(), inputs: {} };
+      recordingMode: "sweep", bad: new Set(), inputs: {} };
     lab.forms.set(e.name, f);
     f.node = runForm(f);
   }
@@ -672,11 +672,11 @@ function runForm(f) {
     f.inputs[key] = input;
     return tip(h("label", { class: "ex-field" }, h("span", { class: "k", text: label }), input), context);
   };
-  const box = (key, label, why) => {
-    const input = h("input", { type: "checkbox", checked: f[key] ? true : null, "aria-label": label, dataset: { focus: `ex-${key}` } });
-    input.addEventListener("change", () => { f[key] = input.checked; });
-    return tip(h("label", { class: "ex-check" }, input, h("span", { text: label })), why);
-  };
+  const mode = h("select", { "aria-label": "Recording mode", dataset: { focus: "ex-recording-mode" } },
+    h("option", { value: "sweep", text: "Sweep" }), h("option", { value: "inspect", text: "Inspect" }));
+  mode.value = f.recordingMode;
+  f.recordingNote = h("p", { class: "isl-note" });
+  mode.addEventListener("change", () => { f.recordingMode = mode.value; paintForm(f); });
   f.go = h("button", { class: "btn primary", type: "button", dataset: { focus: "ex-go" }, onclick: () => startRun(f) }, "Run");
   tip(f.go, () => h("div", null, h("b", { text: "Run it" }), h("div", { class: "k", text: f.go.disabled ? f.sum.textContent : "Saves the manifest, then runs it in the shards set here." })));
   f.sum = h("p", { class: "isl-note ex-sum num" });
@@ -684,10 +684,9 @@ function runForm(f) {
     h("div", { class: "ex-form" },
       num("rounds", "Rounds", MAX_ROUNDS),
       num("shards", "Shards side by side", f.cores),
-      h("div", { class: "ex-checks" },
-        box("execution", "Record each round's execution", "uel.record_execution (Limen 5.16): each round's bars, from which Grid reads trades, timing and the test window's halves."),
-        box("outputs", "Record model outputs", "uel.record_model_outputs (Limen 5.17): each round's test probabilities and threshold, from which Grid tells the rounds that never traded.")),
+      h("label", { class: "ex-field" }, h("span", { class: "k", text: "Recording mode" }), mode),
       f.go),
+    f.recordingNote,
     f.sum);
 }
 
@@ -713,6 +712,9 @@ function paintForm(f) {
               : "";
   f.go.disabled = !!lab.busy || !!why;
   f.go.textContent = lab.busy === "Starting the run" ? "Starting…" : "Run";
+  f.recordingNote.textContent = f.recordingMode === "inspect"
+    ? "Inspect retains detailed execution, model outputs and supported diagnostic evidence. Runtime compatibility is checked before launch."
+    : "Sweep retains scalar results, typed parameters and provenance. Per-bar evidence is disabled; trade, half, timing, probability and cohort diagnostics are unavailable by policy.";
   f.sum.classList.toggle("warn", !!why && !!checked);
   f.sum.textContent = why || (f.shards === 1
     ? `One limen run of ${fmtInt(f.rounds)} rounds on ${fmtInt(threads)} thread${threads === 1 ? "" : "s"}.`
@@ -730,7 +732,7 @@ function startRun(f) {
       wrote(d);
     }
     // the version shown: a file changed since on disk is not what runs
-    return post("start", { name: f.name, rounds: f.rounds, shards: f.shards, execution: f.execution, outputs: f.outputs, version: d.version });
+    return post("start", { name: f.name, rounds: f.rounds, shards: f.shards, recordingMode: f.recordingMode, version: d.version });
   }, (out) => lab.A.toast(h("span", null, h("b", { text: "Started. " }), `${out.run} opens in the other views once each shard has written a round.`), "good"));
 }
 
@@ -759,7 +761,7 @@ function runsTable(p, e) {
       h("td", { class: "num" }, started),
       h("td", { class: "r num", text: `${rounds(r)}${r.state === "running" && r.planned ? ` · ${fmtPct(r.rows / r.planned, 0)}` : ""}` }),
       h("td", { class: "r num" }, shards),
-      h("td", null, stateTag(r)),
+      h("td", null, stateTag(r), h("span", { class: "k", text: r.recordingMode === "sweep" ? "Sweep" : r.recordingMode === "inspect" ? "Inspect" : "Recorded policy" })),
       h("td", { class: "ex-do" }, actions(r))));
     if (notes.length) tbody.append(h("tr", { class: "ex-note-row" }, h("td", { colspan: "5" }, h("div", { class: "ex-note" }, icon("alert"), h("div", null, notes)))));
   }

@@ -94,8 +94,18 @@ def read_experiment(text: str, path: str, manifest_file: str,
     if not isinstance(manifest, dict):
         raise ValueError("%s: yaml_reference is not a mapping" % path)
     objective: Any = meta.get("objective")
+    provenance = None
+    marker = re.search(r"^# grid-inspect-provenance: (.+)$", manifest_text,
+                       re.M)
+    if marker:
+        try:
+            parsed = json.loads(marker.group(1))
+            provenance = parsed if isinstance(parsed, dict) else None
+        except ValueError:
+            pass
     return {"kind": "limen", "manifest": cast(Json, manifest),
             **infer_recording(manifest, meta, manifest_text=manifest_text),
+            "provenance": provenance,
             "manifestFile": manifest_file, "manifestText": manifest_text,
             "limenVersion": meta.get("limen_version"),
             "createdAt": meta.get("created_at"),

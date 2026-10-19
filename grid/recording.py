@@ -51,8 +51,8 @@ def infer_recording(manifest: object, metadata: object = None,
     recorded = _mapping(saved.get("recordingPolicy"))
     old_flags = _mapping(saved.get("record"))
     groups = _mapping(uel.get("recording"))
-    if "recording" in meta:
-        groups = _mapping(meta["recording"])
+    if isinstance(metadata, dict):
+        groups = _mapping(meta.get("recording"))
     elif not uel and recorded:
         groups = _mapping(recorded.get("recording"))
     effective: Json = {"recording": {
@@ -60,11 +60,11 @@ def infer_recording(manifest: object, metadata: object = None,
         else None for key in GROUPS}}
     for key, old in (("record_execution", "execution"),
                      ("record_model_outputs", "outputs")):
-        value = meta.get(key, uel.get(key, recorded.get(
-            key, old_flags.get(old, False))))
+        value = meta.get(key, False) if isinstance(metadata, dict) else \
+            uel.get(key, recorded.get(key, old_flags.get(old, False)))
         effective[key] = value if isinstance(value, bool) else None
     named = saved.get("recordingMode")
-    if named not in ("sweep", "inspect") and manifest_text is not None:
+    if named is None and manifest_text is not None:
         marker = MARKER.search(manifest_text)
         named = marker.group(1) if marker else None
     reason = None

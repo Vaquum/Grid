@@ -64,6 +64,7 @@ export function pocketOf(schema, pocket) {
 export function gateReads(schema) {
   return poolGates(schema).map(g => {
     const base = g.target && (g.target.base || g.target);
+    if (base?.unavailable) return { gate: g, label: g.label, firstHalf: false, unavailable: true, pass: g.pass };
     const halves = g.def && base && base.halves;
     const op = halves && OPS[g.def.op];
     if (!op) return { gate: g, label: g.label, firstHalf: false, pass: g.pass };
@@ -80,6 +81,8 @@ export function gateReads(schema) {
 // none of them: the needle, or a gate of the pool, read over the whole
 // window.
 export function touchedBy(t, reads) {
+  const missing = reads.filter(r => r.unavailable);
+  if (missing.length) return `the gate ${missing.map(r => r.label).join("; ")} has no first-half evidence`;
   if (!t.halves) return `${t.label} is not measured on each half`;
   const whole = reads.filter(r => !r.firstHalf).map(r => r.label);
   if (!whole.length) return null;
@@ -146,12 +149,24 @@ export function renderCohort(view, m, A) {
       "Limen replays none of them and makes no sensor of one: each trial's model is fitted afresh in every fold, and its row holds its means over them."));
     return;
   }
+  if (m.capabilities && !m.capabilities.cohort.available) {
+    view.append(h("div", { class: "empty", role: "status" }, h("b", { text: "Cohort unavailable. " }), m.capabilities.cohort.reason));
+    return;
+  }
   if (pick.run !== m.ds.id) reset(m.ds.id);
   // the needle as measured, on each half: with First half on, the needle
   // in view is its first half, read from this
   const t = m.target.base || m.target;
+  if (t.unavailable) {
+    view.append(h("div", { class: "empty", role: "status" }, h("b", { text: "First-half selection unavailable. " }), t.unavailable));
+    return;
+  }
   const pocket = pocketOf(m.schema, m.state.pocket);
   const reads = gateReads(m.schema);
+  if (reads.some(r => r.unavailable)) {
+    view.append(h("div", { class: "empty", role: "status" }, h("b", { text: "First-half gate unavailable. " }), "A selected gate has no first-half evidence; no row can pass it."));
+    return;
+  }
   const touched = touchedBy(t, reads);
   const pool = poolOf(m.schema, m.rows, pocket, m.edge, reads);
   const ranked = rankedOf(t, pool);

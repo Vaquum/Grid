@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import hashlib
 import json
 import os
 import shutil
@@ -30,6 +31,7 @@ from grid.experiment import (
     set_values,
     validation_errors,
 )
+from grid.recording import manifest_values, policy
 from grid.server import direct_host, serve
 from grid.sweep import Json, Sweep
 
@@ -213,6 +215,91 @@ class ProjectRuns(unittest.TestCase):
         self.assertEqual(bad[0]["path"], "uel.n_permutations")
         parse = self.p.validate("a: 1\nb: PARSE_ME\n")
         self.assertEqual(parse[0]["line"], 2)
+
+    def test_new_run_defaults_to_explicit_sweep_policy(self) -> None:
+        self.p.version = "5.30.2"
+        self.p.create("sweep", template="lightgbm_binary")
+        original = self.p.manifest("sweep")["text"]
+        rid = self.p.start("sweep", 2, 1)
+        folder = os.path.join(self.root, rid)
+        with open(os.path.join(folder, "grid-run.json")) as stream:
+            record = json.load(stream)
+        self.assertEqual(record["recordingMode"], "sweep")
+        self.assertEqual(record["recordingPolicy"], policy("sweep"))
+        self.assertEqual(record["sourceIdentity"]["sha256"],
+                         hashlib.sha256(original.encode()).hexdigest())
+        self.assertEqual(record["runtimeIdentity"]["limenVersion"], "5.30.2")
+        with open(os.path.join(folder, "manifests", "s1.yaml")) as stream:
+            launched = stream.read()
+        self.assertTrue(launched.startswith("# grid-recording-mode: sweep\n"))
+        for key in manifest_values("sweep"):
+            self.assertEqual(get_value(launched, key), "false")
+        self.assertEqual(self.run_of(rid)["recordingMode"], "sweep")
+        self.assertEqual(next(r for r in self.p.catalog()
+                              if r["projectRun"] == rid)["recordingMode"],
+                         "sweep")
+        self.assertEqual(self.p.manifest("sweep")["text"], original)
+        wait(lambda: self.run_of(rid)["state"] == "finished")
+        with self.assertRaisesRegex(ValueError, "Sweep cannot resume"):
+            self.p.resume(rid)
+
+    def test_inspect_enables_all_evidence_and_retains_source_seeds(self) -> None:
+        self.p.version = "5.30.2"
+        self.p.create("inspect", text=set_values(manifest_text(),
+                                                  manifest_values("sweep")))
+        provenance = {"sourceSeeds": [98, 3], "source": {"run": "p1"}}
+        rid = self.p.start("inspect", 4, 2, recording_mode="inspect",
+                           provenance=provenance)
+        provenance["source"]["run"] = "changed"
+        folder = os.path.join(self.root, rid)
+        for label, seed in (("s1", "98"), ("s2", "3")):
+            with open(os.path.join(folder, "manifests", label + ".yaml")) \
+                    as stream:
+                launched = stream.read()
+            for key in manifest_values("inspect"):
+                self.assertEqual(get_value(launched, key), "true")
+            self.assertEqual(get_value(launched, "uel.search_strategy.seed"),
+                             seed)
+            for key in ("sfd.params.fee_bps", "sfd.params.slip_bps",
+                        "sfd.manifest.split_dates.train_start",
+                        "sfd.manifest.data_source.method"):
+                self.assertEqual(get_value(launched, key),
+                                 get_value(manifest_text(), key))
+        run = self.run_of(rid)
+        self.assertEqual(run["recordingPolicy"], policy("inspect"))
+        self.assertEqual(run["provenance"]["source"]["run"], "p1")
+        self.assertEqual([s["seed"] for s in run["shards"]], [98, 3])
+        wait(lambda: self.run_of(rid)["state"] == "finished")
+
+    def test_named_modes_fail_closed_before_run_creation(self) -> None:
+        self.p.create("exp", template="lightgbm_binary")
+        for version in ("5.20.0", "5.30.0", "5.30.1"):
+            self.p.version = version
+            for mode in ("sweep", "inspect"):
+                with self.assertRaisesRegex(ValueError, "Limen >= 5.30.2"):
+                    self.p.start("exp", 2, 1, recording_mode=mode)
+        self.p.version = "5.30.2"
+        with self.assertRaisesRegex(ValueError, "conflicts"):
+            self.p.start("exp", 2, 1, True, True, recording_mode="sweep")
+        with self.assertRaisesRegex(ValueError, "mode must be"):
+            self.p.start("exp", 2, 1, recording_mode="unknown")
+        with self.assertRaisesRegex(ValueError, "sourceSeeds"):
+            self.p.start("exp", 2, 1, recording_mode="inspect",
+                         provenance={"sourceSeeds": [1, 2]})
+        self.assertEqual(self.p.runs(), [])
+
+    def test_named_runs_persist_generated_single_shard_seed(self) -> None:
+        self.p.version = "5.30.2"
+        text = remove_value(manifest_text(), "uel.search_strategy.seed")
+        self.p.create("exp", text=text)
+        with mock.patch("grid.experiment.random.randrange", return_value=743):
+            rid = self.p.start("exp", 2, 1)
+        self.assertEqual(self.run_of(rid)["shards"][0]["seed"], 743)
+        with open(os.path.join(self.root, rid, "manifests", "s1.yaml")) \
+                as stream:
+            self.assertEqual(get_value(stream.read(),
+                                       "uel.search_strategy.seed"), "743")
+        wait(lambda: self.run_of(rid)["state"] == "finished")
 
     def test_an_experiment_from_a_template_or_a_manifest(self) -> None:
         self.p.create("first", template="lightgbm_binary")

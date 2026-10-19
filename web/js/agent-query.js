@@ -27,7 +27,7 @@ function queryInteger(value, fallback, lo, hi, name) {
 }
 
 export function describeTarget(t) {
-  return Object.fromEntries(["id", "label", "kind", "unit", "better", "digits", "decimals", "definition", "inferred", "diagnostic", "cost", "group"].filter(k => t[k] !== undefined).map(k => [k, t[k]]));
+  return Object.fromEntries(["id", "label", "kind", "unit", "better", "digits", "decimals", "definition", "inferred", "diagnostic", "cost", "group", "unavailable"].filter(k => t[k] !== undefined).map(k => [k, t[k]]));
 }
 
 export function rowReference(m, i) {
@@ -116,7 +116,7 @@ export function analyzePack(pack, args = {}) {
   let result;
   switch (args.analysis) {
     case "schema":
-      result = { profile: m.schema.profile?.id ?? null, fields: m.schema.fields,
+      result = { profile: m.schema.profile?.id ?? null, capabilities: m.capabilities, fields: m.schema.fields,
         dimensions: m.schema.dims.map(d => ({ id: d.id, label: d.label, role: d.role, kind: d.kind, levels: d.levels })),
         targets: m.schema.targets.map(describeTarget), replay: m.schema.profile?.replay ? { title: m.schema.profile.replay.title, refused: m.schema.profile.replay.refused } : null, objective: m.schema.objective, gates: m.schema.gates.map(g => ({ id: g.id, label: g.label, need: g.need, definition: g.def })) };
       break;
@@ -162,7 +162,7 @@ export function analyzePack(pack, args = {}) {
       const outs = cardOutcomes(m, clusters), drawn = new Set(clusters.clusters.length ? clusters.outcomes.map(o => o.t.id) : []);
       const tests = outs.map(t => sel.mode === "whole" || drawn.has(t.id) ? null : testOf(t, sel, m));
       const q = bhQ(tests.map(x => x?.p ?? NaN));
-      result = { health: runHealth(m), log: runLog(m), clusters, selection: sel.mode,
+      result = { health: runHealth(m), capabilities: m.capabilities, log: runLog(m), clusters, selection: sel.mode,
         composition: clusters.clusters.length ? apartOf(m, clusters, sel) : null,
         distributions: outs.map((t, j) => ({ target: describeTarget(t), drawn: drawn.has(t.id), test: tests[j], q: q[j], groups: groups.map(g => {
           const v = sortedVals(t.values, g.rows);
@@ -176,7 +176,9 @@ export function analyzePack(pack, args = {}) {
         result = { available: false, reason: m.schema.profile?.replay?.refused || "Only Limen rounds support cohorts." };
         break;
       }
+      if (!m.capabilities.cohort.available) { result = m.capabilities.cohort; break; }
       const t = m.target.base || m.target, reads = gateReads(m.schema);
+      if (t.unavailable) { result = { available: false, status: "missing", reason: t.unavailable }; break; }
       const pool = poolOf(m.schema, m.rows, state.pocket, m.edge, reads);
       const ranked = rankedOf(t, pool), count = queryInteger(args.members, 5, 1, 100, "members");
       const chosen = membersOf(ranked, count, new Set(), new Set());
@@ -185,14 +187,14 @@ export function analyzePack(pack, args = {}) {
     }
     case "manifest": result = queryManifest(m); break;
   }
-  const warnings = state.firstHalf && needleReadsWhole(m.cache.schema, state) ? ["This target reads the whole window despite firstHalf."] : [];
+  const warnings = state.firstHalf && needleReadsWhole(m.cache.schema, state) ? ["First-half evidence is unavailable for this target; whole-window outcomes are not substituted."] : [];
   if (state.firstHalf) {
     for (const gate of m.schema.gatesSet || []) {
-      if (!gate.target?.base) warnings.push(`The gate ${gate.label} reads the whole window despite firstHalf; selection is not isolated.`);
+      if (!gate.target?.base) warnings.push(`The gate ${gate.label} has no first-half evidence; no row can pass it.`);
       else if (!gate.target.values.some(Number.isFinite)) warnings.push(`The gate ${gate.label} has no first-half measurements; no row can pass it.`);
     }
   }
   return portableQuery({ apiVersion: 1, snapshot: { run: ds.id, generation: ds.meta.generation, datasetVersion: ds.version, edge: m.edge, rows: m.rows.length },
-    state: Object.fromEntries([...QUERY_STATE_KEYS].map(k => [k, state[k]])), viewLink: `/#${encodeState(state)}`, target: describeTarget(m.target), summary: m.base,
+    capabilities: m.capabilities, state: Object.fromEntries([...QUERY_STATE_KEYS].map(k => [k, state[k]])), viewLink: `/#${encodeState(state)}`, target: describeTarget(m.target), summary: m.base,
     warnings, result });
 }

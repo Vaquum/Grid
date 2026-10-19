@@ -1649,6 +1649,8 @@ test("experiment: on a Limen project, one is made, checked as it is typed, run i
     await page.waitForSelector(".ex-status .sev.ok");
     assert.match(await page.locator(".ex-status").innerText(), /^Valid\s+· 45 parameters, 3\.76 × 10¹⁸ combinations$/);
     await expectContext(page, page.locator("input[aria-label=Rounds]"), /configurations.*in total.*shards/);
+    assert.equal(await page.getByLabel("Recording mode", { exact: true }).inputValue(), "sweep");
+    assert.match(await page.locator(".ex-run-form").innerText(), /Per-bar evidence is disabled/);
     await expectContext(page, page.locator('input[aria-label="Shards side by side"]'), /independent parts.*parallel/);
     await expectContext(page, page.locator("#ex-list"), /Saved search setups/);
     await page.locator(".ed-text").evaluate(t => { t.focus(); t.setSelectionRange(t.value.length, t.value.length); });
@@ -1682,6 +1684,37 @@ test("experiment: on a Limen project, one is made, checked as it is typed, run i
     await page.locator(".ex-runs tbody tr").first().locator("button", { hasText: "Analyze" }).click();
     await page.waitForSelector(".pcard", { timeout: 20000 });
     await page.waitForFunction(() => document.querySelector(".progress-text").textContent.startsWith("10 rows"), null, { timeout: 20000 });
+    assert.match(await page.locator(".mf-note").innerText(), /Sweep/);
+    await page.keyboard.press("7");
+    await page.waitForSelector("#rn-halves");
+    assert.match(await page.locator("#rn-halves").innerText(), /recording policy disabled.*Sweep mode/);
+    await page.keyboard.press("2");
+    const inspect = page.getByRole("region", { name: "Run pocket in Inspect mode" });
+    assert.match(await inspect.innerText(), /Select a parameter pocket/);
+    await page.locator(".pal-item", { hasText: "use_calibration" }).locator(".vchip", { hasText: /^false$/ }).click();
+    await inspect.getByRole("button", { name: "Run in Inspect mode", exact: true }).click();
+    assert.match(await inspect.innerText(), /projected parameter combinations.*Source:/s);
+    assert.match(await inspect.innerText(), /use_calibration = false/);
+    assert.equal(Number(await page.getByLabel("Inspect rounds", { exact: true }).inputValue()) % 2, 0);
+    const inspectBodies = [];
+    await page.route("**/api/experiment/inspect", async route => {
+      inspectBodies.push(route.request().postDataJSON());
+      await route.fulfill({ status: inspectBodies.length === 1 ? 503 : 200, contentType: "application/json", body: JSON.stringify(inspectBodies.length === 1
+        ? { error: "temporary connection failure" } : { run: "inspect-recorded", provenance: { sourceSnapshot: ".grid/inspect/frozen-source" } }) });
+    });
+    const beforeInspectErrors = errors.length;
+    await inspect.getByRole("button", { name: "Confirm and run Inspect", exact: true }).click();
+    await inspect.getByRole("button", { name: "Retry Inspect request", exact: true }).waitFor();
+    await page.reload();
+    await inspect.getByRole("button", { name: "Retry Inspect request", exact: true }).click();
+    await page.getByText("Immutable source snapshot: .grid/inspect/frozen-source", { exact: true }).waitFor();
+    assert.deepEqual(inspectBodies[0], inspectBodies[1], "retry after reload preserves native request identity and exact payload");
+    assert.deepEqual(inspectBodies[0].constraints, [{ param: "use_calibration", values: [false] }]);
+    assert.ok(inspectBodies[0].requestId);
+    assert.ok(errors.slice(beforeInspectErrors).every(e => /status of 503/.test(e)), errors.slice(beforeInspectErrors).join("\n"));
+    errors.splice(beforeInspectErrors);
+    await page.keyboard.press("1");
+    await page.waitForSelector(".pcard");
     // the run's manifest starts the next experiment
     await page.locator(".manifest summary").click();
     await page.locator(".mf-acts button", { hasText: "New experiment" }).click();
@@ -2000,24 +2033,17 @@ test("first half: every needle measured on each half reads its first half only, 
     await page.waitForSelector(".strip");
     assert.equal(await page.locator("#rn-halves").count(), 0);
     assert.doesNotMatch(await page.locator(".strip").innerText(), /Reliability/);
-    // the Cohort view reads the needle as measured: chosen on the first
-    // half, its second half beside it, and says the pocket was found
-    // without it (this run's round lines name no rounds, so the server
-    // cannot judge a cohort of them: the browser logs its answer)
-    const logged = errors.length;
+    // This fixture has execution but no model outputs; reconstruction is
+    // explicitly unavailable rather than an attempted request that fails.
     await page.keyboard.press("8");
-    await page.waitForSelector(".co-table");
-    assert.deepEqual(await page.locator(".co-table thead th.r").allInnerTexts(), ["Rank", "Row", "First half", "Second half"]);
-    assert.match(await page.locator(".co-half").innerText(), /^First half is on/);
-    await page.waitForSelector(".co-judged .co-error", { timeout: 20000 });
-    assert.ok(errors.slice(logged).every(e => /status of 400/.test(e)), errors.slice(logged).join("\n"));
-    errors.splice(logged);
-    // a needle not measured on each half reads the whole window, and says so
+    await page.waitForSelector(".empty");
+    assert.match(await page.locator("#view").innerText(), /Cohort unavailable.*requires recorded execution and model outputs/s);
+    // A needle without first-half evidence is unavailable.
     await page.keyboard.press("1");
     await page.selectOption("#target-pick", "auc");
     await page.waitForSelector(".warn-chip:not([hidden])");
-    assert.equal(await page.locator(".warn-chip").innerText(), "Whole window");
-    assert.doesNotMatch(await page.locator("#target-pick option:checked").textContent(), /first half/);
+    assert.equal(await page.locator(".warn-chip").innerText(), "First half unavailable");
+    assert.match(await page.locator("#target-pick option:checked").textContent(), /first half unavailable/);
     // off (H): every view reads the whole window as before
     await page.selectOption("#target-pick", "backtest_pnl_per_bar_bps");
     await page.keyboard.press("h");
