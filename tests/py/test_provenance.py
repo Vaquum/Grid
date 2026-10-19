@@ -12,6 +12,7 @@ from grid.provenance import digest, snapshot_source, verify_identity
 TEXT = """sfd:
   manifest:
     data_source:
+      method: limen.data.HistoricalData.get_any_file
       params:
         file_path_or_url: source.csv
 """
@@ -59,3 +60,10 @@ class SourceIdentity(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "no retained"):
                 verify_identity({"data": remote}, None, "limen", None,
                                 "5.30.2")
+
+    def test_custom_provider_file_parameter_does_not_prove_source_identity(self):
+        with tempfile.TemporaryDirectory() as root:
+            Path(root, "source.csv").write_text("price\n1\n")
+            custom = snapshot_source(TEXT.replace(
+                "limen.data.HistoricalData.get_any_file", "custom.fetch"), root)
+            self.assertFalse(custom["available"])

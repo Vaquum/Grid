@@ -14,6 +14,7 @@ import gzip
 import hashlib
 import importlib
 import importlib.metadata
+import io
 import json
 import math
 import os
@@ -58,6 +59,12 @@ def peak_rss() -> int:
 def digest(path: Path) -> str:
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def head() -> str:
+    return subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+    ).strip()
 
 
 def config(kind: str, mode: str, source: Path, rounds: int) -> Json:
@@ -229,6 +236,63 @@ def identity() -> Json:
     }
 
 
+def launch_overhead(request: Json) -> Json:
+    """Measure actual source snapshots and portable launch identity bytes."""
+    from grid.experiment import set_values
+    from grid.provenance import launch_identity
+    from grid.recording import mark_manifest
+
+    yaml = importlib.import_module("ruamel.yaml").YAML()
+    root = Path(request["root"])
+    root.mkdir(parents=True)
+    source = ROOT / "tests/fixtures/retention/btc_spot_hourly.parquet"
+    modes: Json = {}
+    for mode in ("sweep", "inspect"):
+        stream = io.StringIO()
+        yaml.dump(config("ml", mode, source, request["rounds"]), stream)
+        original = mark_manifest(stream.getvalue(), mode)
+        source_identity, runtime_identity = launch_identity(
+            original, str(root), str(Path(sys.executable).with_name("limen")),
+            sys.executable, "5.30.2",
+        )
+        data = source_identity["data"]
+        if data.get("available") is not True or not runtime_identity.get(
+                "verified"):
+            raise ValueError("Grid launch identity is not verifiable")
+        if data["files"][0]["sha256"] != SOURCE_SHA256:
+            raise ValueError("Grid launch snapshot differs from source")
+        identities = {"sourceIdentity": source_identity,
+                      "runtimeIdentity": runtime_identity}
+        encoded = json.dumps(identities, separators=(",", ":"),
+                             sort_keys=True, allow_nan=False)
+        rewritten = set_values(original, {
+            data["manifestKey"]: data["executionPath"]})
+        launched = "# grid-launch-identity: " + encoded + "\n" + rewritten
+        folder = root / mode
+        folder.mkdir()
+        (folder / "original.yaml").write_text(original)
+        (folder / "launch.yaml").write_text(launched)
+        (folder / "identity.json").write_text(encoded + "\n")
+        modes[mode] = {
+            "identity_json_bytes": (folder / "identity.json").stat().st_size,
+            "original_manifest_bytes": len(original.encode()),
+            "launched_manifest_bytes": len(launched.encode()),
+            "manifest_increase_bytes": len(launched.encode())
+            - len(original.encode()),
+            "source_identity": source_identity,
+            "runtime_identity": runtime_identity,
+        }
+    return {"modes": modes,
+            "shared_source_snapshot": inventory(root / ".grid/sources"),
+            "scope": (
+                "Actual launch_identity helper, source snapshot, runtime "
+                "identity JSON and portable manifest comment. No strategy "
+                "execution or Project run journal is included in this "
+                "overhead probe; native campaign run totals exclude these "
+                "separately measured Grid wrapper artifacts."
+            )}
+
+
 def child(python: str, stage: str, request: Json, output: Path) -> Json:
     request["receipt"] = str(output)
     began = time.perf_counter()
@@ -279,12 +343,137 @@ def compare(left: Path, right: Path) -> Json:
             except (KeyError, ValueError):
                 difference["absolute_difference"] = None
             differences.append(difference)
+    first_fields = set(a[0]) if a else set()
+    second_fields = set(b[0]) if b else set()
+    common = first_fields & second_fields
     return {"rows": len(a), "exact_agreement": not differences,
+            "scalar_result_sets_agree": not differences,
+            "shared_scalar_values_exact_agreement": not any(
+                d["field"] in common for d in differences),
+            "missing_in_sweep": sorted(second_fields - first_fields),
+            "missing_in_inspect": sorted(first_fields - second_fields),
             "excluded_bookkeeping": ["execution_time", "id", "_id"],
             "differences": differences}
 
 
+def evidence_hashes(folder: Path) -> dict[str, str]:
+    return {str(path.relative_to(folder)): digest(path)
+            for path in sorted(folder.rglob("*")) if path.is_file()}
+
+
+def remeasure(args: argparse.Namespace) -> None:
+    """Reuse native science only after checking its exact recorded inputs."""
+    work = args.remeasure_existing.resolve()
+    raw = args.out.read_bytes()
+    previous = cast(Json, json.loads(raw))
+    conditions = previous["conditions"]
+    source = ROOT / "tests/fixtures/retention/btc_spot_hourly.parquet"
+    actual_source = digest(source)
+    if (actual_source != conditions["source_sha256"]
+            or actual_source != SOURCE_SHA256):
+        raise ValueError("Benchmark source checksum differs")
+    archived = work / "report-history" / (
+        hashlib.sha256(raw).hexdigest() + ".json")
+    archived.parent.mkdir(exist_ok=True)
+    if archived.exists() and archived.read_bytes() != raw:
+        raise ValueError("Benchmark report archive conflicts")
+    archived.write_bytes(raw)
+    receipts = work / "remeasure" / str(time.time_ns())
+    receipts.mkdir(parents=True)
+    runtime = child(args.limen_python, "identity", {}, receipts / "runtime.json")
+    for key in ("python", "executable_realpath", "limen_python_source_sha256",
+                "distributions"):
+        if previous["runtime"][key] != runtime[key]:
+            raise ValueError("Native runtime changed: " + key)
+    native_head = conditions.get("native_generation_grid_head") or \
+        args.native_head
+    if not native_head:
+        raise ValueError("--native-head must identify original native receipts")
+    native_head = subprocess.check_output(
+        ["git", "rev-parse", "--verify", native_head + "^{commit}"],
+        cwd=ROOT, text=True).strip()
+    result = copy.deepcopy(previous)
+    measurements: list[Json] = []
+    comparisons: list[Json] = []
+    for kind in ("ml", "rule"):
+        for repeat in range(conditions["repetitions"]):
+            pair: dict[str, Path] = {}
+            parameters: list[Json] | None = None
+            for mode in (("sweep", "inspect") if repeat % 2 == 0 else
+                         ("inspect", "sweep")):
+                label = "%s-%d-%s" % (kind, repeat, mode)
+                folder, run_dir = work / label, work / label / "run"
+                expected = config(kind, mode, source,
+                                  conditions["rounds_per_run"])
+                expected["uel"]["output_path"] = str(run_dir)
+                text = (folder / "benchmark.yaml").read_text()
+                declared = json.loads("\n".join(
+                    line for line in text.splitlines()
+                    if not line.startswith("#")))
+                metadata = json.loads((run_dir / "metadata.json").read_bytes())
+                for candidate in (declared, metadata["yaml_reference"]):
+                    if json.dumps(candidate, sort_keys=True) != json.dumps(
+                            expected, sort_keys=True):
+                        raise ValueError("Native scientific config changed")
+                if (run_dir / "benchmark.yaml").read_text() != text:
+                    raise ValueError("Native manifest copy changed")
+                original = next(m for m in previous["measurements"] if
+                                (m["workload"], m["repetition"], m["mode"])
+                                == (kind, repeat, mode))
+                hashes = evidence_hashes(run_dir)
+                if original.get("native_evidence_sha256", hashes) != hashes:
+                    raise ValueError("Native scientific output changed")
+                proof = audit(run_dir, mode, conditions["rounds_per_run"])
+                if parameters is not None and proof["parameters"] != parameters:
+                    raise ValueError("Matched native parameters differ")
+                parameters = proof["parameters"]
+                print("remeasure ingest " + label, flush=True)
+                ingestion = child(
+                    args.limen_python, "ingest",
+                    {"run": str(run_dir),
+                     "pack": str(receipts / (label + ".pack.json.gz"))},
+                    receipts / (label + ".json"),
+                )
+                measurements.append({
+                    **original, "ingestion": ingestion, "audit": proof,
+                    "native_evidence_sha256": hashes,
+                    "native_manifest_sha256": digest(folder / "benchmark.yaml"),
+                    "native_receipt_sha256": digest(folder / "native.json"),
+                })
+                pair[mode] = run_dir
+            comparisons.append({"workload": kind, "repetition": repeat,
+                                **compare(pair["sweep"], pair["inspect"])})
+    overhead = child(
+        args.limen_python, "overhead",
+        {"root": str(receipts / "grid-launch"),
+         "rounds": conditions["rounds_per_run"]},
+        receipts / "grid-launch.json",
+    )
+    result.update(measurements=measurements, scalar_comparisons=comparisons,
+                  grid_launch_overhead=overhead, runtime_after=runtime)
+    result["shared_bytes"].update(
+        runtime_files_after=runtime["runtime_files_bytes"],
+        runtime_files_growth=(runtime["runtime_files_bytes"]
+                              - previous["runtime"]["runtime_files_bytes"]),
+        grid_retained_source_snapshot=overhead[
+            "shared_source_snapshot"]["total_bytes"],
+    )
+    result["conditions"].update(
+        native_generation_grid_head=native_head,
+        ingestion_grid_head=head(),
+        ingestion_grid_python_sha256=hashlib.sha256(json.dumps(
+            {name: value for name, value in evidence_hashes(
+                ROOT / "grid").items() if name.endswith(".py")},
+            sort_keys=True).encode()).hexdigest(),
+        native_receipts_reused=True, previous_report_sha256=digest(archived),
+        previous_report_archive=str(archived),
+    )
+    args.out.write_text(json.dumps(result, indent=2) + "\n")
+    print(str(args.out), flush=True)
+
+
 def run(args: argparse.Namespace) -> None:
+    native_head = head()
     source = ROOT / "tests/fixtures/retention/btc_spot_hourly.parquet"
     if digest(source) != SOURCE_SHA256:
         raise ValueError("Recorded BTC input checksum changed")
@@ -346,6 +535,7 @@ def run(args: argparse.Namespace) -> None:
     cache_after = inventory(cache)
     result = {
         "conditions": {
+            "native_generation_grid_head": native_head,
             "rounds_per_run": args.rounds, "repetitions": args.repeats,
             "order": "alternating fresh native and ingestion processes",
             "page_cache": "not flushed; no cold-I/O claim",
@@ -392,9 +582,12 @@ def main() -> None:
     parser.add_argument("--limen-python")
     parser.add_argument("--work", type=Path)
     parser.add_argument("--out", type=Path)
+    parser.add_argument("--remeasure-existing", type=Path)
+    parser.add_argument("--native-head")
     parser.add_argument("--rounds", type=int, default=60)
     parser.add_argument("--repeats", type=int, default=3)
-    parser.add_argument("--worker", choices=("native", "ingest", "identity"))
+    parser.add_argument("--worker", choices=(
+        "native", "ingest", "identity", "overhead"))
     parser.add_argument("--request")
     args = parser.parse_args()
     sys.path.insert(0, str(ROOT))
@@ -402,8 +595,14 @@ def main() -> None:
         request = cast(Json, json.loads(args.request))
         result = (identity() if args.worker == "identity" else
                   native(request) if args.worker == "native" else
-                  ingest(request))
+                  ingest(request) if args.worker == "ingest" else
+                  launch_overhead(request))
         Path(request["receipt"]).write_text(json.dumps(result) + "\n")
+        return
+    if args.remeasure_existing:
+        if not args.limen_python or not args.out:
+            parser.error("--remeasure-existing requires --limen-python --out")
+        remeasure(args)
         return
     if (not args.limen_python or not args.work or not args.out
             or args.rounds < 24 or args.repeats < 3):

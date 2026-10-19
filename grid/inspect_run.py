@@ -169,11 +169,15 @@ def launch(server: Server, body: Json) -> Json:
         if exp.get("host"):
             raise ValueError("SSH source data needs its original runtime host")
         verify_identity(exp.get("sourceIdentity"), exp.get("runtimeIdentity"),
-                        project.cli, project.python, project.version)
+                        project.cli, project.python, project.version,
+                        project.root)
+        runtime = cast(Json, exp.get("runtimeIdentity") or {})
         for identity in identities:
-            verify_identity(exp.get("sourceIdentity"),
-                            identity.get("runtimeIdentity"), project.cli,
-                            project.python, project.version)
+            shard_runtime = cast(Json, identity.get("runtimeIdentity") or {})
+            if shard_runtime.get("verified") is not True or \
+                    shard_runtime.get("fingerprint") != runtime.get(
+                        "fingerprint"):
+                raise ValueError("source shard runtime identity differs")
         text = exp["manifestText"]
         narrowed, projected = narrow(text, exp["manifest"],
                                      body.get("constraints"))
@@ -225,9 +229,7 @@ def launch(server: Server, body: Json) -> Json:
             "exploratory": True,
         }
         # Native exact manifest copies keep this small link in offline exports.
-        portable: Json = {key: value for key, value in provenance.items()
-                    if key != "manifestDifference"}
-        narrowed = "# grid-inspect-provenance: " + typed(portable) + "\n" \
+        narrowed = "# grid-inspect-provenance: " + typed(provenance) + "\n" \
             + narrowed
         project.create(name, text=narrowed)
         version = project.manifest(name)["version"]

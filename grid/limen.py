@@ -112,7 +112,8 @@ def read_experiment(text: str, path: str, manifest_file: str,
         except ValueError:
             pass
     return {"kind": "limen", "manifest": cast(Json, manifest),
-            **infer_recording(manifest, meta, manifest_text=manifest_text),
+            **infer_recording(cast(Json, manifest), meta,
+                              manifest_text=manifest_text),
             "sourceIdentity": identities.get("sourceIdentity"),
             "runtimeIdentity": identities.get("runtimeIdentity"),
             "provenance": provenance,

@@ -34,7 +34,7 @@ def runtime_probe() -> Json:
     for path in sorted(package.rglob("*.py")):
         code.update(str(path.relative_to(package)).encode() + b"\0")
         code.update(path.read_bytes())
-    packages = sorted((item.metadata.get("Name", ""), item.version)
+    packages = sorted((item.metadata["Name"], item.version)
                       for item in importlib.metadata.distributions())
     identity: Json = {
         "pythonVersion": sys.version,
@@ -69,17 +69,37 @@ def runtime_identity(cli: str, python: str | None, version: str) -> Json:
     return identity
 
 
+def project_code(root: str) -> Json:
+    """Hash project Python sources without traversing environments or runs."""
+    excluded = {"results", "logs", "cohorts", "node_modules", "__pycache__"}
+    files: Json = {}
+    for directory, children, names in os.walk(root):
+        children[:] = sorted(name for name in children
+                             if not name.startswith(".") and
+                             name not in excluded and not Path(
+                                 directory, name).is_symlink())
+        for name in sorted(names):
+            if name.endswith(".py"):
+                path = Path(directory, name)
+                files[str(path.relative_to(root))] = digest(path)
+    return files
+
+
 def snapshot_source(text: str, root: str) -> Json:
     from .experiment import get_value
 
     source = get_value(text, DATA_KEY)
+    method = get_value(text, "sfd.manifest.data_source.method")
     unavailable: Json = {
         "available": False,
         "reason": "Source content cannot be verified for this data provider; "
                   "linked Inspect needs a retained local file snapshot.",
         "files": [],
     }
-    if not source or "://" in source or "{" in source:
+    if method not in (
+            "limen.data.HistoricalData.get_any_file",
+            "limen.data.historical_data.HistoricalData.get_any_file") or \
+            not source or "://" in source or "{" in source:
         return unavailable
     original = Path(root, source).resolve()
     if not original.is_file():
@@ -99,7 +119,7 @@ def snapshot_source(text: str, root: str) -> Json:
                 after.st_size, after.st_mtime_ns, after.st_ino):
             raise ValueError("source changed while its snapshot was copied")
         checksum = digest(Path(temporary))
-        target = directory / (checksum + original.suffix)
+        target = directory / (checksum + "".join(original.suffixes))
         if target.exists():
             if digest(target) != checksum:
                 raise ValueError("retained source snapshot checksum differs")
@@ -118,12 +138,14 @@ def snapshot_source(text: str, root: str) -> Json:
 def launch_identity(text: str, root: str, cli: str, python: str | None,
                     version: str) -> tuple[Json, Json]:
     source: Json = {"manifestSha256": hashlib.sha256(text.encode()).hexdigest(),
-                    "data": snapshot_source(text, root)}
+                    "data": snapshot_source(text, root),
+                    "projectCode": project_code(root)}
     return source, runtime_identity(cli, python, version)
 
 
 def verify_identity(source: object, runtime: object, cli: str,
-                    python: str | None, version: str) -> None:
+                    python: str | None, version: str,
+                    root: str | None = None) -> None:
     recorded = cast(Json, source) if isinstance(source, dict) else {}
     data: Json = recorded.get("data") or {}
     if data.get("available") is not True or not data.get("files"):
@@ -135,6 +157,9 @@ def verify_identity(source: object, runtime: object, cli: str,
         if not path.is_file() or digest(path) != item["sha256"]:
             raise ValueError("Inspect unavailable: retained source content "
                              "changed or is missing")
+    if root is not None and recorded.get("projectCode") != project_code(root):
+        raise ValueError("Inspect unavailable: project strategy source changed; "
+                         "restore the recorded project code before launching")
     previous = cast(Json, runtime) if isinstance(runtime, dict) else {}
     if previous.get("verified") is not True:
         raise ValueError("Inspect unavailable: source runtime has no verified "

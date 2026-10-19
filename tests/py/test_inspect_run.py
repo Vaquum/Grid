@@ -47,7 +47,9 @@ class InspectLaunch(unittest.TestCase):
         self.pack = json.dumps({"runs": [{
             "id": "source", "generation": 4,
             "experiment": {"kind": "limen", "manifestText": TEXT,
-                           "manifest": MANIFEST, "limenVersion": "5.30.2"},
+                           "manifest": MANIFEST, "limenVersion": "5.30.2",
+                           "runtimeIdentity": {"verified": True,
+                                               "fingerprint": "native"}},
         }]})
         self.sweep = SimpleNamespace(
             lock=threading.Lock(), runs=[self.source_run],
@@ -113,7 +115,8 @@ class InspectLaunch(unittest.TestCase):
         experiment["shardSeeds"] = [42, 9]
         experiment["shardIdentities"] = [
             {"label": label, "seed": seed, "limenVersion": "5.30.2",
-             "manifestSha256": str(seed)}
+             "manifestSha256": str(seed),
+             "runtimeIdentity": {"verified": True, "fingerprint": "native"}}
             for label, seed in (("s1", 42), ("s2", 9))]
         self.sweep.pack_text.return_value = (json.dumps(data), None)
         self.body["constraints"].append({"param": "enabled", "values": [True]})

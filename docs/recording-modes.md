@@ -31,6 +31,11 @@ values; complete scalar-column parity must not be claimed. Recovering this
 diagnostic while keeping model-output recording disabled needs an upstream
 Limen change.
 
+Ordinary Limen 5.30.2 round records do not include a market-input content hash
+or runtime source identity. Grid retains those separately at launch, together
+with a content-addressed local source snapshot. Native recording policy alone
+cannot establish that a mutable source path still names the original data.
+
 | Capability | Sweep | Inspect |
 | --- | --- | --- |
 | CSV metrics, parameter comparisons, filters, pockets | Available | Available |
@@ -107,3 +112,29 @@ market payloads/references, trade ledgers, fold arrays and timestamp arrays,
 and publishes all remaining array paths/lengths. Size reductions describe the
 measured workloads only. They are not extrapolated campaign estimates or a
 promise of deterministic results on other runtimes.
+
+After a Grid implementation change, reuse completed native evidence only by
+checking its recorded scientific inputs and remeasuring ingestion:
+
+```sh
+python3 tools/benchmark_recording.py \
+  --limen-python /path/to/limen-5.30.2/bin/python \
+  --remeasure-existing /tmp/grid-recording-benchmark-new \
+  --out /tmp/grid-recording-benchmark.json
+```
+
+This checks the source checksum, exact native configuration and manifest copy,
+native Python/Limen source/dependency identities, successful rounds, typed
+parameters and scalar agreement. Each remeasurement hashes native evidence for
+future tamper checks and archives the previous report by content hash. Reports
+created before head attribution was added also need `--native-head COMMIT`,
+using the head recorded by the original validation gateway. Native generation
+receipts keep that attribution; new ingestion measurements name the current
+Grid head and code digest.
+
+Remeasurement also invokes Grid's actual launch-identity helper for both modes,
+retains the shared content-addressed source snapshot, and measures identity
+JSON/portable-manifest bytes separately. This overhead probe does not execute
+a strategy or count a Project run journal. Native campaign totals exclude
+these explicitly itemized Grid wrapper artifacts. No size-reduction claim is
+derived from the overhead probe.

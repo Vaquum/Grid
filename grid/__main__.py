@@ -137,8 +137,8 @@ def freeze_shard_identities(experiments: list[Json], labels: list[str]) -> None:
     """Bind future pocket launches to the evidence loaded in this generation."""
     identities: list[Json] = []
     for label, experiment in zip(labels, experiments, strict=True):
-        uel = experiment["manifest"].get("uel") or {}
-        search = uel.get("search_strategy") or {}
+        uel = cast(Json, experiment["manifest"].get("uel") or {})
+        search = cast(Json, uel.get("search_strategy") or {})
         identities.append({
             "label": label, "seed": search.get("seed"),
             "manifestSha256": hashlib.sha256(
