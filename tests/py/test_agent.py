@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -23,6 +24,7 @@ from grid.__main__ import Wiring
 from grid.agent import TOOLS, Agent
 from grid.agent_client import Client, mcp_reply, write_connection
 from grid.experiment import Project, set_values
+from grid.inspect_run import typed
 from grid.server import Server, serve
 from grid.sweep import Run
 
@@ -679,6 +681,46 @@ class TestAgent(unittest.TestCase):
         Path(restarted.receipt_path("durable-create")).write_text(json.dumps(receipt))
         self.assertEqual(restarted.call("grid_create", args)["error"]["code"],
                          "OUTCOME_UNKNOWN")
+
+    def test_interrupted_inspect_recovers_only_proven_native_admission(self):
+        assert self.agent is not None
+        request_id = "interrupted-inspect"
+        args = {"name": "inspect", "requestId": request_id,
+                "source": {"instance": self.agent.instance, "run": "source",
+                           "generation": 1},
+                "constraints": [{"param": "threshold", "values": [0.5]}]}
+        with patch.object(self.agent, "dispatch", side_effect=SystemExit):
+            with self.assertRaises(SystemExit):
+                self.agent.call("grid_inspect", args)
+        restarted = Agent(self.server)
+        with patch.object(restarted, "dispatch") as dispatch:
+            unknown = restarted.call("grid_inspect", args)
+            self.assertEqual(unknown["error"]["code"], "OUTCOME_UNKNOWN")
+            dispatch.assert_not_called()
+        fingerprint = hashlib.sha256(typed(args).encode()).hexdigest()
+        directory = Path(self.project_root, ".grid", "inspect",
+                         hashlib.sha256(request_id.encode()).hexdigest())
+        directory.mkdir(parents=True)
+        directory.joinpath("receipt.json").write_text(json.dumps({
+            "requestId": args["requestId"], "fingerprint": fingerprint,
+            "state": "running"}))
+        admitted = {"run": "results/dev/inspect/admitted", "name": "inspect",
+                    "provenance": {"requestId": args["requestId"]}}
+        with patch.object(self.project, "inspect_admission",
+                          return_value=admitted) as admission, \
+                patch.object(restarted, "dispatch") as dispatch:
+            response = restarted.call("grid_inspect", args)
+            self.assertTrue(response["ok"], response)
+            self.assertEqual(response["result"], admitted)
+            admission.assert_called_once_with(args["requestId"], fingerprint)
+            dispatch.assert_not_called()
+        self.assertEqual(restarted.receipt(args["requestId"])["state"],
+                         "complete")
+        self.assertEqual(Agent(self.server).call("grid_inspect", args),
+                         response)
+        conflict = Agent(self.server).call("grid_inspect", {
+            **args, "name": "changed"})
+        self.assertEqual(conflict["error"]["code"], "REQUEST_CONFLICT")
 
     def test_cohort_judging_and_predictor_progress(self):
         query = self.call("grid_analyze", analysis="cohort", members=2)

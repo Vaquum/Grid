@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import os
 import tempfile
 import threading
 import unittest
@@ -13,7 +14,7 @@ from typing import cast
 from unittest.mock import Mock, patch
 
 from grid.experiment import Project
-from grid.inspect_run import failure_details, launch, narrow
+from grid.inspect_run import failure_details, launch, narrow, recover
 from grid.server import Server
 from grid.sweep import Json
 
@@ -83,6 +84,65 @@ class InspectLaunch(unittest.TestCase):
         self.assertEqual(kwargs["provenance"]["sourceSeeds"], [42])
         created_text = self.project.create_versioned.call_args.kwargs["text"]
         self.assertIn("threshold: [0.5]", created_text)
+
+    def test_crash_after_durable_admission_recovers_without_a_new_launch(self):
+        Path(self.temp.name, "limen.toml").write_text("[store]\n")
+        fake = Path(__file__).resolve().parents[1] / "fixtures/fake_limen.py"
+        native = Project(self.temp.name, str(fake))
+        self.project.inspect_admission.side_effect = native.inspect_admission
+
+        def admit_then_crash(*_args, **kwargs):
+            folder = Path(self.temp.name, "results/dev/inspect/admitted")
+            folder.mkdir(parents=True)
+            with (folder / "grid-run.json").open("w") as stream:
+                json.dump({"experiment": "inspect",
+                           "recordingMode": "inspect",
+                           "provenance": kwargs["provenance"], "shards": []},
+                          stream)
+                stream.flush()
+                os.fsync(stream.fileno())
+            raise SystemExit("server stopped before final receipt")
+
+        self.project.start.side_effect = admit_then_crash
+        with self.assertRaises(SystemExit):
+            launch(cast(Server, self.server), self.body)
+        receipt_path = next(Path(self.temp.name, ".grid/inspect").glob(
+            "*/receipt.json"))
+        self.assertEqual(json.loads(receipt_path.read_text())["state"],
+                         "running")
+        self.server.instance = "restarted-instance"
+        result = launch(cast(Server, self.server), self.body)
+        self.assertEqual(result["run"], "results/dev/inspect/admitted")
+        self.assertEqual(json.loads(receipt_path.read_text())["state"],
+                         "complete")
+        self.assertEqual(recover(cast(Project, self.project), self.body),
+                         result)
+        self.project.create_versioned.assert_called_once()
+        self.project.start.assert_called_once()
+
+    def test_recovery_without_native_proof_never_starts_a_new_intent(self):
+        self.assertIsNone(recover(cast(Project, self.project), self.body))
+        self.identity_check.side_effect = SystemExit("server stopped")
+        with self.assertRaises(SystemExit):
+            launch(cast(Server, self.server), self.body)
+        self.assertIsNone(recover(cast(Project, self.project), self.body))
+        with self.assertRaisesRegex(ValueError, "outcome unknown"):
+            launch(cast(Server, self.server), self.body)
+        self.project.create_versioned.assert_not_called()
+        self.project.start.assert_not_called()
+        outcome = failure_details(cast(Project, self.project), self.body)
+        self.assertFalse(outcome["canReplace"])
+
+    def test_recovery_keeps_unknown_when_admission_history_is_unreadable(self):
+        self.identity_check.side_effect = SystemExit("server stopped")
+        with self.assertRaises(SystemExit):
+            launch(cast(Server, self.server), self.body)
+        self.project.inspect_admission.side_effect = OSError(
+            "history unreadable")
+        with self.assertRaisesRegex(ValueError, "outcome unknown"):
+            recover(cast(Project, self.project), self.body)
+        self.project.create_versioned.assert_not_called()
+        self.project.start.assert_not_called()
 
     def test_reused_identity_cannot_change_the_region(self):
         launch(cast(Server, self.server), self.body)

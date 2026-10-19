@@ -7,6 +7,7 @@ import gzip
 import hashlib
 import json
 import os
+import tempfile
 from typing import TYPE_CHECKING, Any, cast
 
 from .experiment import (
@@ -119,6 +120,67 @@ def failure_details(project: Project, body: Json) -> Json:
     return details
 
 
+def publish_receipt(directory: str, request_id: str, fingerprint: str,
+                    state: str, **extra: Any) -> None:
+    handle, temporary = tempfile.mkstemp(prefix=".receipt-", dir=directory)
+    try:
+        with os.fdopen(handle, "w") as stream:
+            json.dump({"fingerprint": fingerprint, "requestId": request_id,
+                       "state": state, **extra}, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, os.path.join(directory, "receipt.json"))
+        directory_fd = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def recover(project: Project, body: Json) -> Json | None:
+    """Recover proven admission only; never create a new native intent."""
+    request_id = body.get("requestId")
+    if not isinstance(request_id, str):
+        return None
+    directory = os.path.join(project.root, ".grid", "inspect",
+                             hashlib.sha256(request_id.encode()).hexdigest())
+    fingerprint = hashlib.sha256(typed(body).encode()).hexdigest()
+    try:
+        with open(os.path.join(directory, "receipt.json")) as stream:
+            raw: Any = json.load(stream)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as exc:
+        raise ValueError("Inspect outcome unknown; native receipt is "
+                         "unavailable") from exc
+    if not isinstance(raw, dict):
+        raise ValueError("Inspect outcome unknown; native receipt is invalid")
+    previous = cast(Json, raw)
+    if previous.get("fingerprint") != fingerprint:
+        raise ValueError("requestId belongs to another Inspect intent")
+    if previous.get("state") == "complete":
+        result: Any = previous.get("result")
+        if not isinstance(result, dict):
+            raise ValueError("Inspect outcome unknown; completed receipt "
+                             "has no valid result")
+        return cast(Json, result)
+    try:
+        admitted = project.inspect_admission(request_id, fingerprint)
+    except (OSError, ValueError) as exc:
+        raise ValueError("Inspect outcome unknown; native admission cannot "
+                         "be verified") from exc
+    if admitted is None:
+        return None
+    if previous.get("error"):
+        admitted["launchError"] = previous["error"]
+    publish_receipt(directory, request_id, fingerprint, "complete",
+                    result=admitted)
+    return admitted
+
+
 def launch(server: Server, body: Json) -> Json:
     """One native intent, shared by page and agent and durable on restart."""
     project = server.project
@@ -147,6 +209,9 @@ def launch(server: Server, body: Json) -> Json:
     try:
         os.mkdir(directory)
     except FileExistsError:
+        recovered = recover(project, body)
+        if recovered is not None:
+            return recovered
         try:
             with open(os.path.join(directory, "receipt.json")) as stream:
                 previous: Json = json.load(stream)
@@ -163,13 +228,7 @@ def launch(server: Server, body: Json) -> Json:
                              "status")) from None
 
     def receipt(state: str, **extra: Any) -> None:
-        path = os.path.join(directory, "receipt.json")
-        with open(path + ".tmp", "w") as stream:
-            json.dump({"fingerprint": fingerprint, "requestId": request_id,
-                       "state": state, **extra}, stream)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(path + ".tmp", path)
+        publish_receipt(directory, request_id, fingerprint, state, **extra)
 
     receipt("running")
     try:

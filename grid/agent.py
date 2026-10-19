@@ -474,6 +474,20 @@ class Agent:
                     raise AgentError("REQUEST_CONFLICT", "requestId already "
                                      "belongs to other arguments") from None
                 if receipt["state"] != "complete":
+                    if operation == "grid_inspect":
+                        from .inspect_run import recover
+                        try:
+                            recovered = recover(self.project(), args)
+                        except (ValueError, OSError) as exc:
+                            raise AgentError(
+                                "OUTCOME_UNKNOWN", "Inspect admission could "
+                                "not be verified; inspect project status") \
+                                from exc
+                        if recovered is not None:
+                            response = success(recovered)
+                            receipt.update(state="complete", response=response)
+                            self.publish_receipt(path, receipt)
+                            return response
                     raise AgentError("OUTCOME_UNKNOWN", "write was recorded "
                                      "without a final receipt; inspect status "
                                      "before issuing a new intent") from None
