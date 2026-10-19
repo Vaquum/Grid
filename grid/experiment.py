@@ -36,6 +36,7 @@ import random
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import tempfile
 import threading
@@ -783,8 +784,13 @@ class Project:
 
     def create(self, name: str, template: object = None,
                text: object = None) -> str:
+        self.create_versioned(name, template, text)
+        return name
+
+    def create_versioned(self, name: str, template: object = None,
+                         text: object = None) -> Json:
         """A new experiment: from one of Limen's templates (``limen init``),
-        or from a manifest's text, named after itself."""
+        or manifest text, with the version of the exact bytes created."""
         path = self._manifest_path(name)
         if os.path.exists(path):
             raise ValueError("%s exists already" % self._rel(path))
@@ -805,7 +811,7 @@ class Project:
                 raise ValueError("%s exists already" % self._rel(path))
             os.makedirs(os.path.dirname(path), exist_ok=True)
             _write_new(path, body)
-        return name
+        return {"name": name, "version": _version_of(body)}
 
     def _from_template(self, name: str, template: str) -> str:
         """A template's manifest as ``limen init`` writes it, made apart
@@ -919,28 +925,47 @@ class Project:
         self.names[path] = (mtime, name, planned)
         return name, planned
 
-    def _run_folders(self) -> list[tuple[str, str]]:
+    def _run_folders(self, strict: bool = False) -> list[tuple[str, str]]:
         """Every run under results/: (its folder, "grid" or "limen"). A
         folder Grid started holds grid-run.json; any other result directory
         (``limen run`` from a shell, or a committed manifest's) is a run of
         one directory."""
+        def listing(path: str) -> list[str]:
+            if not strict:
+                return _listdir(path)
+            try:
+                return os.listdir(path)
+            except FileNotFoundError:
+                return []
+
+        def has(path: str, directory: bool = False) -> bool:
+            if not strict:
+                return os.path.isdir(path) if directory else \
+                    os.path.isfile(path)
+            try:
+                mode = os.stat(path).st_mode
+            except FileNotFoundError:
+                return False
+            return stat.S_ISDIR(mode) if directory else stat.S_ISREG(mode)
+
         out: list[tuple[str, str]] = []
         for base in ("results/dev", "results"):
             top = os.path.join(self.root, base)
-            if not os.path.isdir(top):
+            if not has(top, directory=True):
                 continue
-            for a in sorted(_listdir(top)):
+            for a in sorted(listing(top)):
                 p1 = os.path.join(top, a)
-                if base == "results" and a == "dev" or not os.path.isdir(p1):
+                if base == "results" and a == "dev" or \
+                        not has(p1, directory=True):
                     continue
-                if os.path.isfile(os.path.join(p1, "metadata.json")):
+                if has(os.path.join(p1, "metadata.json")):
                     out.append((p1, "limen"))
                     continue
-                for b in sorted(_listdir(p1)):
+                for b in sorted(listing(p1)):
                     p2 = os.path.join(p1, b)
-                    if os.path.isfile(os.path.join(p2, RECORD)):
+                    if has(os.path.join(p2, RECORD)):
                         out.append((p2, "grid"))
-                    elif os.path.isfile(os.path.join(p2, "metadata.json")):
+                    elif has(os.path.join(p2, "metadata.json")):
                         out.append((p2, "limen"))
         return out
 
@@ -1020,6 +1045,35 @@ class Project:
             recording["recordingReason"] = "Recorded inline policy needs " \
                 "native metadata; its switches are unknown."
         return recording
+
+    def inspect_admission(self, request_id: str, fingerprint: str
+                          ) -> Json | None:
+        """Find a durable admission before offering a replacement intent."""
+        found: Json | None = None
+        for folder, kind in self._run_folders(strict=True):
+            if kind != "grid":
+                continue
+            with self.lock:
+                with open(os.path.join(folder, RECORD),
+                          encoding="utf-8") as stream:
+                    raw: Any = json.load(stream)
+            if not isinstance(raw, dict):
+                raise ValueError("Grid run admission record must be an object")
+            record = cast(Json, raw)
+            raw_provenance: Any = record.get("provenance") or {}
+            if not isinstance(raw_provenance, dict):
+                raise ValueError("Grid run provenance must be an object")
+            provenance = cast(Json, raw_provenance)
+            if provenance.get("requestId") != request_id:
+                continue
+            if record.get("recordingMode") != "inspect" or found or \
+                    provenance.get("requestFingerprint") != fingerprint:
+                raise ValueError("Inspect admission identity is uncertain; "
+                                 "inspect project status before retrying")
+            found = {"run": self._rel(folder),
+                     "name": record.get("experiment"),
+                     "provenance": provenance}
+        return found
 
     def runs(self, light: bool = False) -> list[Json]:
         """Every run, newest first: its experiment, when it started, its
@@ -1317,9 +1371,8 @@ class Project:
             text = unmark_manifest(set_values(text, {
                 "uel.record_execution": bool(execution),
                 "uel.record_model_outputs": bool(outputs)}))
-            text = re.sub(
-                r"^# grid-(?:launch-identity|inspect-provenance): .*\n?",
-                "", text, flags=re.M)
+            text = re.sub(r"^# grid-launch-identity: .*\n?", "", text,
+                          flags=re.M)
             recording_policy = infer_recording({}, record={
                 "record": {"execution": bool(execution),
                            "outputs": bool(outputs)}})["recordingPolicy"]
@@ -1332,6 +1385,12 @@ class Project:
         # A JSON copy detaches immutable provenance from caller mutation.
         saved_provenance: Json | None = json.loads(json.dumps(
             provenance, allow_nan=False))
+        text = re.sub(r"^# grid-inspect-provenance: .*\n?", "", text,
+                      flags=re.M)
+        if saved_provenance is not None:
+            text = "# grid-inspect-provenance: " + json.dumps(
+                saved_provenance, sort_keys=True, allow_nan=False,
+                separators=(",", ":")) + "\n" + text
         problems = self.validate(text)
         if problems:
             raise ValueError("manifest preflight: %s: %s" % (

@@ -63,21 +63,25 @@ export function inspectSection(m, A) {
   if (!req) {
     req = { name: `${m.ds.meta.experiment.manifest?.metadata?.name || "pocket"}`.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 40) + "_inspect",
       rounds: budget.defaultRounds,
-      review: false, busy: false, error: null, result: null, requestId: null, payload: null };
+      review: false, busy: false, error: null, result: null, requestId: null, payload: null, canReplace: false, failedReceipts: [] };
     try {
       const saved = JSON.parse(sessionStorage.getItem(`grid-inspect:${key}`) || "null");
-      if (saved?.payload && saved.requestId === saved.payload.requestId) Object.assign(req, saved, { busy: false, review: true });
+      if ((saved?.payload && saved.requestId === saved.payload.requestId) ||
+          (saved?.review && saved.payload === null && Array.isArray(saved.failedReceipts))) Object.assign(req, saved, { busy: false, review: true });
     } catch { /* a request can still be retried within this page */ }
     inspectRequests.set(key, req);
   }
   const section = h("section", { class: "island", "aria-label": "Run pocket in Inspect mode" },
     h("header", { class: "isl-head" }, h("h2", { class: "isl-title", text: "Inspect this pocket" })),
     h("p", { class: "isl-note", text: "Creates a linked run for this parameter region after checking the source data and runtime fingerprints. Costs, dates and seeds stay as recorded. Pocket discovery and inspection remain exploratory." }));
+  if (req.failedReceipts?.length) section.append(h("details", { class: "inspect-failed-receipts" }, h("summary", { text: "Previous failed requests" }),
+    h("ul", null, req.failedReceipts.map(receipt => h("li", { text: `${receipt.requestId}: ${receipt.name}, ${receipt.rounds} evaluations. ${receipt.error}` })))));
   if (!A.project) { section.append(h("p", { class: "isl-note", text: "Run in Inspect mode requires this run to be served in its Limen project." })); return section; }
   if (plan.problems.length) { section.append(h("ul", { class: "mf-problems" }, plan.problems.map(text => h("li", { text })))); return section; }
   if (req.result) {
     const out = req.result;
     section.append(h("p", { class: "isl-note", role: "status", text: `Inspect run ${out.run} created. Source ${m.ds.id}, generation ${m.ds.meta.generation}. Request ${req.requestId}.` }),
+      out.launchError ? h("p", { class: "isl-note warn", text: `The run was admitted but launch failed: ${out.launchError}` }) : null,
       out.provenance?.sourceSnapshot ? h("p", { class: "isl-note", text: `Immutable source snapshot: ${out.provenance.sourceSnapshot}` }) : null);
     return section;
   }
@@ -102,18 +106,31 @@ export function inspectSection(m, A) {
       req.payload = { name: req.name, source: { run: m.ds.id, generation: m.ds.meta.generation, instance: m.ds.meta.serverInstance }, constraints: plan.constraints, requestId: req.requestId, rounds: req.rounds };
       retainInspectRequest(key, req);
     }
-    req.busy = true; req.error = null; A.rerender();
+    req.busy = true; req.error = null; req.canReplace = false; A.rerender();
     try {
       const res = await fetch(`${A.project.url}/inspect`, { method: "POST", headers: { "Content-Type": "application/json", "X-Grid-Token": A.project.token }, body: JSON.stringify(req.payload) });
       const out = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(out.error || `The server answered ${res.status}.`);
+      if (!res.ok) {
+        req.canReplace = res.status === 400 && out.intentState === "failed" && out.canReplace === true;
+        req.error = `${out.error || `The server answered ${res.status}.`} ${req.canReplace
+          ? "This request failed without launching a run. Create a new request to correct its settings."
+          : "Retry uses the same request identity; it cannot create another run."}`;
+        return;
+      }
       req.result = out;
     } catch (err) { req.error = `${String(err.message || err)} Retry uses the same request identity; it cannot create another run.`; }
     finally { req.busy = false; retainInspectRequest(key, req); A.rerender(); }
   } }, req.busy ? "Starting…" : req.payload ? "Retry Inspect request" : "Confirm and run Inspect");
+  const replace = req.canReplace ? h("button", { class: "btn", type: "button", onclick: () => {
+    if (!req.canReplace || !req.payload || req.busy) return;
+    req.failedReceipts = [...(req.failedReceipts || []), { requestId: req.requestId, name: req.payload.name, rounds: req.payload.rounds, error: req.error }];
+    Object.assign(req, { payload: null, requestId: null, error: null, result: null, canReplace: false, review: true });
+    retainInspectRequest(key, req);
+    A.rerender();
+  } }, "New Inspect request") : null;
   section.append(h("p", { class: "isl-note", text: `Source: ${m.ds.id}, generation ${m.ds.meta.generation}. The server pins an immutable snapshot when this request is admitted.` }),
     h("ul", null, plan.scope.map(text => h("li", { class: "mono", text }))),
     h("p", { class: "isl-note", text: `Rounds must be divisible by ${plan.shards} to retain every source seed. Each seed evaluates only this parameter region. Inspect records detailed evidence.` }),
-    h("label", { class: "ex-field" }, "Experiment name", name), h("label", { class: "ex-field" }, "Rounds", rounds), evaluationNote, error, launch);
+    h("label", { class: "ex-field" }, "Experiment name", name), h("label", { class: "ex-field" }, "Rounds", rounds), evaluationNote, error, replace || launch);
   return section;
 }

@@ -12,7 +12,8 @@ from types import SimpleNamespace
 from typing import cast
 from unittest.mock import Mock, patch
 
-from grid.inspect_run import launch, narrow
+from grid.inspect_run import failure_details, launch, narrow
+from grid.experiment import Project
 from grid.server import Server
 from grid.sweep import Json
 
@@ -36,7 +37,10 @@ class InspectLaunch(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.project = SimpleNamespace(
-            root=self.temp.name, version="5.30.2", create=Mock(),
+            root=self.temp.name, version="5.30.2",
+            create_versioned=Mock(return_value={"name": "inspect",
+                                                "version": "exact"}),
+            inspect_admission=Mock(return_value=None),
             cli="/native/limen", python="/native/python",
             manifest=Mock(return_value={"version": "exact"}),
             start=Mock(return_value="results/dev/inspect/1"))
@@ -69,7 +73,7 @@ class InspectLaunch(unittest.TestCase):
         self.sweep.pack_text.return_value = ('{"runs": []}', None)
         self.assertEqual(launch(cast(Server, self.server), self.body), result)
         self.project.start.assert_called_once()
-        self.project.create.assert_called_once()
+        self.project.create_versioned.assert_called_once()
         path = Path(self.temp.name, result["provenance"]["sourceSnapshot"],
                     "source.json.gz")
         self.assertEqual(gzip.decompress(path.read_bytes()).decode(),
@@ -77,7 +81,7 @@ class InspectLaunch(unittest.TestCase):
         kwargs = self.project.start.call_args.kwargs
         self.assertEqual(kwargs["recording_mode"], "inspect")
         self.assertEqual(kwargs["provenance"]["sourceSeeds"], [42])
-        self.assertIn("threshold: [0.5]", self.project.create.call_args.kwargs[
+        self.assertIn("threshold: [0.5]", self.project.create_versioned.call_args.kwargs[
             "text"])
 
     def test_reused_identity_cannot_change_the_region(self):
@@ -92,7 +96,7 @@ class InspectLaunch(unittest.TestCase):
         self.source_run.generation = 5
         with self.assertRaisesRegex(ValueError, "stale source"):
             launch(cast(Server, self.server), self.body)
-        self.project.create.assert_not_called()
+        self.project.create_versioned.assert_not_called()
         self.project.start.assert_not_called()
 
     def test_restart_cannot_rebind_a_reused_run_id(self):
@@ -101,7 +105,7 @@ class InspectLaunch(unittest.TestCase):
         self.body["source"]["generation"] = 0
         with self.assertRaisesRegex(ValueError, "source instance changed"):
             launch(cast(Server, self.server), self.body)
-        self.project.create.assert_not_called()
+        self.project.create_versioned.assert_not_called()
         self.project.start.assert_not_called()
         self.sweep.pack_text.assert_not_called()
 
@@ -120,6 +124,49 @@ class InspectLaunch(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "data unavailable"):
                 launch(cast(Server, self.server), self.body)
         self.project.start.assert_called_once()
+        self.assertEqual(failure_details(cast(Project, self.project), self.body),
+                         {"intentState": "failed", "canReplace": True})
+
+    def test_created_version_is_used_without_adopting_a_later_edit(self):
+        self.project.manifest.return_value = {"version": "concurrent-edit"}
+        launch(cast(Server, self.server), self.body)
+        self.assertEqual(self.project.start.call_args.kwargs["version"],
+                         "exact")
+        self.project.manifest.assert_not_called()
+
+    def test_partial_admission_prevents_replacement(self):
+        self.project.start.side_effect = ValueError("second shard failed")
+        self.project.inspect_admission.return_value = {
+            "run": "results/dev/inspect/partial", "name": "inspect",
+            "provenance": {"requestId": "intent-1"}}
+        first = launch(cast(Server, self.server), self.body)
+        self.assertEqual(first["run"], "results/dev/inspect/partial")
+        self.assertEqual(first["launchError"], "second shard failed")
+        self.assertEqual(launch(cast(Server, self.server), self.body), first)
+        self.project.start.assert_called_once()
+        self.assertFalse(failure_details(cast(Project, self.project), self.body)[
+            "canReplace"])
+
+    def test_uncertain_admission_never_allows_a_replacement_request(self):
+        self.project.start.side_effect = ValueError("launch interrupted")
+        self.project.inspect_admission.side_effect = OSError(
+            "record unreadable")
+        with self.assertRaisesRegex(ValueError, "launch interrupted"):
+            launch(cast(Server, self.server), self.body)
+        outcome = failure_details(cast(Project, self.project), self.body)
+        self.assertEqual(outcome["intentState"], "unknown")
+        self.assertFalse(outcome["canReplace"])
+        self.assertFalse(failure_details(cast(Project, self.project), {
+            **self.body, "requestId": "transport-lost"})["canReplace"])
+
+    def test_failed_receipt_cannot_authorize_a_changed_payload(self):
+        self.project.start.side_effect = ValueError("data unavailable")
+        with self.assertRaises(ValueError):
+            launch(cast(Server, self.server), self.body)
+        outcome = failure_details(cast(Project, self.project), {
+            **self.body, "rounds": 1})
+        self.assertEqual(outcome["intentState"], "unknown")
+        self.assertFalse(outcome["canReplace"])
 
     def test_single_combination_retains_all_frozen_shard_seeds(self):
         data = json.loads(self.pack)
@@ -159,7 +206,7 @@ class InspectLaunch(unittest.TestCase):
         self.sweep.pack_text.return_value = (json.dumps(data), None)
         with self.assertRaisesRegex(ValueError, "runtime"):
             launch(cast(Server, self.server), self.body)
-        self.project.create.assert_not_called()
+        self.project.create_versioned.assert_not_called()
         self.project.start.assert_not_called()
 
     def test_browser_integer_value_retains_unique_source_float_type(self):
@@ -189,5 +236,5 @@ class InspectLaunch(unittest.TestCase):
             "source content unavailable")
         with self.assertRaisesRegex(ValueError, "source content unavailable"):
             launch(cast(Server, self.server), self.body)
-        self.project.create.assert_not_called()
+        self.project.create_versioned.assert_not_called()
         self.project.start.assert_not_called()

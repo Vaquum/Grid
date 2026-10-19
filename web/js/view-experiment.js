@@ -753,6 +753,8 @@ function runsTable(p, e) {
         + `${s.seed !== null && s.seed !== undefined ? ` · seed ${s.seed}` : ""} · ${(STATES[s.state] || [String(s.state)])[0]}` }))));
     const notes = [];
     if (r.note) notes.push(h("p", null, r.note));
+    const resumeReason = resumePolicyReason(r);
+    if (resumeReason && r.shards.some(s => (s.state === "stopped" || s.state === "failed") && s.checkpoint)) notes.push(h("p", { text: resumeReason }));
     for (const s of r.shards.filter(x => x.tail)) {
       notes.push(h("p", null, `${s.label} failed${s.exit !== null && s.exit !== undefined ? ` (exit ${s.exit})` : ""}; the end of its log, logs/${s.label}.log:`),
         h("pre", { class: "code", text: s.tail }));
@@ -774,7 +776,14 @@ function runsTable(p, e) {
 // shards running, and one that stopped or failed with a checkpoint written
 // (as the server's resume reads it).
 export function resumable(r) {
-  return r.kind === "grid" && r.state !== "running" && r.shards.some(s => (s.state === "stopped" || s.state === "failed") && s.checkpoint);
+  return !resumePolicyReason(r) && r.kind === "grid" && r.state !== "running" && r.shards.some(s => (s.state === "stopped" || s.state === "failed") && s.checkpoint);
+}
+
+export function resumePolicyReason(r) {
+  if (r.recordingMode === "sweep") return "Resume unavailable under Sweep recording policy: omitted evidence cannot be recovered. Start a new linked Inspect run.";
+  const groups = r.recordingPolicy?.recording;
+  if (groups && Object.values(groups).some(enabled => enabled !== true)) return "Resume unavailable under this recording policy: complete recorded recovery evidence is required.";
+  return null;
 }
 
 // A button that says why it does nothing now, rather than being disabled

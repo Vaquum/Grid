@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, cast
 from .experiment import (
     MAX_ROUNDS,
     NAME,
+    Project,
     get_value,
     set_parameter_values,
     set_values,
@@ -89,6 +90,33 @@ def narrow(text: str, manifest: Json, constraints: object
     if projected >= original_count:
         raise ValueError("Inspect region must narrow the source search space")
     return set_parameter_values(text, chosen), projected
+
+
+def failure_details(project: Project, body: Json) -> Json:
+    """Only durable rejection without admission permits a new request ID."""
+    details: Json = {"intentState": "unknown", "canReplace": False}
+    request_id = body.get("requestId")
+    if not isinstance(request_id, str):
+        return details
+    directory = os.path.join(project.root, ".grid", "inspect",
+                             hashlib.sha256(request_id.encode()).hexdigest())
+    try:
+        fingerprint = hashlib.sha256(typed(body).encode()).hexdigest()
+        with open(os.path.join(directory, "receipt.json")) as stream:
+            raw_receipt: Any = json.load(stream)
+        if not isinstance(raw_receipt, dict):
+            raise ValueError("Inspect receipt must be an object")
+        receipt = cast(Json, raw_receipt)
+        if receipt.get("fingerprint") != fingerprint:
+            return details
+        details["intentState"] = receipt.get("state", "unknown")
+        if receipt.get("state") == "failed" and \
+                receipt.get("canReplace") is True and \
+                project.inspect_admission(request_id, fingerprint) is None:
+            details["canReplace"] = True
+    except (ValueError, OSError) as exc:
+        details.update(intentState="unknown", receiptError=str(exc))
+    return details
 
 
 def launch(server: Server, body: Json) -> Json:
@@ -226,6 +254,7 @@ def launch(server: Server, body: Json) -> Json:
                                  "inspect")
         provenance: Json = {
             "requestId": request_id, "source": source,
+            "requestFingerprint": fingerprint,
             "sourceSnapshot": os.path.relpath(directory, project.root),
             "sourceSnapshotSha256": snapshot_hash,
             "sourceManifestSha256": hashlib.sha256(text.encode()).hexdigest(),
@@ -243,13 +272,23 @@ def launch(server: Server, body: Json) -> Json:
         # Native exact manifest copies keep this small link in offline exports.
         narrowed = "# grid-inspect-provenance: " + typed(provenance) + "\n" \
             + narrowed
-        project.create(name, text=narrowed)
-        version = project.manifest(name)["version"]
+        created = project.create_versioned(name, text=narrowed)
+        version = created["version"]
         rid = project.start(name, rounds, len(seeds), version=version,
                             recording_mode="inspect", provenance=provenance)
         result: Json = {"run": rid, "name": name, "provenance": provenance}
         receipt("complete", result=result)
         return result
     except (ValueError, OSError) as exc:
-        receipt("failed", error=str(exc))
+        try:
+            admitted = project.inspect_admission(request_id, fingerprint)
+        except (ValueError, OSError) as admission_error:
+            receipt("unknown", error=str(exc),
+                    admissionError=str(admission_error))
+            raise exc from admission_error
+        if admitted is not None:
+            admitted["launchError"] = str(exc)
+            receipt("complete", result=admitted)
+            return admitted
+        receipt("failed", error=str(exc), canReplace=True)
         raise

@@ -1636,11 +1636,16 @@ test("Inspect: one unique combination is evaluated once for each preserved sourc
     .replace(/(<script id="grid-config"[^>]*>)[^<]*(<\/script>)/, `$1${config}$2`);
   const { page, errors } = await limenPage();
   const requests = [];
+  let failNextInspect = false;
   await page.route("**/inspect-single", route => route.fulfill({ contentType: "text/html", body: inspectHtml() }));
   await page.route("**/api/experiment/inspect", route => {
     requests.push(route.request().postDataJSON());
+    if (failNextInspect) {
+      failNextInspect = false;
+      return route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "Correct this experiment name or evaluation count.", intentState: "failed", canReplace: true }) });
+    }
     return route.fulfill({ status: requests.length === 1 ? 503 : 200, contentType: "application/json", body: JSON.stringify(requests.length === 1
-      ? { error: "temporary connection failure" } : { run: "two-seeds", provenance: { sourceSnapshot: "source-pinned" } }) });
+      ? { error: "temporary connection failure" } : { run: "two-seeds", provenance: { sourceSnapshot: "source-pinned" }, ...(requests.length === 5 ? { launchError: "runtime worker launch failed" } : {}) }) });
   });
   const state = Buffer.from(JSON.stringify({ v: "pocket", r: run.id, p: [{ dim: "use_calibration", keys: ["false"] }] })).toString("base64url");
   await page.goto(`${base}inspect-single#s1.${state}`);
@@ -1679,6 +1684,43 @@ test("Inspect: one unique combination is evaluated once for each preserved sourc
   await page.getByText("Immutable source snapshot: source-pinned", { exact: true }).waitFor();
   assert.equal(requests[2].source.instance, "replacement-instance");
   assert.notEqual(requests[2].requestId, requests[0].requestId);
+  // A definitive failed receipt can become a corrected explicit intent.
+  // An unknown outcome above kept its original identity across reload.
+  pack.serverInstance = "corrected-intent-instance";
+  exp.manifest.sfd.params.seed_probe = [1, 2];
+  exp.manifest.uel.n_permutations = 1;
+  exp.manifestText = exp.manifestText.replace("    use_calibration: [false, true]\n", "    use_calibration: [false, true]\n    seed_probe: [1, 2]\n");
+  await page.reload();
+  await inspect.getByRole("button", { name: "Run in Inspect mode", exact: true }).click();
+  await page.getByLabel("Inspect experiment name", { exact: true }).fill("failed_name");
+  assert.equal(await rounds.inputValue(), "2");
+  failNextInspect = true;
+  const beforeFailedErrors = errors.length;
+  await inspect.getByRole("button", { name: "Confirm and run Inspect", exact: true }).click();
+  await inspect.getByRole("button", { name: "New Inspect request", exact: true }).waitFor();
+  assert.equal(await rounds.isDisabled(), true);
+  assert.equal(await page.getByLabel("Inspect experiment name", { exact: true }).isDisabled(), true);
+  await page.reload();
+  await inspect.getByRole("button", { name: "New Inspect request", exact: true }).click();
+  assert.equal(requests.length, 4, "replacement requires another explicit confirmation");
+  assert.equal(await rounds.isDisabled(), false);
+  await inspect.locator(".inspect-failed-receipts summary").click();
+  assert.match(await inspect.locator(".inspect-failed-receipts").innerText(), new RegExp(requests[3].requestId));
+  await page.getByLabel("Inspect experiment name", { exact: true }).fill("corrected_name");
+  await rounds.fill("4");
+  await inspect.getByRole("button", { name: "Confirm and run Inspect", exact: true }).click();
+  await page.getByText("Immutable source snapshot: source-pinned", { exact: true }).waitFor();
+  assert.notEqual(requests[4].requestId, requests[3].requestId);
+  assert.equal(requests[3].name, "failed_name");
+  assert.equal(requests[3].rounds, 2);
+  assert.equal(requests[4].name, "corrected_name");
+  assert.equal(requests[4].rounds, 4);
+  assert.deepEqual(requests[4].source, requests[3].source);
+  assert.deepEqual(requests[4].constraints, requests[3].constraints);
+  assert.match(await inspect.innerText(), /The run was admitted but launch failed: runtime worker launch failed/);
+  assert.equal(await inspect.getByRole("button", { name: "New Inspect request", exact: true }).count(), 0, "an admitted run cannot be replaced as a failed intent");
+  assert.ok(errors.slice(beforeFailedErrors).every(e => /status of 400/.test(e)), errors.slice(beforeFailedErrors).join("\n"));
+  errors.splice(beforeFailedErrors);
   assert.deepEqual(errors, []);
   await page.close();
 });
@@ -1770,24 +1812,33 @@ test("experiment: on a Limen project, one is made, checked as it is typed, run i
     await page.locator(".ex-make .btn.primary").click();
     await page.waitForSelector(".ex-table tr.sel td:has-text('first_2')");
     await page.waitForSelector(".ex-status .sev.ok");
-    // a longer run stops as Limen stops, and resumes from its checkpoints
+    // A stopped Sweep has no supported recovery path, even with a checkpoint.
     await page.locator("input[aria-label='Rounds']").fill("400");
     await page.locator("input[aria-label='Shards side by side']").fill("2");
     await page.locator(".ex-run-form .btn.primary").click();
     const state = (s) => page.waitForFunction(s => (document.querySelector(".ex-runs tbody tr .tag") || {}).textContent === s, s, { timeout: 30000 });
     await state("Running");
     // A published PID can precede Limen's stop handler and checkpoint setup.
-    const initialized = await page.evaluate(async () => {
+    const waitForShards = () => page.evaluate(async () => {
       const until = Date.now() + 20000;
       while (Date.now() < until) {
         const project = await (await fetch("api/experiment")).json();
-        const run = project.runs.find(r => r.experiment === "first_2");
+        const run = project.runs.find(r => r.experiment === "first_2" && r.state === "running");
         if (run && run.shards.length === 2 && run.shards.every(s => s.rows > 0)) return true;
         await new Promise(resolve => setTimeout(resolve, 50));
       }
       return false;
     });
-    assert.equal(initialized, true, "both shards wrote a round before Stop");
+    assert.equal(await waitForShards(), true, "both Sweep shards wrote a round before Stop");
+    await page.locator(".ex-runs tbody tr").first().locator("button", { hasText: "Stop" }).click();
+    await state("Stopped");
+    await page.getByText("Resume unavailable under Sweep recording policy: omitted evidence cannot be recovered. Start a new linked Inspect run.", { exact: true }).waitFor();
+    assert.equal(await page.locator(".ex-runs tbody tr").first().getByRole("button", { name: "Resume", exact: true }).count(), 0);
+    // A new Inspect run keeps the supported stop/resume workflow.
+    await page.getByLabel("Recording mode", { exact: true }).selectOption("inspect");
+    await page.locator(".ex-run-form .btn.primary").click();
+    await state("Running");
+    assert.equal(await waitForShards(), true, "both Inspect shards wrote a round before Stop");
     await page.locator(".ex-runs tbody tr").first().locator("button", { hasText: "Stop" }).click();
     await state("Stopped");
     await page.locator(".ex-runs tbody tr").first().locator("button", { hasText: "Resume" }).click();

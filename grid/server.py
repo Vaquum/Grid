@@ -365,8 +365,9 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
         def send_json(self, obj: Any) -> None:
             self.send_bytes(json.dumps(obj).encode(), "application/json")
 
-        def fail(self, code: int, message: str) -> None:
-            obj: Any = {"error": message}
+        def fail(self, code: int, message: str, details: Json | None = None
+                 ) -> None:
+            obj: Any = {"error": message, **(details or {})}
             if urlparse(self.path).path == "/api/agent":
                 obj = failure("AUTHENTICATION_FAILED" if code == 403
                               else "INVALID_REQUEST", message)
@@ -533,6 +534,10 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
                     return self.send_json(launch(server, body))
                 return self.send_json(act(project, action, body))
             except (ValueError, OSError) as exc:
+                if action == "inspect":
+                    from .inspect_run import failure_details
+                    return self.fail(400, str(exc),
+                                     failure_details(project, body))
                 return self.fail(400, str(exc))
 
         def agent_request(self) -> None:

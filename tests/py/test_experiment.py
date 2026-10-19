@@ -31,6 +31,7 @@ from grid.experiment import (
     set_values,
     validation_errors,
 )
+from grid.limen import read_experiment
 from grid.recording import manifest_values, policy
 from grid.server import direct_host, serve
 from grid.sweep import Json, Sweep
@@ -343,6 +344,60 @@ class ProjectRuns(unittest.TestCase):
             self.assertEqual(get_value(stream.read(),
                                        "uel.search_strategy.seed"), "743")
         wait(lambda: self.run_of(rid)["state"] == "finished")
+
+    def test_creation_version_refuses_a_concurrent_edit_before_start(self):
+        created = self.p.create_versioned("race", text=manifest_text())
+        original = self.p.manifest("race")
+        self.assertEqual(created["version"], original["version"])
+        self.p.save("race", original["text"] + "# concurrent edit\n",
+                    original["version"])
+        with self.assertRaisesRegex(ValueError, "changed on disk"):
+            self.p.start("race", 2, 1, False, False, created["version"])
+        self.assertEqual(self.p.runs(), [])
+
+    def test_each_launch_replaces_inherited_inspect_provenance(self):
+        self.p.version = "5.30.2"
+        text = '# grid-inspect-provenance: {"requestId":"previous"}\n' \
+            + manifest_text()
+        self.p.create("inherited", text=text)
+        for mode, provenance in (("sweep", None), ("inspect", None),
+                                 ("inspect", {"requestId": "current"})):
+            with self.subTest(mode=mode, provenance=provenance):
+                rid = self.p.start("inherited", 2, 1, recording_mode=mode,
+                                   provenance=provenance)
+                wait(lambda: self.run_of(rid)["state"] == "finished")
+                folder = os.path.join(self.root, rid, "s1")
+                with open(os.path.join(folder, "metadata.json")) as stream:
+                    metadata = stream.read()
+                with open(os.path.join(folder, "s1.yaml")) as stream:
+                    launched = stream.read()
+                experiment = read_experiment(metadata, "metadata.json",
+                                             "s1.yaml", launched)
+                self.assertEqual(experiment["provenance"], provenance)
+                self.assertEqual(self.run_of(rid)["provenance"], provenance)
+
+    def test_failed_process_start_still_has_a_durable_inspect_admission(self):
+        self.p.version = "5.30.2"
+        self.p.create("partial", text=manifest_text())
+        provenance = {"requestId": "native", "requestFingerprint": "exact"}
+        with mock.patch.object(self.p, "_spawn",
+                               side_effect=OSError("process unavailable")), \
+                self.assertRaisesRegex(ValueError, "could not be started"):
+            self.p.start("partial", 2, 1, recording_mode="inspect",
+                         provenance=provenance)
+        admission = self.p.inspect_admission("native", "exact")
+        self.assertIsNotNone(admission)
+        assert admission is not None
+        self.assertEqual(self.run_of(admission["run"])["state"], "failed")
+        with self.assertRaisesRegex(ValueError, "identity is uncertain"):
+            self.p.inspect_admission("native", "another-intent")
+
+    def test_unreadable_history_cannot_prove_no_inspect_admission(self):
+        os.makedirs(os.path.join(self.root, "results", "dev"))
+        with mock.patch("grid.experiment.os.listdir",
+                        side_effect=PermissionError("history unreadable")), \
+                self.assertRaisesRegex(PermissionError, "history unreadable"):
+            self.p.inspect_admission("native", "exact")
 
     def test_an_experiment_from_a_template_or_a_manifest(self) -> None:
         self.p.create("first", template="lightgbm_binary")
@@ -739,6 +794,25 @@ class Routes(unittest.TestCase):
         except urllib.error.HTTPError as err:
             with err:
                 return err.code, json.loads(err.read())
+
+    def test_inspect_http_replaces_only_known_unadmitted_failures(self):
+        with urllib.request.urlopen(self.base + "/api/pack") as response:
+            instance = json.loads(response.read())["serverInstance"]
+        body = {"name": "inspect", "requestId": "known-failure",
+                "source": {"instance": instance, "run": "missing",
+                           "generation": 0},
+                "constraints": [{"param": "threshold", "values": [0.5]}]}
+        code, failed = self.post("/api/experiment/inspect", body)
+        self.assertEqual(code, 400)
+        self.assertEqual(failed["intentState"], "failed")
+        self.assertTrue(failed["canReplace"])
+        with mock.patch("grid.inspect_run.launch",
+                        side_effect=OSError("outcome unknown")):
+            code, unknown = self.post("/api/experiment/inspect", {
+                **body, "requestId": "transport-lost"})
+        self.assertEqual(code, 400)
+        self.assertEqual(unknown["intentState"], "unknown")
+        self.assertFalse(unknown["canReplace"])
 
     def test_a_write_needs_the_token_the_origin_and_json(self) -> None:
         ok = {"text": manifest_text()}
