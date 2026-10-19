@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from grid.provenance import digest, snapshot_source, verify_identity
+from grid.provenance import (
+    digest,
+    runtime_identity,
+    snapshot_source,
+    verify_identity,
+)
 
 TEXT = """sfd:
   manifest:
@@ -19,6 +26,20 @@ TEXT = """sfd:
 
 
 class SourceIdentity(unittest.TestCase):
+    def test_runtime_probe_resolves_native_package_without_grid_shadowing(self):
+        with tempfile.TemporaryDirectory() as root:
+            package = Path(root, "limen")
+            package.mkdir()
+            (package / "__init__.py").write_text("# native runtime fixture\n")
+            metadata = Path(root, "vaquum_limen-5.30.2.dist-info")
+            metadata.mkdir()
+            (metadata / "METADATA").write_text(
+                "Metadata-Version: 2.1\nName: vaquum-limen\nVersion: 5.30.2\n")
+            with patch.dict(os.environ, {"PYTHONPATH": root}):
+                result = runtime_identity("limen", sys.executable, "5.30.2")
+            self.assertTrue(result["verified"], result)
+            self.assertEqual(result["limenVersion"], "5.30.2")
+
     def test_snapshot_survives_original_change_and_is_shared_by_content(self):
         with tempfile.TemporaryDirectory() as root:
             original = Path(root, "source.csv")

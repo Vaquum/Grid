@@ -55,7 +55,7 @@ def runtime_identity(cli: str, python: str | None, version: str) -> Json:
         return identity
     try:
         process = subprocess.run(
-            [python, os.path.abspath(__file__), "--runtime"],
+            [python, "-P", os.path.abspath(__file__), "--runtime"],
             text=True, capture_output=True, timeout=30, check=False)
         found: Any = json.loads(process.stdout)
         if process.returncode or not isinstance(found, dict):

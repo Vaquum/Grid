@@ -244,6 +244,8 @@ def launch_overhead(request: Json) -> Json:
     from grid.recording import mark_manifest
 
     yaml = importlib.import_module("ruamel.yaml").YAML()
+    # Grid's manifest editing contract keeps scalar source paths on one line.
+    yaml.width = 4096
     root = Path(request["root"])
     root.mkdir(parents=True)
     source = ROOT / "tests/fixtures/retention/btc_spot_hourly.parquet"
@@ -259,7 +261,9 @@ def launch_overhead(request: Json) -> Json:
         data = source_identity["data"]
         if data.get("available") is not True or not runtime_identity.get(
                 "verified"):
-            raise ValueError("Grid launch identity is not verifiable")
+            raise ValueError("Grid launch identity is not verifiable: "
+                             + json.dumps({"source": data,
+                                           "runtime": runtime_identity}))
         if data["files"][0]["sha256"] != SOURCE_SHA256:
             raise ValueError("Grid launch snapshot differs from source")
         identities = {"sourceIdentity": source_identity,
