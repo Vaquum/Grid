@@ -182,7 +182,7 @@ def init(out, template):
 def main(argv):
     signal.signal(signal.SIGTERM, on_term)
     if argv[:1] == ["--version"]:
-        print("limen, version 5.20.0")
+        print("limen, version " + os.environ.get("FAKE_LIMEN_VERSION", "5.20.0"))
         return 0
     if argv[:1] == ["list-templates"]:
         if os.environ.get("FAKE_LIMEN_FAIL") == "list-templates":

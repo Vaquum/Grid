@@ -1677,7 +1677,7 @@ test("experiment: on a Limen project, one is made, checked as it is typed, run i
   writeFileSync(join(project, "limen.toml"), "[store]\n");
   mkdirSync(join(project, "manifests"));
   const proc = spawn("python3", ["-m", "grid", "serve", "--project", project, "--limen-cli", join(ROOT, "tests/fixtures/fake_limen.py"), "--port", "0"],
-    { cwd: ROOT, env: { ...process.env, FAKE_LIMEN_PACE: "0.05" } });
+    { cwd: ROOT, env: { ...process.env, FAKE_LIMEN_PACE: "0.05", FAKE_LIMEN_VERSION: "5.30.2" } });
   try {
     const url = await serverUrl(proc);
     const { page, errors } = await limenPage();
@@ -1685,7 +1685,7 @@ test("experiment: on a Limen project, one is made, checked as it is typed, run i
     // it opens on the Experiment view, ready to make the first
     await page.waitForSelector(".ex-make");
     assert.equal(await page.locator(".rail button[aria-current=page]").getAttribute("aria-label"), "Experiment");
-    assert.match(await page.locator(".strip").innerText(), /Limen\s+5\.20\.0/);
+    assert.match(await page.locator(".strip").innerText(), /Limen\s+5\.30\.2/);
     assert.equal(await page.locator(".ex-make select").inputValue(), "t:lightgbm_binary");
     // the name offered follows what it starts from, until one is typed
     await page.locator(".ex-make select").selectOption("t:logreg_binary");
