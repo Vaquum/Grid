@@ -156,6 +156,8 @@ class InspectLaunch(unittest.TestCase):
                                  [{"param": "size", "values": [1]}])
         self.assertEqual(count, 1)
         self.assertIn("size: [1.0]", narrowed)
+        with self.assertRaisesRegex(ValueError, "duplicate source values"):
+            narrow(text, manifest, [{"param": "size", "values": [1, 1.0]}])
         manifest["sfd"]["params"]["size"] = [1, 1.0, 2]
         with self.assertRaisesRegex(ValueError, "ambiguous"):
             narrow(text, manifest, [{"param": "size", "values": [1]}])

@@ -73,6 +73,8 @@ def narrow(text: str, manifest: Json, constraints: object
                 raise ValueError("selection is outside source parameter space "
                                  "or its numeric type is ambiguous")
             matched.append(found[0])
+        if len({typed(value) for value in matched}) != len(matched):
+            raise ValueError("parameter values select duplicate source values")
         chosen[name] = matched
     projected = 1
     original_count = 1
