@@ -29,8 +29,11 @@ def manifest_values(mode: object) -> dict[str, object]:
 def mark_manifest(text: str, mode: object) -> str:
     policy(mode)
     # Comments survive Limen's exact manifest copy without adding schema keys.
-    return "# grid-recording-mode: %s\n" % mode + MARKER.sub("", text).lstrip(
-        "\n")
+    return "# grid-recording-mode: %s\n" % mode + unmark_manifest(text)
+
+
+def unmark_manifest(text: str) -> str:
+    return MARKER.sub("", text).lstrip("\n")
 
 
 def _mapping(value: object) -> Json:

@@ -111,8 +111,9 @@ the template needs project-specific edits.
 The script executes `grid_create` → `grid_manifest` → `grid_validate` →
 `grid_diff` → `grid_save` → `grid_start` → repeated `grid_status` →
 `grid_open` → pinned analysis. It refuses nonempty validation errors and
-uses the returned manifest version for save and start. Recording execution
-and model outputs is enabled so subsequent cohorts can be judged.
+uses the returned manifest version for save and start. New runs default to
+Sweep. Pass `--recording-mode inspect` to retain complete diagnostic evidence;
+both named modes require Limen 5.30.2 or later.
 
 Its result contains `projectRun`, `analysisRun`, observed terminal `job`,
 `diff`, and `analysis`. A `finished` job confirms processes completed; it does

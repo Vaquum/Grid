@@ -237,14 +237,14 @@ function applyMessage(msg) {
       }
       if (!app.state.run) app.state = { ...app.state, run: meta.id };
     } else {
-      old.meta = meta;
+      old.meta = { ...meta, state: old.meta.state || meta.state };
     }
     if (app.pendingRun === meta.id) settlePending();
   } else if (msg.type === "rows") {
     const ds = sw.runs.find(r => r.id === msg.run);
     if (!ds) { console.error("rows for an unknown run", msg.run); return; }
     ds.append(msg.lo, msg.hi, msg.columns, msg.arrivals);
-    ds.meta = msg.meta;
+    ds.meta = { ...msg.meta, state: ds.meta.state || msg.meta.state };
     if (app.stayOn === ds.id) settleStay();
     if (app.pendingRun === ds.id) settlePending();
   } else if (msg.type === "rounds") {
@@ -257,7 +257,11 @@ function applyMessage(msg) {
     const ids = new Set(msg.runs.map(r => r.id));
     sw.runs = sw.runs.filter(r => !r.id.startsWith("project:") || ids.has(r.id)
       || r.id === app.state.run || r.id === app.loadingRun);
-    for (const meta of msg.runs) if (!sw.runs.some(r => r.id === meta.id)) sw.runs.push(new Dataset({ ...meta, deferred: true }));
+    for (const meta of msg.runs) {
+      const ds = sw.runs.find(r => r.id === meta.id);
+      if (!ds) sw.runs.push(new Dataset({ ...meta, deferred: true }));
+      else if (meta.state) ds.meta.state = meta.state;
+    }
   } else if (msg.type === "meta") {
     sw.meta = { ...sw.meta, ...msg.meta };
   }

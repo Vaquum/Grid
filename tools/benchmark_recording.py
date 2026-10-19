@@ -200,6 +200,7 @@ def identity() -> Json:
     bars = polars.read_parquet(source)
     runtime_root = Path(sys.prefix)
     runtime = inventory(runtime_root)
+    assert limen.__file__ is not None
     code_root = Path(limen.__file__).resolve().parent
     code_hash = hashlib.sha256()
     for path in sorted(code_root.rglob("*.py")):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 
+from grid.__main__ import freeze_shard_identities
 from grid.recording import (
     GROUPS,
     infer_recording,
@@ -11,6 +12,7 @@ from grid.recording import (
     mark_manifest,
     policy,
 )
+from grid.sweep import Json
 
 
 class Recording(unittest.TestCase):
@@ -74,6 +76,21 @@ class Recording(unittest.TestCase):
         original = "schema_version: '1.0'\nuel:\n  n_permutations: 4\n"
         marked = mark_manifest(mark_manifest(original, "sweep"), "inspect")
         self.assertEqual(marked, "# grid-recording-mode: inspect\n" + original)
+
+    def test_frozen_native_seeds_and_hashes_do_not_follow_source_mutation(self):
+        experiments: list[Json] = [
+            {"manifest": {"uel": {"search_strategy": {"seed": seed}}},
+             "manifestText": "seed: %d\n" % seed, "limenVersion": version}
+            for seed, version in ((91, "5.30.2"), (4, "5.30.1"))]
+        freeze_shard_identities(experiments, ["s1", "s2"])
+        first_hash = experiments[0]["shardIdentities"][0]["manifestSha256"]
+        experiments[0]["manifest"]["uel"]["search_strategy"]["seed"] = 999
+        experiments[0]["manifestText"] = "changed"
+        self.assertEqual(experiments[0]["shardSeeds"], [91, 4])
+        self.assertEqual(experiments[0]["shardIdentities"][0]["manifestSha256"],
+                         first_hash)
+        self.assertEqual(experiments[0]["shardIdentities"][1]["limenVersion"],
+                         "5.30.1")
 
 
 if __name__ == "__main__":

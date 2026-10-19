@@ -44,7 +44,14 @@ from collections.abc import Callable
 from typing import IO, Any, cast
 
 from .capacity import effective_cpus
-from .recording import infer_recording, manifest_values, mark_manifest, policy
+from .provenance import launch_identity
+from .recording import (
+    infer_recording,
+    manifest_values,
+    mark_manifest,
+    policy,
+    unmark_manifest,
+)
 from .retention import (
     check_resume_recording,
     check_training_sources,
@@ -281,6 +288,25 @@ def remove_value(text: str, dotted: str) -> str:
         return text
     del lines[i]
     return "\n".join(lines) + ("\n" if ends else "")
+
+
+def set_parameter_values(text: str, params: Json) -> str:
+    """Replace explicit native parameter domains without rewriting YAML."""
+    lines = text.splitlines()
+    for name, values in params.items():
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", name):
+            raise ValueError("parameter spelling cannot be rewritten safely")
+        span = _mapping(lines, ["sfd", "params"], create=False)
+        if span is None:
+            raise ValueError("source parameters are not block mappings")
+        lo, hi, indent = span
+        index = _find(lines, lo, hi, indent, name)
+        if index is None:
+            raise ValueError("source parameter is absent from exact manifest")
+        end = _block_end(lines, index, indent)
+        lines[index:end] = [" " * indent + name + ": " + json.dumps(
+            values, sort_keys=True, allow_nan=False, separators=(",", ":"))]
+    return "\n".join(lines) + "\n"
 
 
 # ---------------------------------------------------------------------------
@@ -1263,8 +1289,11 @@ class Project:
             if any(value is not None and not isinstance(value, bool)
                    for value in (execution, outputs)):
                 raise ValueError("execution and outputs must be booleans")
-            text = set_values(text, {"uel.record_execution": bool(execution),
-                                     "uel.record_model_outputs": bool(outputs)})
+            text = unmark_manifest(set_values(text, {
+                "uel.record_execution": bool(execution),
+                "uel.record_model_outputs": bool(outputs)}))
+            text = re.sub(r"^# grid-(?:launch-identity|inspect-provenance): .*\n?",
+                          "", text, flags=re.M)
             recording_policy = infer_recording({}, record={
                 "record": {"execution": bool(execution),
                            "outputs": bool(outputs)}})["recordingPolicy"]
@@ -1275,7 +1304,8 @@ class Project:
         if provenance is not None and not isinstance(provenance, dict):
             raise ValueError("provenance must be an object")
         # A JSON copy detaches immutable launch provenance from caller mutation.
-        provenance = json.loads(json.dumps(provenance, allow_nan=False))
+        saved_provenance: Json | None = json.loads(json.dumps(
+            provenance, allow_nan=False))
         problems = self.validate(text)
         if problems:
             raise ValueError("manifest preflight: %s: %s" % (
@@ -1302,15 +1332,41 @@ class Project:
             seed = random.randrange(1, 2 ** 31)
         if named_mode is not None and seed is not None:
             text = set_values(text, {"uel.search_strategy.seed": seed})
-        source_seeds = (provenance or {}).get("sourceSeeds")
+        source_seeds: Any = (saved_provenance or {}).get("sourceSeeds")
         if source_seeds is not None and (
                 not isinstance(source_seeds, list) or
-                len(source_seeds) != shards or
+                len(cast(list[Any], source_seeds)) != shards or
                 any(not isinstance(s, int) or isinstance(s, bool)
-                    for s in source_seeds) or
-                len(set(source_seeds)) != len(source_seeds)):
+                    for s in cast(list[Any], source_seeds)) or
+                len(set(cast(list[Any], source_seeds))) !=
+                len(cast(list[Any], source_seeds))):
             raise ValueError("sourceSeeds must retain one distinct integer "
                              "seed per source shard")
+        seeds_override = cast(list[int] | None, source_seeds)
+        source_identity: Json = {
+            "manifest": self._rel(path), "sha256": hashlib.sha256(
+                source_text.encode("utf-8")).hexdigest()}
+        runtime_identity: Json = {"verified": False,
+                                  "limenVersion": self.version,
+                                  "executable": os.path.realpath(self.cli),
+                                  "python": self.python}
+        if named_mode is not None:
+            recorded_source, runtime_identity = launch_identity(
+                text, self.root, self.cli, self.python, self.version)
+            source_identity.update(recorded_source)
+            source_identity["manifestSha256"] = source_identity["sha256"]
+            data_identity = cast(Json, source_identity["data"])
+            if data_identity.get("available") is True:
+                text = set_values(text, {
+                    data_identity["manifestKey"]: data_identity["executionPath"]})
+            # Exact native copies preserve this link through offline exports.
+            text = re.sub(r"^# grid-launch-identity: .*\n?", "", text,
+                          flags=re.M)
+            text = "# grid-launch-identity: " + json.dumps({
+                "sourceIdentity": source_identity,
+                "runtimeIdentity": runtime_identity},
+                separators=(",", ":"), sort_keys=True,
+                allow_nan=False) + "\n" + text
         mode = get_value(text, "metadata.mode")
         base = "results" if mode == "production" else "results/dev"
         stamp = time.strftime("%Y%m%d_%H%M%S")
@@ -1337,7 +1393,7 @@ class Project:
         records: list[Json] = []
         for j in range(shards):
             label = "s%d" % (j + 1)
-            shard_seed = source_seeds[j] if source_seeds is not None else \
+            shard_seed = seeds_override[j] if seeds_override is not None else \
                 seed + j if shards > 1 and seed is not None else seed
             values: dict[str, object] = {
                 "uel.n_permutations": share,
@@ -1367,15 +1423,9 @@ class Project:
                             "outputs": recording_policy["record_model_outputs"]},
                         "recordingMode": named_mode or "legacy",
                         "recordingPolicy": recording_policy,
-                        "provenance": provenance,
-                        "sourceIdentity": {
-                            "manifest": self._rel(path),
-                            "sha256": hashlib.sha256(
-                                source_text.encode("utf-8")).hexdigest()},
-                        "runtimeIdentity": {"limenVersion": self.version,
-                                            "executable": os.path.realpath(
-                                                self.cli),
-                                            "python": self.python},
+                        "provenance": saved_provenance,
+                        "sourceIdentity": source_identity,
+                        "runtimeIdentity": runtime_identity,
                         "shards": records}
         rid = self._rel(folder)
         failed: str | None = None

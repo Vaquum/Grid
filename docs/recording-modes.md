@@ -21,6 +21,16 @@ bindings remain. Source market data remains necessary to execute either mode.
 Recording switches govern saved evidence, preserving model/strategy settings,
 splits, costs and scalar meanings.
 
+Limen 5.30.2 has a diagnostic omission: LightGBM's `best_iteration` scalar is
+written only when `record_model_outputs` is true
+(`limen/sfd/reference_architecture/lightgbm_binary.py`, lines 154–156).
+XGBoost uses the same condition (`xgboost_regressor.py`, lines 62–66).
+Sweep therefore omits this column under the required native policy. The
+benchmark reports this schema difference separately from shared score/backtest
+values; complete scalar-column parity must not be claimed. Recovering this
+diagnostic while keeping model-output recording disabled needs an upstream
+Limen change.
+
 | Capability | Sweep | Inspect |
 | --- | --- | --- |
 | CSV metrics, parameter comparisons, filters, pockets | Available | Available |
@@ -42,6 +52,21 @@ run/snapshot, selection and native request identity provide provenance and
 retry safety; source data, costs, dates, runtime and seeds carry forward unless
 explicitly changed. Pocket discovery remains exploratory; independent
 validation requires separately protected evidence.
+
+Named Grid launches snapshot supported local file sources into the shared,
+content-addressed `.grid/sources` store and execute from that retained copy.
+The original path, content hash and byte count remain provenance. Native Python,
+Limen source and package versions identify the runtime. Linked Inspect checks
+both the retained source bytes and runtime fingerprint before creating a run.
+These small identities also travel in the exact native manifest's comments.
+
+Historical native runs and remote data providers may lack verifiable source
+content. Limen 5.30.2 does not persist a dataset content hash or runtime source
+hash for ordinary ML Sweep records. Grid reports linked inspection unavailable
+for those runs; matching a path or version string cannot prove the same inputs.
+Run a new Sweep from a retained local source to establish that provenance.
+Source snapshots are required execution inputs and are counted separately
+from per-permutation result payloads; Grid does not delete them automatically.
 
 ## Native benchmark
 

@@ -452,6 +452,7 @@ class TestAgent(unittest.TestCase):
         self.assertIsNotNone(trained["predictor"]["cohortId"])
 
     def test_documented_experiment_workflow(self):
+        self.project.version = "5.30.2"
         def open_run(key, dirs, planned):
             run_id = self.wiring.open_limen(key, dirs, planned)
             self.wiring.read_once()

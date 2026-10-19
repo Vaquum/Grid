@@ -231,7 +231,7 @@ class ProjectRuns(unittest.TestCase):
         self.assertEqual(record["runtimeIdentity"]["limenVersion"], "5.30.2")
         with open(os.path.join(folder, "manifests", "s1.yaml")) as stream:
             launched = stream.read()
-        self.assertTrue(launched.startswith("# grid-recording-mode: sweep\n"))
+        self.assertIn("# grid-recording-mode: sweep\n", launched)
         for key in manifest_values("sweep"):
             self.assertEqual(get_value(launched, key), "false")
         self.assertEqual(self.run_of(rid)["recordingMode"], "sweep")

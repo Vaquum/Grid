@@ -15,6 +15,7 @@ import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { limenOutputsRun } from "../fixtures/limen_outputs.mjs";
 import { limenExecutionRun } from "../fixtures/limen_execution.mjs";
 
@@ -1618,6 +1619,58 @@ test("experiment: catalog opens before results, and analysis loads only its chos
   }
 });
 
+test("Inspect: one unique combination is evaluated once for each preserved source seed", async () => {
+  const pack = JSON.parse(gunzipSync(readFileSync(join(dir, "limen.pack.json.gz"))));
+  const run = pack.runs[0], exp = run.experiment;
+  exp.manifest.sfd.params = { use_calibration: [false, true] };
+  exp.manifest.uel.n_permutations = 5;
+  exp.shards = [["s1", "/source/s1"], ["s2", "/source/s2"]];
+  exp.sourceIdentity = { data: { available: true, files: [{ path: "/source/market.csv", sha256: "mock-source-content", bytes: 100 }] } };
+  exp.runtimeIdentity = { verified: true, sha256: "mock-runtime-content" };
+  exp.manifestText = "metadata:\n  name: one_combination\nsfd:\n  params:\n    use_calibration: [false, true]\nuel:\n  n_permutations: 5\n";
+  const payload = gzipSync(JSON.stringify(pack)).toString("base64");
+  const config = JSON.stringify({ mode: "demo", experiment: "/api/experiment", token: "test-token" });
+  const html = readFileSync(join(dir, "limen.html"), "utf8")
+    .replace(/(<script id="grid-pack"[^>]*>)[^<]*(<\/script>)/, `$1${payload}$2`)
+    .replace(/(<script id="grid-config"[^>]*>)[^<]*(<\/script>)/, `$1${config}$2`);
+  const { page, errors } = await limenPage();
+  const requests = [];
+  await page.route("**/inspect-single", route => route.fulfill({ contentType: "text/html", body: html }));
+  await page.route("**/api/experiment/inspect", route => {
+    requests.push(route.request().postDataJSON());
+    return route.fulfill({ status: requests.length === 1 ? 503 : 200, contentType: "application/json", body: JSON.stringify(requests.length === 1
+      ? { error: "temporary connection failure" } : { run: "two-seeds", provenance: { sourceSnapshot: "source-pinned" } }) });
+  });
+  const state = Buffer.from(JSON.stringify({ v: "pocket", r: run.id, p: [{ dim: "use_calibration", keys: ["false"] }] })).toString("base64url");
+  await page.goto(`${base}inspect-single#s1.${state}`);
+  const inspect = page.getByRole("region", { name: "Run pocket in Inspect mode" });
+  await inspect.getByRole("button", { name: "Run in Inspect mode", exact: true }).click();
+  assert.match(await inspect.innerText(), /1 unique parameter combinations of 2/);
+  assert.match(await inspect.innerText(), /Planned evaluations: 2 across 2 source seeds; 1 unique parameter combinations/);
+  const rounds = page.getByLabel("Inspect rounds", { exact: true });
+  assert.equal(await rounds.inputValue(), "2");
+  assert.equal(await rounds.getAttribute("max"), "2");
+  await rounds.fill("1");
+  await inspect.getByRole("button", { name: "Confirm and run Inspect", exact: true }).click();
+  assert.match(await inspect.innerText(), /divisible by 2/);
+  assert.equal(requests.length, 0);
+  await rounds.fill("2");
+  const beforeInspectErrors = errors.length;
+  await inspect.getByRole("button", { name: "Confirm and run Inspect", exact: true }).click();
+  await inspect.getByRole("button", { name: "Retry Inspect request", exact: true }).waitFor();
+  await page.reload();
+  await inspect.getByRole("button", { name: "Retry Inspect request", exact: true }).click();
+  await page.getByText("Immutable source snapshot: source-pinned", { exact: true }).waitFor();
+  assert.deepEqual(requests[0], requests[1], "retry after reload preserves native request identity and exact payload");
+  assert.equal(requests[0].rounds, 2);
+  assert.deepEqual(requests[0].constraints, [{ param: "use_calibration", values: [false] }]);
+  assert.ok(requests[0].requestId);
+  assert.ok(errors.slice(beforeInspectErrors).every(e => /status of 503/.test(e)), errors.slice(beforeInspectErrors).join("\n"));
+  errors.splice(beforeInspectErrors);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("experiment: on a Limen project, one is made, checked as it is typed, run in shards, analyzed, and the next made from its run", async () => {
   // a project with no experiment yet, served with a stand-in limen
   const project = mkdtempSync(join(tmpdir(), "grid-project-"));
@@ -1692,27 +1745,8 @@ test("experiment: on a Limen project, one is made, checked as it is typed, run i
     const inspect = page.getByRole("region", { name: "Run pocket in Inspect mode" });
     assert.match(await inspect.innerText(), /Select a parameter pocket/);
     await page.locator(".pal-item", { hasText: "use_calibration" }).locator(".vchip", { hasText: /^false$/ }).click();
-    await inspect.getByRole("button", { name: "Run in Inspect mode", exact: true }).click();
-    assert.match(await inspect.innerText(), /projected parameter combinations.*Source:/s);
-    assert.match(await inspect.innerText(), /use_calibration = false/);
-    assert.equal(Number(await page.getByLabel("Inspect rounds", { exact: true }).inputValue()) % 2, 0);
-    const inspectBodies = [];
-    await page.route("**/api/experiment/inspect", async route => {
-      inspectBodies.push(route.request().postDataJSON());
-      await route.fulfill({ status: inspectBodies.length === 1 ? 503 : 200, contentType: "application/json", body: JSON.stringify(inspectBodies.length === 1
-        ? { error: "temporary connection failure" } : { run: "inspect-recorded", provenance: { sourceSnapshot: ".grid/inspect/frozen-source" } }) });
-    });
-    const beforeInspectErrors = errors.length;
-    await inspect.getByRole("button", { name: "Confirm and run Inspect", exact: true }).click();
-    await inspect.getByRole("button", { name: "Retry Inspect request", exact: true }).waitFor();
-    await page.reload();
-    await inspect.getByRole("button", { name: "Retry Inspect request", exact: true }).click();
-    await page.getByText("Immutable source snapshot: .grid/inspect/frozen-source", { exact: true }).waitFor();
-    assert.deepEqual(inspectBodies[0], inspectBodies[1], "retry after reload preserves native request identity and exact payload");
-    assert.deepEqual(inspectBodies[0].constraints, [{ param: "use_calibration", values: [false] }]);
-    assert.ok(inspectBodies[0].requestId);
-    assert.ok(errors.slice(beforeInspectErrors).every(e => /status of 503/.test(e)), errors.slice(beforeInspectErrors).join("\n"));
-    errors.splice(beforeInspectErrors);
+    assert.match(await inspect.innerText(), /Inspect unavailable: this run has no verifiable source data fingerprint/);
+    assert.equal(await inspect.getByRole("button", { name: "Run in Inspect mode", exact: true }).count(), 0);
     await page.keyboard.press("1");
     await page.waitForSelector(".pcard");
     // the run's manifest starts the next experiment
@@ -2033,11 +2067,16 @@ test("first half: every needle measured on each half reads its first half only, 
     await page.waitForSelector(".strip");
     assert.equal(await page.locator("#rn-halves").count(), 0);
     assert.doesNotMatch(await page.locator(".strip").innerText(), /Reliability/);
-    // This fixture has execution but no model outputs; reconstruction is
-    // explicitly unavailable rather than an attempted request that fails.
+    // Execution opens selection even without a probability summary. Raw
+    // predictions and alignment are checked by the server for the members.
+    const logged = errors.length;
     await page.keyboard.press("8");
-    await page.waitForSelector(".empty");
-    assert.match(await page.locator("#view").innerText(), /Cohort unavailable.*requires recorded execution and model outputs/s);
+    await page.waitForSelector(".co-table");
+    assert.deepEqual(await page.locator(".co-table thead th.r").allInnerTexts(), ["Rank", "Row", "First half", "Second half"]);
+    assert.match(await page.locator(".co-half").innerText(), /^First half is on/);
+    await page.waitForSelector(".co-judged .co-error", { timeout: 20000 });
+    assert.ok(errors.slice(logged).every(e => /status of 400/.test(e)), errors.slice(logged).join("\n"));
+    errors.splice(logged);
     // A needle without first-half evidence is unavailable.
     await page.keyboard.press("1");
     await page.selectOption("#target-pick", "auc");

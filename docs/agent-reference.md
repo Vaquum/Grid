@@ -549,7 +549,9 @@ Limen 5.30.0 adds `uel.recording`, advertised by
 `grid_start.execution` and `grid_start.outputs` flags still control execution
 and model-output recording independently; they do not restore omitted groups.
 
-Use the default policy for complete analytical, cohort and resume evidence.
+New launches default to Sweep; select `recordingMode: "inspect"` for complete
+supported analytical, cohort and resume evidence. Named modes require Limen
+5.30.2 or later. Legacy boolean flags retain their explicit historical policy.
 Omitting predictions prevents recorded cohort evaluation; execution summaries
 remain available when execution was recorded. Omitting alignment arrays can
 make timestamp reconstruction unavailable; Grid must not invent missing bars.
