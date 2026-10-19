@@ -2,7 +2,7 @@
 
 This is the payload reference for API version 1. See [setup](agents.md),
 [workflows](agent-workflows.md) and [error recovery](agent-errors.md).
-All 17 tools below are available through JSON CLI, HTTP and MCP. JSON input
+All 18 tools below are available through JSON CLI, HTTP and MCP. JSON input
 schemas from `grid_discover` are authoritative for required fields and bounds.
 The advertised output schema describes the common envelope; the tool-specific
 payload fields are documented here. Optional/profile-specific fields can be
@@ -61,7 +61,8 @@ Unknown fields fail. Writes require a new `requestId` for each new intent.
 | `grid_diff` | `name`*, `text`* | `against`: previous project run ID or null; `diff`: unified diff against that run's recorded manifest. No previous run means null/empty string. |
 | `grid_create` | `name`*, `requestId`*; `template` or `text` | `name` of the created experiment. At least one source is needed operationally. If both are supplied, template takes precedence. |
 | `grid_save` | `name`*, `text`*, `version`*, `requestId`* | New manifest `version`. Save fails if the supplied version differs from the working file; reread and reconcile before a new intent. |
-| `grid_start` | `name`*, `rounds`*, `shards`*, `execution`*, `outputs`*, `version`*, `requestId`* | `run`: project run ID. Start verifies the exact manifest version and revalidates with Limen. Acceptance is not job completion. |
+| `grid_start` | `name`*, `rounds`*, `shards`*, `version`*, `requestId`*; `recordingMode` (`sweep` or `inspect`), legacy `execution`/`outputs` | `run`: project run ID. Defaults to Sweep when no legacy flags are supplied. Explicit mode rejects conflicting flags. Start verifies the exact manifest version and revalidates with Limen. Acceptance is not job completion. |
+| `grid_inspect` | `name`*, `source`* (`run`, `generation`, `instance`, optional `snapshot`), `constraints`* (array of `param`, typed `values`), `requestId`*; `rounds` | `run`, `name`, immutable `provenance`: source snapshot/hash, exact source manifest/hash, parameter region, projected permutations, seeds and manifest difference. Take `instance` from the source analysis snapshot. Creates a new Inspect experiment only in the selected region. Retry the same request ID and arguments after transport failure. Completed receipts survive a server restart; new intents from a prior instance fail before launch. The result remains exploratory. |
 | `grid_stop` | `run`* (project ID), `requestId`* | `{ "ok": true }` means the stop operation was accepted. Observe stopped shards/checkpoints through status. |
 | `grid_resume` | `run`* (project ID), `requestId`* | `{ "ok": true }` means resume was accepted. Observe the resumed run through status. |
 | `grid_open` | `run`* (project ID) | `sweepRun`: analysis run ID. Use it in analysis, reports and row references. Opening an already-open run returns its existing ID. |
@@ -69,7 +70,7 @@ Unknown fields fail. Writes require a new `requestId` for each new intent.
 | `grid_predictor_create` | `name`*, `members`*, `how`* (object), `requestId`* | `cohort`: predictor name. Observe `project.cohorts` until `made` or `failed`. `how` stores selection provenance with the artifact. |
 | `grid_receipt` | `requestId`* | Durable journal record described below. This is distinct from a live run/predictor job. |
 
-Create/save/start/stop/resume/predictor creation are journaled writes.
+Create/save/start/inspect/stop/resume/predictor creation are journaled writes.
 Manifest/validate/diff/open/receipt/predictor creation require project mode.
 Status, analysis and row reads work with recorded results. Cohort evaluation
 and reports require a suitable loaded Limen run, but do not require project
@@ -548,7 +549,9 @@ Limen 5.30.0 adds `uel.recording`, advertised by
 `grid_start.execution` and `grid_start.outputs` flags still control execution
 and model-output recording independently; they do not restore omitted groups.
 
-Use the default policy for complete analytical, cohort and resume evidence.
+New launches default to Sweep; select `recordingMode: "inspect"` for complete
+supported analytical, cohort and resume evidence. Named modes require Limen
+5.30.2 or later. Legacy boolean flags retain their explicit historical policy.
 Omitting predictions prevents recorded cohort evaluation; execution summaries
 remain available when execution was recorded. Omitting alignment arrays can
 make timestamp reconstruction unavailable; Grid must not invent missing bars.

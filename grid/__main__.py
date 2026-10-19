@@ -133,6 +133,24 @@ def default_name(path: str) -> str:
     return parent or os.path.splitext(os.path.basename(path))[0]
 
 
+def freeze_shard_identities(experiments: list[Json], labels: list[str]
+                            ) -> None:
+    """Bind future pocket launches to this generation's loaded evidence."""
+    identities: list[Json] = []
+    for label, experiment in zip(labels, experiments, strict=True):
+        uel = cast(Json, experiment["manifest"].get("uel") or {})
+        search = cast(Json, uel.get("search_strategy") or {})
+        identities.append({
+            "label": label, "seed": search.get("seed"),
+            "manifestSha256": hashlib.sha256(
+                experiment["manifestText"].encode("utf-8")).hexdigest(),
+            "limenVersion": experiment.get("limenVersion"),
+            "runtimeIdentity": experiment.get("runtimeIdentity"),
+        })
+    experiments[0]["shardIdentities"] = identities
+    experiments[0]["shardSeeds"] = [shard["seed"] for shard in identities]
+
+
 class Wiring:
     """Followers that feed a sweep."""
 
@@ -164,6 +182,7 @@ class Wiring:
         if args.limen:
             self.dirs = self.limen_dirs(args.limen)
             experiments = [self.read_experiment(d) for d in self.dirs]
+            freeze_shard_identities(experiments, shard_labels(self.dirs))
             if len(self.dirs) > 1:
                 self.shards = shard_labels(self.dirs)
                 problem = shards_problem(self.shards, experiments)
@@ -274,7 +293,28 @@ class Wiring:
                     retained["metadata_sha256"]:
                 raise ValueError("Retained metadata changed")
             with open(os.path.join(directory, name), encoding="utf-8") as f:
-                return read_experiment(meta_text, meta, name, f.read())
+                experiment = read_experiment(meta_text, meta, name, f.read())
+            parent_record = os.path.join(os.path.dirname(os.path.abspath(
+                directory)), "grid-run.json")
+            if os.path.isfile(parent_record):
+                with open(parent_record, encoding="utf-8") as stream:
+                    raw_record: Any = json.load(stream)
+                if not isinstance(raw_record, dict):
+                    raise ValueError("Grid run record must be an object")
+                record = cast(Json, raw_record)
+                shards = cast(list[Json], record.get("shards") or [])
+                label = os.path.basename(os.path.normpath(directory))
+                shard = next((item for item in shards
+                              if item.get("label")
+                              == label),
+                             None)
+                if shard is not None:
+                    for key in ("runtimeIdentity", "sourceIdentity",
+                                "provenance"):
+                        if record.get(key) is not None:
+                            experiment[key] = record[key]
+                    experiment["state"] = shard.get("state")
+            return experiment
         except ValueError as err:
             raise SystemExit(str(err)) from err
 
@@ -485,6 +525,7 @@ class Wiring:
                 experiments = [self.read_experiment(d) for d in dirs]
             except SystemExit as err:
                 raise ValueError(str(err)) from err
+            freeze_shard_identities(experiments, shard_labels(dirs))
             waiting = [d for d in dirs
                        if not os.path.isfile(self.results_path(d))]
             if waiting:

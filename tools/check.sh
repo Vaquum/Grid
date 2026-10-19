@@ -7,6 +7,10 @@ PYRIGHT="${PYRIGHT:-pyright}"
 case "${1:-}" in
   --types) exec "$PYRIGHT" ;;
   --lint) exec "$RUFF" check grid tests/py tools ;;
+  --browser-focus)
+    python3 tools/build.py --out dist/grid.html
+    exec node --test --test-reporter=spec --test-name-pattern "$2" \
+      "tests/browser/*.test.mjs" ;;
 esac
 echo "== python tests"; python3 -m unittest discover -s tests/py -t . -q
 echo "== js tests"; node --test "tests/js/**/*.test.mjs" > /dev/null

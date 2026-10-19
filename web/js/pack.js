@@ -259,6 +259,7 @@ export class Dataset {
 export function decodePack(pack) {
   if (pack.grid !== 1) throw new Error(`unknown pack version ${pack.grid}`);
   const runs = pack.runs.map(r => {
+    r.serverInstance = pack.serverInstance || pack.agentInstance || null;
     const ds = new Dataset(r);
     if (!r.deferred) ds.append(0, r.rows, r.columns, r.arrivals);
     if (r.rounds) ds.addRounds(r.rounds);

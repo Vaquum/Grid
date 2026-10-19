@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { lineOf, valueOf, resumable } from "../../web/js/view-experiment.js";
+import { lineOf, valueOf, resumable, resumePolicyReason } from "../../web/js/view-experiment.js";
 import { searchSpace, fmtCount } from "../../web/js/manifest.js";
 
 const FIX = new URL("../fixtures/limen_run/", import.meta.url);
@@ -61,4 +61,11 @@ test("Resume shows when a shard that stopped or failed has a checkpoint, whateve
   assert.equal(resumable(run("finished", [{ state: "finished", rows: 5, checkpoint: true }])), false);
   assert.equal(resumable(run("running", [{ state: "running", checkpoint: false }, { state: "stopped", checkpoint: true }])), false);
   assert.equal(resumable(run("incomplete", [{ state: "incomplete", checkpoint: false }], "limen")), false);
+  const sweep = { ...run("stopped", [{ state: "stopped", checkpoint: true }]), recordingMode: "sweep" };
+  assert.equal(resumable(sweep), false);
+  assert.match(resumePolicyReason(sweep), /Resume unavailable under Sweep recording policy/);
+  const partial = { ...sweep, recordingMode: "legacy", recordingPolicy: { recording: { predictions: false } } };
+  assert.equal(resumable(partial), false);
+  assert.match(resumePolicyReason(partial), /complete recorded recovery evidence/);
+  assert.equal(resumable({ ...sweep, recordingMode: "inspect" }), true);
 });

@@ -64,8 +64,8 @@ CURSOR_TTL = 600.0
 PING_EVERY = 15.0
 MAX_BODY = 4 << 20     # a manifest is a few kilobytes
 CHOSEN_MAX = 64 << 10   # how a predictor's members were chosen, as JSON
-ACTIONS = ("validate", "save", "create", "start", "stop", "resume", "open",
-           "diff", "cohort")
+ACTIONS = ("validate", "save", "create", "start", "inspect", "stop", "resume",
+           "open", "diff", "cohort")
 
 
 PageFn = Callable[[], bytes]
@@ -113,6 +113,7 @@ class Server:
                 self.public_host += ":" + str(address.port)
             self.public_origin = address.scheme + "://" + self.public_host
         self.sweep = sweep
+        self.instance = secrets.token_hex(16)
         self.page = page
         self.project = project      # the Limen project, with --project
         self.token = token          # the page's own, for the project's POSTs
@@ -172,6 +173,9 @@ class Server:
             exp = run.experiment
             if not exp or exp.get("kind") != "limen":
                 raise ValueError("a cohort is made of a Limen run's rounds")
+            if exp.get("recordingMode") == "sweep":
+                raise ValueError("cohort diagnostics unavailable by Sweep "
+                                 "recording policy; run the region in Inspect")
             if walk_forward(exp.get("manifest")):
                 raise ValueError("a walk-forward run's trials make no "
                                  "cohort: Limen replays none of them and "
@@ -361,8 +365,9 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
         def send_json(self, obj: Any) -> None:
             self.send_bytes(json.dumps(obj).encode(), "application/json")
 
-        def fail(self, code: int, message: str) -> None:
-            obj: Any = {"error": message}
+        def fail(self, code: int, message: str, details: Json | None = None
+                 ) -> None:
+            obj: Any = {"error": message, **(details or {})}
             if urlparse(self.path).path == "/api/agent":
                 obj = failure("AUTHENTICATION_FAILED" if code == 403
                               else "INVALID_REQUEST", message)
@@ -452,6 +457,8 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
                             ',"selectedRun":' + json.dumps(requested)
                             if requested else "") + "}"
                 token = server.save_cursor(cursor)
+                text = text[:-1] + ',"serverInstance":' + json.dumps(
+                    server.instance) + "}"
                 body = ('{"cursor":%s,"pack":%s}' % (json.dumps(token), text))
                 return self.send_bytes(body.encode(), "application/json")
             if url.path == "/api/stream":
@@ -522,8 +529,15 @@ def make_handler(server: Server) -> type[BaseHTTPRequestHandler]:
             try:
                 if action == "cohort":
                     return self.send_json(server.make_cohort(project, body))
+                if action == "inspect":
+                    from .inspect_run import launch
+                    return self.send_json(launch(server, body))
                 return self.send_json(act(project, action, body))
             except (ValueError, OSError) as exc:
+                if action == "inspect":
+                    from .inspect_run import failure_details
+                    return self.fail(400, str(exc),
+                                     failure_details(project, body))
                 return self.fail(400, str(exc))
 
         def agent_request(self) -> None:
@@ -655,7 +669,8 @@ def act(project: Project, action: str, body: dict[str, Any]) -> Any:
                                      body.get("shards"),
                                      body.get("execution"),
                                      body.get("outputs"),
-                                     body.get("version"))}
+                                     body.get("version"),
+                                     recording_mode=body.get("recordingMode"))}
     if action == "stop":
         project.stop(body.get("run"))
         return {"ok": True}

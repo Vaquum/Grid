@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import hashlib
 import json
 import os
 import shutil
@@ -30,6 +31,8 @@ from grid.experiment import (
     set_values,
     validation_errors,
 )
+from grid.limen import read_experiment
+from grid.recording import manifest_values, policy
 from grid.server import direct_host, serve
 from grid.sweep import Json, Sweep
 
@@ -213,6 +216,188 @@ class ProjectRuns(unittest.TestCase):
         self.assertEqual(bad[0]["path"], "uel.n_permutations")
         parse = self.p.validate("a: 1\nb: PARSE_ME\n")
         self.assertEqual(parse[0]["line"], 2)
+
+    def test_new_run_defaults_to_explicit_sweep_policy(self) -> None:
+        self.p.version = "5.30.2"
+        self.p.create("sweep", template="lightgbm_binary")
+        original = self.p.manifest("sweep")["text"]
+        rid = self.p.start("sweep", 2, 1)
+        folder = os.path.join(self.root, rid)
+        with open(os.path.join(folder, "grid-run.json")) as stream:
+            record = json.load(stream)
+        self.assertEqual(record["recordingMode"], "sweep")
+        self.assertEqual(record["recordingPolicy"], policy("sweep"))
+        self.assertEqual(record["sourceIdentity"]["sha256"],
+                         hashlib.sha256(original.encode()).hexdigest())
+        self.assertEqual(record["runtimeIdentity"]["limenVersion"], "5.30.2")
+        with open(os.path.join(folder, "manifests", "s1.yaml")) as stream:
+            launched = stream.read()
+        self.assertIn("# grid-recording-mode: sweep\n", launched)
+        for key in manifest_values("sweep"):
+            self.assertEqual(get_value(launched, key), "false")
+        self.assertEqual(self.run_of(rid)["recordingMode"], "sweep")
+        self.assertEqual(next(r for r in self.p.catalog()
+                              if r["projectRun"] == rid)["recordingMode"],
+                         "sweep")
+        self.assertEqual(self.p.manifest("sweep")["text"], original)
+        wait(lambda: self.run_of(rid)["state"] == "finished")
+        with self.assertRaisesRegex(ValueError, "Sweep cannot resume"):
+            self.p.resume(rid)
+
+    def test_inspect_enables_evidence_and_retains_source_seeds(self) -> None:
+        self.p.version = "5.30.2"
+        self.p.create("inspect", text=set_values(manifest_text(),
+                                                  manifest_values("sweep")))
+        provenance = {"sourceSeeds": [98, 3], "source": {"run": "p1"}}
+        rid = self.p.start("inspect", 4, 2, recording_mode="inspect",
+                           provenance=provenance)
+        provenance["source"]["run"] = "changed"
+        folder = os.path.join(self.root, rid)
+        for label, seed in (("s1", "98"), ("s2", "3")):
+            with open(os.path.join(folder, "manifests", label + ".yaml")) \
+                    as stream:
+                launched = stream.read()
+            for key in manifest_values("inspect"):
+                self.assertEqual(get_value(launched, key), "true")
+            self.assertEqual(get_value(launched, "uel.search_strategy.seed"),
+                             seed)
+            for key in ("sfd.params.fee_bps", "sfd.params.slip_bps",
+                        "sfd.manifest.split_dates.train_start",
+                        "sfd.manifest.data_source.method"):
+                self.assertEqual(get_value(launched, key),
+                                 get_value(manifest_text(), key))
+        run = self.run_of(rid)
+        self.assertEqual(run["recordingPolicy"], policy("inspect"))
+        self.assertEqual(run["provenance"]["source"]["run"], "p1")
+        self.assertEqual([s["seed"] for s in run["shards"]], [98, 3])
+        wait(lambda: self.run_of(rid)["state"] == "finished")
+
+    def test_named_modes_fail_closed_before_run_creation(self) -> None:
+        self.p.create("exp", template="lightgbm_binary")
+        for version in ("5.20.0", "5.30.0", "5.30.1"):
+            self.p.version = version
+            for mode in ("sweep", "inspect"):
+                with self.assertRaisesRegex(ValueError, "Limen >= 5.30.2"):
+                    self.p.start("exp", 2, 1, recording_mode=mode)
+        self.p.version = "5.30.2"
+        with self.assertRaisesRegex(ValueError, "conflicts"):
+            self.p.start("exp", 2, 1, True, True, recording_mode="sweep")
+        with self.assertRaisesRegex(ValueError, "mode must be"):
+            self.p.start("exp", 2, 1, recording_mode="unknown")
+        with self.assertRaisesRegex(ValueError, "sourceSeeds"):
+            self.p.start("exp", 2, 1, recording_mode="inspect",
+                         provenance={"sourceSeeds": [1, 2]})
+        self.assertEqual(self.p.runs(), [])
+
+    def test_legacy_inline_recording_policy_is_never_guessed(self) -> None:
+        text = manifest_text().replace("uel:\n", "uel:\n  recording: "
+                                       "{predictions: false}\n")
+        self.p.create("legacy", text=text)
+        with self.assertRaisesRegex(ValueError,
+                                    "uel.recording is written inline"):
+            self.p.start("legacy", 2, 1, False, False)
+        self.assertEqual(self.p.runs(), [])
+
+    def test_historical_run_reads_native_partial_policy(self) -> None:
+        self.p.create("legacy", template="lightgbm_binary")
+        rid = self.p.start("legacy", 2, 1, False, False)
+        wait(lambda: self.run_of(rid)["state"] == "finished")
+        folder = os.path.join(self.root, rid)
+        record_path = os.path.join(folder, "grid-run.json")
+        with open(record_path) as stream:
+            record = json.load(stream)
+        record.pop("recordingPolicy")
+        record.pop("recordingMode")
+        with open(record_path, "w") as stream:
+            json.dump(record, stream)
+        copy_path = os.path.join(folder, "manifests", "s1.yaml")
+        with open(copy_path) as stream:
+            text = stream.read().replace("uel:\n", "uel:\n  recording: "
+                                         "{predictions: false}\n")
+        with open(copy_path, "w") as stream:
+            stream.write(text)
+        metadata_path = os.path.join(folder, "s1", "metadata.json")
+        with open(metadata_path) as stream:
+            metadata = json.load(stream)
+        metadata["recording"] = {"predictions": False}
+        with open(metadata_path, "w") as stream:
+            json.dump(metadata, stream)
+        historical = self.run_of(rid)
+        self.assertEqual(historical["recordingMode"], "legacy")
+        self.assertFalse(historical["recordingPolicy"]["recording"][
+            "predictions"])
+        self.assertTrue(historical["recordingPolicy"]["recording"]["alignment"])
+        os.unlink(metadata_path)
+        unknown = self.run_of(rid)
+        self.assertIsNone(unknown["recordingPolicy"]["recording"]["predictions"])
+        self.assertIn("unknown", unknown["recordingReason"])
+
+    def test_named_runs_persist_generated_single_shard_seed(self) -> None:
+        self.p.version = "5.30.2"
+        text = remove_value(manifest_text(), "uel.search_strategy.seed")
+        self.p.create("exp", text=text)
+        with mock.patch("grid.experiment.random.randrange", return_value=743):
+            rid = self.p.start("exp", 2, 1)
+        self.assertEqual(self.run_of(rid)["shards"][0]["seed"], 743)
+        with open(os.path.join(self.root, rid, "manifests", "s1.yaml")) \
+                as stream:
+            self.assertEqual(get_value(stream.read(),
+                                       "uel.search_strategy.seed"), "743")
+        wait(lambda: self.run_of(rid)["state"] == "finished")
+
+    def test_creation_version_refuses_a_concurrent_edit_before_start(self):
+        created = self.p.create_versioned("race", text=manifest_text())
+        original = self.p.manifest("race")
+        self.assertEqual(created["version"], original["version"])
+        self.p.save("race", original["text"] + "# concurrent edit\n",
+                    original["version"])
+        with self.assertRaisesRegex(ValueError, "changed on disk"):
+            self.p.start("race", 2, 1, False, False, created["version"])
+        self.assertEqual(self.p.runs(), [])
+
+    def test_each_launch_replaces_inherited_inspect_provenance(self):
+        self.p.version = "5.30.2"
+        text = '# grid-inspect-provenance: {"requestId":"previous"}\n' \
+            + manifest_text()
+        self.p.create("inherited", text=text)
+        for mode, provenance in (("sweep", None), ("inspect", None),
+                                 ("inspect", {"requestId": "current"})):
+            with self.subTest(mode=mode, provenance=provenance):
+                rid = self.p.start("inherited", 2, 1, recording_mode=mode,
+                                   provenance=provenance)
+                wait(lambda rid=rid: self.run_of(rid)["state"] == "finished")
+                folder = os.path.join(self.root, rid, "s1")
+                with open(os.path.join(folder, "metadata.json")) as stream:
+                    metadata = stream.read()
+                with open(os.path.join(folder, "s1.yaml")) as stream:
+                    launched = stream.read()
+                experiment = read_experiment(metadata, "metadata.json",
+                                             "s1.yaml", launched)
+                self.assertEqual(experiment["provenance"], provenance)
+                self.assertEqual(self.run_of(rid)["provenance"], provenance)
+
+    def test_failed_process_start_still_has_a_durable_inspect_admission(self):
+        self.p.version = "5.30.2"
+        self.p.create("partial", text=manifest_text())
+        provenance = {"requestId": "native", "requestFingerprint": "exact"}
+        with mock.patch.object(self.p, "_spawn",
+                               side_effect=OSError("process unavailable")), \
+                self.assertRaisesRegex(ValueError, "could not be started"):
+            self.p.start("partial", 2, 1, recording_mode="inspect",
+                         provenance=provenance)
+        admission = self.p.inspect_admission("native", "exact")
+        self.assertIsNotNone(admission)
+        assert admission is not None
+        self.assertEqual(self.run_of(admission["run"])["state"], "failed")
+        with self.assertRaisesRegex(ValueError, "identity is uncertain"):
+            self.p.inspect_admission("native", "another-intent")
+
+    def test_unreadable_history_cannot_prove_no_inspect_admission(self):
+        os.makedirs(os.path.join(self.root, "results", "dev"))
+        with mock.patch("grid.experiment.os.listdir",
+                        side_effect=PermissionError("history unreadable")), \
+                self.assertRaisesRegex(PermissionError, "history unreadable"):
+            self.p.inspect_admission("native", "exact")
 
     def test_an_experiment_from_a_template_or_a_manifest(self) -> None:
         self.p.create("first", template="lightgbm_binary")
@@ -609,6 +794,25 @@ class Routes(unittest.TestCase):
         except urllib.error.HTTPError as err:
             with err:
                 return err.code, json.loads(err.read())
+
+    def test_inspect_http_replaces_only_known_unadmitted_failures(self):
+        with urllib.request.urlopen(self.base + "/api/pack") as response:
+            instance = json.loads(response.read())["pack"]["serverInstance"]
+        body = {"name": "inspect", "requestId": "known-failure",
+                "source": {"instance": instance, "run": "missing",
+                           "generation": 0},
+                "constraints": [{"param": "threshold", "values": [0.5]}]}
+        code, failed = self.post("/api/experiment/inspect", body)
+        self.assertEqual(code, 400)
+        self.assertEqual(failed["intentState"], "failed")
+        self.assertTrue(failed["canReplace"])
+        with mock.patch("grid.inspect_run.launch",
+                        side_effect=OSError("outcome unknown")):
+            code, unknown = self.post("/api/experiment/inspect", {
+                **body, "requestId": "transport-lost"})
+        self.assertEqual(code, 400)
+        self.assertEqual(unknown["intentState"], "unknown")
+        self.assertFalse(unknown["canReplace"])
 
     def test_a_write_needs_the_token_the_origin_and_json(self) -> None:
         ok = {"text": manifest_text()}

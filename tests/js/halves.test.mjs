@@ -53,8 +53,9 @@ test("read on the first half only: a needle measured on each half reads its firs
   // nothing of the second half is left to show
   assert.equal(halfTargets(pnl), null);
   assert.ok(!read.targets.some(t => t.halves));
-  // a needle not measured on each half reads the whole window, as it was
-  assert.equal(read.targetById.get("auc"), auc);
+  // missing first-half evidence never falls back to whole-window AUC
+  assert.ok(read.targetById.get("auc").values.every(Number.isNaN));
+  assert.match(read.targetById.get("auc").unavailable, /No first-half evidence/);
   // the gates set on the needle, and the profile's own, read its first half
   const gated = applyGates(read, [{ id: "g1", target: "pnl", op: ">", value: 0 }, { id: "g2", target: "auc", op: ">=", value: 0.5 }]);
   const pass = (id) => [...gated.gates.find(g => g.id === id).pass];
@@ -65,14 +66,14 @@ test("read on the first half only: a needle measured on each half reads its firs
   // on it, and every gate together when one of them does
   const whole = (id) => wholeWindow(gated, gated.targetById.get(id));
   assert.deepEqual(["pnl", "auc", "gate:g1", "gate:g2", "gate:pnl_up", "gates:all", "gates:count"].map(whole),
-    [false, true, false, true, false, true, true]);
+    [false, false, false, true, false, true, true]);
   const halvedOnly = applyGates(read, [{ id: "g1", target: "pnl", op: ">", value: 0 }]);
   assert.equal(wholeWindow(halvedOnly, halvedOnly.targetById.get("gates:all")), false);
   // the whole window read as it is: nothing is said to read it
   assert.equal(wholeWindow(applyGates(schema, []), auc), false);
-  // a run without halves is read as it is
+  // a run without halves has no first-half values
   const flat = { ...schema, targets: [auc], targetById: new Map([["auc", auc]]) };
-  assert.equal(firstHalfOnly(flat), flat);
+  assert.ok(firstHalfOnly(flat).targets[0].values.every(Number.isNaN));
 });
 
 test("how a pocket was found: on the first half only while every change to it was made with First half on", () => {

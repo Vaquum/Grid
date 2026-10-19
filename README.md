@@ -1,5 +1,9 @@
 # Grid
 
+New experiments default to [Sweep recording](docs/recording-modes.md) for
+scalar exploration. Select a parameter pocket to create a linked Inspect run
+with detailed evidence.
+
 Sealed Limen runs can use [lossless analytical retention](docs/retention.md)
 with shared exact evidence, cached summaries and checked native exports.
 

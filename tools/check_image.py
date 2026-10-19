@@ -91,7 +91,7 @@ def main() -> None:
                      requestId="image-rule-create")
                 rule = call("grid_manifest", name="rule")
                 rid = call("grid_start", name="rule", version=rule["version"],
-                           rounds=40, shards=1, execution=True, outputs=True,
+                           rounds=40, shards=1, recordingMode="inspect",
                            requestId="image-rule-start")["run"]
                 deadline = time.monotonic() + 120
                 while True:
@@ -173,7 +173,7 @@ def main() -> None:
                 arrow = call("grid_manifest", name="arrow")
                 arrow_rid = call(
                     "grid_start", name="arrow", version=arrow["version"],
-                    rounds=4, shards=1, execution=True, outputs=True,
+                    rounds=4, shards=1, recordingMode="inspect",
                     requestId="arrow-start")["run"]
                 deadline = time.monotonic() + 120
                 while True:

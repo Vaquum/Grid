@@ -131,6 +131,18 @@ def run(path):
     ref["uel"]["n_permutations"] = total
     ref["uel"]["search_strategy"]["seed"] = seed
     ref["uel"]["output_path"] = out
+    for key in ("record_execution", "record_model_outputs"):
+        enabled = value(text, key) == "true"
+        ref["uel"][key] = enabled
+        if enabled:
+            meta[key] = True
+        else:
+            meta.pop(key, None)
+    groups = ("predictions", "alignment", "trade_ledger", "fold_details")
+    if any(value(text, key) is not None for key in groups):
+        recording = {key: value(text, key) != "false" for key in groups}
+        ref["uel"]["recording"] = recording
+        meta["recording"] = recording
     with open(os.path.join(directory, "metadata.json"), "w",
               encoding="utf-8") as f:
         json.dump(meta, f)
@@ -170,7 +182,7 @@ def init(out, template):
 def main(argv):
     signal.signal(signal.SIGTERM, on_term)
     if argv[:1] == ["--version"]:
-        print("limen, version 5.20.0")
+        print("limen, version " + os.environ.get("FAKE_LIMEN_VERSION", "5.20.0"))
         return 0
     if argv[:1] == ["list-templates"]:
         if os.environ.get("FAKE_LIMEN_FAIL") == "list-templates":

@@ -13,6 +13,7 @@ import { boardDims, memberDims } from "./model.js";
 import { intervalBar } from "./charts.js";
 import { strip, stripCell, about } from "./strip.js";
 import { mergeConditions, figureLine } from "./manifest.js";
+import { inspectSection } from "./inspect.js";
 
 export function renderPocket(view, m, A) {
   const { schema, target: t } = m;
@@ -29,6 +30,8 @@ export function renderPocket(view, m, A) {
   const pinned = (m.state.pocketB || []).filter(c => schema.dimById.has(c.dim));
   if (pinned.length && ps) left.append(compareIsland(m, A, pinned, ps));
   right.append(addIsland(m, A, pocket, sug));
+  const inspect = inspectSection(m, A);
+  if (inspect) view.append(inspect);
   return { manifest: { conditions: mergeConditions(m.context, pocket), scope: "the pocket", figure: ps ? figureLine(m, ps.n, ps) : null } };
 }
 

@@ -103,7 +103,8 @@ class Workflow:
         return {"schema": schema, "board": board, "trials": trials}
 
     def experiment(self, name: str, template: str | None,
-                   manifest: str | None, rounds: int, shards: int) -> Json:
+                   manifest: str | None, rounds: int, shards: int,
+                   recording_mode: str = "sweep") -> Json:
         self.project()
         source = {"template": template} if template else {
             "text": Path(str(manifest)).read_text(encoding="utf-8")}
@@ -116,7 +117,7 @@ class Workflow:
         saved = self.write("grid_save", name=name, text=opened["text"],
                            version=opened["version"])
         run = self.write("grid_start", name=name, rounds=rounds,
-                         shards=shards, execution=True, outputs=True,
+                         shards=shards, recordingMode=recording_mode,
                          version=saved["version"])["run"]
         completed = self.wait("runs", "id", run, {"running"}, {"finished"})
         sweep_run = self.call("grid_open", run=run)["sweepRun"]
@@ -187,6 +188,8 @@ def main() -> int:
     source.add_argument("--manifest")
     experiment.add_argument("--rounds", type=int, default=100)
     experiment.add_argument("--shards", type=int, default=1)
+    experiment.add_argument("--recording-mode", choices=["sweep", "inspect"],
+                            default="sweep")
     cohort = commands.add_parser("cohort", help="evaluate, train and bind")
     cohort.add_argument("--run", required=True, help="analysis run ID")
     cohort.add_argument("--name", required=True)
@@ -211,7 +214,7 @@ def main() -> int:
         elif args.command == "experiment":
             result = workflow.experiment(args.name, args.template,
                                          args.manifest, args.rounds,
-                                         args.shards)
+                                         args.shards, args.recording_mode)
         elif args.command == "cohort":
             result = workflow.cohort(args.run, args.name, args.members,
                                      args.state_file, args.fee, args.slip)

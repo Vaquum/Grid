@@ -666,6 +666,11 @@ export function marketHalves(m) {
 }
 
 function halvesIsland(m) {
+  if (m.capabilities && !m.capabilities.execution.available && m.ds.meta.experiment?.kind === "limen") {
+    return h("section", { class: "island", id: "rn-halves", "aria-label": "Trade, timing and half diagnostics" },
+      h("header", { class: "isl-head" }, h("h2", { class: "isl-title", text: "Trade, timing and half diagnostics" })),
+      h("p", { class: "isl-note", role: "status", text: m.capabilities.execution.reason }));
+  }
   const ts = m.schema.targets.filter(t => t.halves);
   if (!ts.length || !m.rows.length) return null;
   const rows = ts.map(t => ({ t, r: reliabilityOf(m, t), s: [0, 1].map(k => summarize({ ...t, values: t.halves[k] }, m.rows)) }))
@@ -707,6 +712,11 @@ function halvesIsland(m) {
 // models ranking the test bars, and the ones that found nothing.
 
 function neverIsland(m) {
+  if (m.capabilities && !m.capabilities.outputs.available && m.ds.meta.experiment?.kind === "limen") {
+    return h("section", { class: "island", "aria-label": "Probability diagnostics" },
+      h("header", { class: "isl-head" }, h("h2", { class: "isl-title", text: "Probability diagnostics" })),
+      h("p", { class: "isl-note", role: "status", text: m.capabilities.outputs.reason }));
+  }
   const hb = heldBack(m.ds, m.rows);
   if (!hb || !hb.never) return null;
   const isl = h("section", { class: "island", "aria-label": "Rounds that never traded" },

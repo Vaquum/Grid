@@ -271,7 +271,7 @@ export function manifestSection(m, conditions, scope, figure, say, make) {
   }
   const details = h("details", { class: "manifest", open: openKeys.has(key) ? true : null },
     h("summary", null, icon("fwd", "mf-chev"), h("span", { class: "mf-title", text: "Manifest" }), h("span", { class: "mf-file mono", text: exp.manifestFile }),
-      h("span", { class: "mf-note", text: note })),
+      h("span", { class: "mf-note", text: `${m.capabilities?.label || "Recorded policy"} · ${note}` })),
     h("div", { class: "mf-body" },
       res.problems.length ? h("ul", { class: "mf-problems" }, res.problems.map(p => h("li", null, icon("alert"), h("span", { text: p })))) : null,
       h("div", { class: "mf-tools" },

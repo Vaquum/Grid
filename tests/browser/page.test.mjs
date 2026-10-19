@@ -15,6 +15,7 @@ import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { limenOutputsRun } from "../fixtures/limen_outputs.mjs";
 import { limenExecutionRun } from "../fixtures/limen_execution.mjs";
 
@@ -1618,13 +1619,127 @@ test("experiment: catalog opens before results, and analysis loads only its chos
   }
 });
 
+test("Inspect: insecure HTTP preserves seed scope and native request identities across retries", async () => {
+  const pack = JSON.parse(gunzipSync(readFileSync(join(dir, "limen.pack.json.gz"))));
+  pack.serverInstance = "test-instance";
+  const run = pack.runs[0], exp = run.experiment;
+  exp.manifest.sfd.params = { use_calibration: [false, true] };
+  exp.manifest.uel.n_permutations = 5;
+  exp.shards = [["s1", "/source/s1"], ["s2", "/source/s2"]];
+  exp.sourceIdentity = { data: { available: true, files: [{ path: "/source/market.csv", sha256: "mock-source-content", bytes: 100 }] } };
+  exp.runtimeIdentity = { verified: true, sha256: "mock-runtime-content" };
+  exp.manifestText = "metadata:\n  name: one_combination\nsfd:\n  params:\n    use_calibration: [false, true]\nuel:\n  n_permutations: 5\n";
+  const config = JSON.stringify({ mode: "demo", experiment: "/api/experiment", token: "test-token" });
+  const template = readFileSync(join(dir, "limen.html"), "utf8");
+  const inspectHtml = () => template
+    .replace(/(<script id="grid-pack"[^>]*>)[^<]*(<\/script>)/, `$1${gzipSync(JSON.stringify(pack)).toString("base64")}$2`)
+    .replace(/(<script id="grid-config"[^>]*>)[^<]*(<\/script>)/, `$1${config}$2`);
+  const { page, errors } = await limenPage();
+  const requests = [];
+  let failNextInspect = false;
+  await page.route("http://grid-inspect.test/favicon.ico", route => route.fulfill({ status: 204, body: "" }));
+  await page.route("**/inspect-single", route => route.fulfill({ contentType: "text/html", body: inspectHtml() }));
+  await page.route("**/api/experiment/inspect", route => {
+    requests.push(route.request().postDataJSON());
+    if (failNextInspect) {
+      failNextInspect = false;
+      return route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "Correct this experiment name or evaluation count.", intentState: "failed", canReplace: true }) });
+    }
+    return route.fulfill({ status: requests.length === 1 ? 503 : 200, contentType: "application/json", body: JSON.stringify(requests.length === 1
+      ? { error: "temporary connection failure" } : { run: "two-seeds", provenance: { sourceSnapshot: "source-pinned" }, ...(requests.length === 5 ? { launchError: "runtime worker launch failed" } : {}) }) });
+  });
+  const state = Buffer.from(JSON.stringify({ v: "pocket", r: run.id, p: [{ dim: "use_calibration", keys: ["false"] }] })).toString("base64url");
+  await page.goto(`http://grid-inspect.test/inspect-single#s1.${state}`);
+  assert.deepEqual(await page.evaluate(() => [isSecureContext, typeof crypto.randomUUID, typeof crypto.getRandomValues]), [false, "undefined", "function"]);
+  const inspect = page.getByRole("region", { name: "Run pocket in Inspect mode" });
+  await inspect.getByRole("button", { name: "Run in Inspect mode", exact: true }).click();
+  assert.match(await inspect.innerText(), /1 unique parameter combinations of 2/);
+  assert.match(await inspect.innerText(), /Planned evaluations: 2 across 2 source seeds; 1 unique parameter combinations/);
+  const rounds = page.getByLabel("Inspect rounds", { exact: true });
+  assert.equal(await rounds.inputValue(), "2");
+  assert.equal(await rounds.getAttribute("max"), "2");
+  await rounds.fill("1");
+  await inspect.getByRole("button", { name: "Confirm and run Inspect", exact: true }).click();
+  assert.match(await inspect.innerText(), /divisible by 2/);
+  assert.equal(requests.length, 0);
+  await rounds.fill("2");
+  await page.evaluate(() => { Object.defineProperty(crypto, "getRandomValues", { configurable: true, value: () => { throw new Error("Random source failed."); } }); });
+  await inspect.getByRole("button", { name: "Confirm and run Inspect", exact: true }).click();
+  assert.match(await inspect.innerText(), /Random source failed.*No Inspect request was submitted/s);
+  assert.equal(requests.length, 0);
+  assert.equal(await rounds.isDisabled(), false);
+  await page.evaluate(() => { delete crypto.getRandomValues; });
+  const beforeInspectErrors = errors.length;
+  await inspect.getByRole("button", { name: "Confirm and run Inspect", exact: true }).click();
+  await inspect.getByRole("button", { name: "Retry Inspect request", exact: true }).waitFor();
+  await page.reload();
+  await inspect.getByRole("button", { name: "Retry Inspect request", exact: true }).click();
+  await page.getByText("Immutable source snapshot: source-pinned", { exact: true }).waitFor();
+  assert.deepEqual(requests[0], requests[1], "retry after reload preserves native request identity and exact payload");
+  assert.equal(requests[0].rounds, 2);
+  assert.equal(requests[0].source.instance, "test-instance");
+  assert.deepEqual(requests[0].constraints, [{ param: "use_calibration", values: [false] }]);
+  assert.match(requests[0].requestId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.ok(errors.slice(beforeInspectErrors).every(e => /status of 503/.test(e)), errors.slice(beforeInspectErrors).join("\n"));
+  errors.splice(beforeInspectErrors);
+  // The same run id and generation from a replacement server cannot load
+  // the previous server's saved receipt or retarget its native request.
+  pack.serverInstance = "replacement-instance";
+  await page.reload();
+  await inspect.getByRole("button", { name: "Run in Inspect mode", exact: true }).click();
+  assert.equal(await inspect.getByRole("button", { name: "Retry Inspect request", exact: true }).count(), 0);
+  await inspect.getByRole("button", { name: "Confirm and run Inspect", exact: true }).click();
+  await page.getByText("Immutable source snapshot: source-pinned", { exact: true }).waitFor();
+  assert.equal(requests[2].source.instance, "replacement-instance");
+  assert.notEqual(requests[2].requestId, requests[0].requestId);
+  // A definitive failed receipt can become a corrected explicit intent.
+  // An unknown outcome above kept its original identity across reload.
+  pack.serverInstance = "corrected-intent-instance";
+  exp.manifest.sfd.params.seed_probe = [1, 2];
+  exp.manifest.uel.n_permutations = 1;
+  exp.manifestText = exp.manifestText.replace("    use_calibration: [false, true]\n", "    use_calibration: [false, true]\n    seed_probe: [1, 2]\n");
+  await page.reload();
+  await inspect.getByRole("button", { name: "Run in Inspect mode", exact: true }).click();
+  await page.getByLabel("Inspect experiment name", { exact: true }).fill("failed_name");
+  assert.equal(await rounds.inputValue(), "2");
+  failNextInspect = true;
+  const beforeFailedErrors = errors.length;
+  await inspect.getByRole("button", { name: "Confirm and run Inspect", exact: true }).click();
+  await inspect.getByRole("button", { name: "New Inspect request", exact: true }).waitFor();
+  assert.equal(await rounds.isDisabled(), true);
+  assert.equal(await page.getByLabel("Inspect experiment name", { exact: true }).isDisabled(), true);
+  await page.reload();
+  await inspect.getByRole("button", { name: "New Inspect request", exact: true }).click();
+  assert.equal(requests.length, 4, "replacement requires another explicit confirmation");
+  assert.equal(await rounds.isDisabled(), false);
+  await inspect.locator(".inspect-failed-receipts summary").click();
+  assert.match(await inspect.locator(".inspect-failed-receipts").innerText(), new RegExp(requests[3].requestId));
+  await page.getByLabel("Inspect experiment name", { exact: true }).fill("corrected_name");
+  await rounds.fill("4");
+  await inspect.getByRole("button", { name: "Confirm and run Inspect", exact: true }).click();
+  await page.getByText("Immutable source snapshot: source-pinned", { exact: true }).waitFor();
+  assert.notEqual(requests[4].requestId, requests[3].requestId);
+  assert.equal(requests[3].name, "failed_name");
+  assert.equal(requests[3].rounds, 2);
+  assert.equal(requests[4].name, "corrected_name");
+  assert.equal(requests[4].rounds, 4);
+  assert.deepEqual(requests[4].source, requests[3].source);
+  assert.deepEqual(requests[4].constraints, requests[3].constraints);
+  assert.match(await inspect.innerText(), /The run was admitted but launch failed: runtime worker launch failed/);
+  assert.equal(await inspect.getByRole("button", { name: "New Inspect request", exact: true }).count(), 0, "an admitted run cannot be replaced as a failed intent");
+  assert.ok(errors.slice(beforeFailedErrors).every(e => /status of 400/.test(e)), errors.slice(beforeFailedErrors).join("\n"));
+  errors.splice(beforeFailedErrors);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("experiment: on a Limen project, one is made, checked as it is typed, run in shards, analyzed, and the next made from its run", async () => {
   // a project with no experiment yet, served with a stand-in limen
   const project = mkdtempSync(join(tmpdir(), "grid-project-"));
   writeFileSync(join(project, "limen.toml"), "[store]\n");
   mkdirSync(join(project, "manifests"));
   const proc = spawn("python3", ["-m", "grid", "serve", "--project", project, "--limen-cli", join(ROOT, "tests/fixtures/fake_limen.py"), "--port", "0"],
-    { cwd: ROOT, env: { ...process.env, FAKE_LIMEN_PACE: "0.05" } });
+    { cwd: ROOT, env: { ...process.env, FAKE_LIMEN_PACE: "0.05", FAKE_LIMEN_VERSION: "5.30.2" } });
   try {
     const url = await serverUrl(proc);
     const { page, errors } = await limenPage();
@@ -1632,7 +1747,7 @@ test("experiment: on a Limen project, one is made, checked as it is typed, run i
     // it opens on the Experiment view, ready to make the first
     await page.waitForSelector(".ex-make");
     assert.equal(await page.locator(".rail button[aria-current=page]").getAttribute("aria-label"), "Experiment");
-    assert.match(await page.locator(".strip").innerText(), /Limen\s+5\.20\.0/);
+    assert.match(await page.locator(".strip").innerText(), /Limen\s+5\.30\.2/);
     assert.equal(await page.locator(".ex-make select").inputValue(), "t:lightgbm_binary");
     // the name offered follows what it starts from, until one is typed
     await page.locator(".ex-make select").selectOption("t:logreg_binary");
@@ -1649,6 +1764,8 @@ test("experiment: on a Limen project, one is made, checked as it is typed, run i
     await page.waitForSelector(".ex-status .sev.ok");
     assert.match(await page.locator(".ex-status").innerText(), /^Valid\s+· 45 parameters, 3\.76 × 10¹⁸ combinations$/);
     await expectContext(page, page.locator("input[aria-label=Rounds]"), /configurations.*in total.*shards/);
+    assert.equal(await page.getByLabel("Recording mode", { exact: true }).inputValue(), "sweep");
+    assert.match(await page.locator(".ex-run-form").innerText(), /Per-bar evidence is disabled/);
     await expectContext(page, page.locator('input[aria-label="Shards side by side"]'), /independent parts.*parallel/);
     await expectContext(page, page.locator("#ex-list"), /Saved search setups/);
     await page.locator(".ed-text").evaluate(t => { t.focus(); t.setSelectionRange(t.value.length, t.value.length); });
@@ -1682,6 +1799,18 @@ test("experiment: on a Limen project, one is made, checked as it is typed, run i
     await page.locator(".ex-runs tbody tr").first().locator("button", { hasText: "Analyze" }).click();
     await page.waitForSelector(".pcard", { timeout: 20000 });
     await page.waitForFunction(() => document.querySelector(".progress-text").textContent.startsWith("10 rows"), null, { timeout: 20000 });
+    assert.match(await page.locator(".mf-note").innerText(), /Sweep/);
+    await page.keyboard.press("7");
+    await page.waitForSelector("#rn-halves");
+    assert.match(await page.locator("#rn-halves").innerText(), /recording policy disabled.*Sweep mode/);
+    await page.keyboard.press("2");
+    const inspect = page.getByRole("region", { name: "Run pocket in Inspect mode" });
+    assert.match(await inspect.innerText(), /Select a parameter pocket/);
+    await page.locator(".pal-item", { hasText: "use_calibration" }).locator(".vchip", { hasText: /^false$/ }).click();
+    assert.match(await inspect.innerText(), /Inspect unavailable: this run has no verifiable source data fingerprint/);
+    assert.equal(await inspect.getByRole("button", { name: "Run in Inspect mode", exact: true }).count(), 0);
+    await page.keyboard.press("1");
+    await page.waitForSelector(".pcard");
     // the run's manifest starts the next experiment
     await page.locator(".manifest summary").click();
     await page.locator(".mf-acts button", { hasText: "New experiment" }).click();
@@ -1691,24 +1820,33 @@ test("experiment: on a Limen project, one is made, checked as it is typed, run i
     await page.locator(".ex-make .btn.primary").click();
     await page.waitForSelector(".ex-table tr.sel td:has-text('first_2')");
     await page.waitForSelector(".ex-status .sev.ok");
-    // a longer run stops as Limen stops, and resumes from its checkpoints
+    // A stopped Sweep has no supported recovery path, even with a checkpoint.
     await page.locator("input[aria-label='Rounds']").fill("400");
     await page.locator("input[aria-label='Shards side by side']").fill("2");
     await page.locator(".ex-run-form .btn.primary").click();
     const state = (s) => page.waitForFunction(s => (document.querySelector(".ex-runs tbody tr .tag") || {}).textContent === s, s, { timeout: 30000 });
     await state("Running");
     // A published PID can precede Limen's stop handler and checkpoint setup.
-    const initialized = await page.evaluate(async () => {
+    const waitForShards = () => page.evaluate(async () => {
       const until = Date.now() + 20000;
       while (Date.now() < until) {
         const project = await (await fetch("api/experiment")).json();
-        const run = project.runs.find(r => r.experiment === "first_2");
+        const run = project.runs.find(r => r.experiment === "first_2" && r.state === "running");
         if (run && run.shards.length === 2 && run.shards.every(s => s.rows > 0)) return true;
         await new Promise(resolve => setTimeout(resolve, 50));
       }
       return false;
     });
-    assert.equal(initialized, true, "both shards wrote a round before Stop");
+    assert.equal(await waitForShards(), true, "both Sweep shards wrote a round before Stop");
+    await page.locator(".ex-runs tbody tr").first().locator("button", { hasText: "Stop" }).click();
+    await state("Stopped");
+    await page.getByText("Resume unavailable under Sweep recording policy: omitted evidence cannot be recovered. Start a new linked Inspect run.", { exact: true }).waitFor();
+    assert.equal(await page.locator(".ex-runs tbody tr").first().getByRole("button", { name: "Resume", exact: true }).count(), 0);
+    // A new Inspect run keeps the supported stop/resume workflow.
+    await page.getByLabel("Recording mode", { exact: true }).selectOption("inspect");
+    await page.locator(".ex-run-form .btn.primary").click();
+    await state("Running");
+    assert.equal(await waitForShards(), true, "both Inspect shards wrote a round before Stop");
     await page.locator(".ex-runs tbody tr").first().locator("button", { hasText: "Stop" }).click();
     await state("Stopped");
     await page.locator(".ex-runs tbody tr").first().locator("button", { hasText: "Resume" }).click();
@@ -2000,10 +2138,8 @@ test("first half: every needle measured on each half reads its first half only, 
     await page.waitForSelector(".strip");
     assert.equal(await page.locator("#rn-halves").count(), 0);
     assert.doesNotMatch(await page.locator(".strip").innerText(), /Reliability/);
-    // the Cohort view reads the needle as measured: chosen on the first
-    // half, its second half beside it, and says the pocket was found
-    // without it (this run's round lines name no rounds, so the server
-    // cannot judge a cohort of them: the browser logs its answer)
+    // Execution opens selection even without a probability summary. Raw
+    // predictions and alignment are checked by the server for the members.
     const logged = errors.length;
     await page.keyboard.press("8");
     await page.waitForSelector(".co-table");
@@ -2012,12 +2148,12 @@ test("first half: every needle measured on each half reads its first half only, 
     await page.waitForSelector(".co-judged .co-error", { timeout: 20000 });
     assert.ok(errors.slice(logged).every(e => /status of 400/.test(e)), errors.slice(logged).join("\n"));
     errors.splice(logged);
-    // a needle not measured on each half reads the whole window, and says so
+    // A needle without first-half evidence is unavailable.
     await page.keyboard.press("1");
     await page.selectOption("#target-pick", "auc");
     await page.waitForSelector(".warn-chip:not([hidden])");
-    assert.equal(await page.locator(".warn-chip").innerText(), "Whole window");
-    assert.doesNotMatch(await page.locator("#target-pick option:checked").textContent(), /first half/);
+    assert.equal(await page.locator(".warn-chip").innerText(), "First half unavailable");
+    assert.match(await page.locator("#target-pick option:checked").textContent(), /first half unavailable/);
     // off (H): every view reads the whole window as before
     await page.selectOption("#target-pick", "backtest_pnl_per_bar_bps");
     await page.keyboard.press("h");

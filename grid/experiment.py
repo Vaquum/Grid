@@ -36,6 +36,7 @@ import random
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import tempfile
 import threading
@@ -44,6 +45,14 @@ from collections.abc import Callable
 from typing import IO, Any, cast
 
 from .capacity import effective_cpus
+from .provenance import launch_identity
+from .recording import (
+    infer_recording,
+    manifest_values,
+    mark_manifest,
+    policy,
+    unmark_manifest,
+)
 from .retention import (
     check_resume_recording,
     check_training_sources,
@@ -280,6 +289,33 @@ def remove_value(text: str, dotted: str) -> str:
         return text
     del lines[i]
     return "\n".join(lines) + ("\n" if ends else "")
+
+
+def set_parameter_values(text: str, params: Json) -> str:
+    """Replace explicit native parameter domains without rewriting YAML."""
+    lines = text.splitlines()
+    for name, values in params.items():
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", name):
+            raise ValueError("parameter spelling cannot be rewritten safely")
+        span = _mapping(lines, ["sfd", "params"], create=False)
+        if span is None:
+            raise ValueError("source parameters are not block mappings")
+        lo, hi, indent = span
+        index = _find(lines, lo, hi, indent, name)
+        if index is None:
+            raise ValueError("source parameter is absent from exact manifest")
+        end = index + 1
+        for following in range(index + 1, len(lines)):
+            if not _content(lines[following]):
+                continue
+            depth = _indent(lines[following])
+            item = re.match(r"^\s*-(?:\s|$)", lines[following])
+            if depth < indent or depth == indent and not item:
+                break
+            end = following + 1
+        lines[index:end] = [" " * indent + name + ": " + json.dumps(
+            values, sort_keys=True, allow_nan=False, separators=(",", ":"))]
+    return "\n".join(lines) + "\n"
 
 
 # ---------------------------------------------------------------------------
@@ -567,6 +603,8 @@ class Project:
                 "ruleTemporalReferences": _version_at_least(
                     self.version, (5, 29, 1)),
                 "recordingPolicy": _version_at_least(self.version, (5, 30)),
+                "recordingModes": _version_at_least(self.version, (5, 30, 2)),
+                "defaultRecordingMode": "sweep",
                 "parallelRequiresPrepEachRound": True,
                 "shardsRequireRandomSearch": True,
                 "cpuBudget": self.cores,
@@ -746,8 +784,13 @@ class Project:
 
     def create(self, name: str, template: object = None,
                text: object = None) -> str:
+        self.create_versioned(name, template, text)
+        return name
+
+    def create_versioned(self, name: str, template: object = None,
+                         text: object = None) -> Json:
         """A new experiment: from one of Limen's templates (``limen init``),
-        or from a manifest's text, named after itself."""
+        or manifest text, with the version of the exact bytes created."""
         path = self._manifest_path(name)
         if os.path.exists(path):
             raise ValueError("%s exists already" % self._rel(path))
@@ -768,7 +811,7 @@ class Project:
                 raise ValueError("%s exists already" % self._rel(path))
             os.makedirs(os.path.dirname(path), exist_ok=True)
             _write_new(path, body)
-        return name
+        return {"name": name, "version": _version_of(body)}
 
     def _from_template(self, name: str, template: str) -> str:
         """A template's manifest as ``limen init`` writes it, made apart
@@ -882,28 +925,47 @@ class Project:
         self.names[path] = (mtime, name, planned)
         return name, planned
 
-    def _run_folders(self) -> list[tuple[str, str]]:
+    def _run_folders(self, strict: bool = False) -> list[tuple[str, str]]:
         """Every run under results/: (its folder, "grid" or "limen"). A
         folder Grid started holds grid-run.json; any other result directory
         (``limen run`` from a shell, or a committed manifest's) is a run of
         one directory."""
+        def listing(path: str) -> list[str]:
+            if not strict:
+                return _listdir(path)
+            try:
+                return os.listdir(path)
+            except FileNotFoundError:
+                return []
+
+        def has(path: str, directory: bool = False) -> bool:
+            if not strict:
+                return os.path.isdir(path) if directory else \
+                    os.path.isfile(path)
+            try:
+                mode = os.stat(path).st_mode
+            except FileNotFoundError:
+                return False
+            return stat.S_ISDIR(mode) if directory else stat.S_ISREG(mode)
+
         out: list[tuple[str, str]] = []
         for base in ("results/dev", "results"):
             top = os.path.join(self.root, base)
-            if not os.path.isdir(top):
+            if not has(top, directory=True):
                 continue
-            for a in sorted(_listdir(top)):
+            for a in sorted(listing(top)):
                 p1 = os.path.join(top, a)
-                if base == "results" and a == "dev" or not os.path.isdir(p1):
+                if base == "results" and a == "dev" or \
+                        not has(p1, directory=True):
                     continue
-                if os.path.isfile(os.path.join(p1, "metadata.json")):
+                if has(os.path.join(p1, "metadata.json")):
                     out.append((p1, "limen"))
                     continue
-                for b in sorted(_listdir(p1)):
+                for b in sorted(listing(p1)):
                     p2 = os.path.join(p1, b)
-                    if os.path.isfile(os.path.join(p2, RECORD)):
+                    if has(os.path.join(p2, RECORD)):
                         out.append((p2, "grid"))
-                    elif os.path.isfile(os.path.join(p2, "metadata.json")):
+                    elif has(os.path.join(p2, "metadata.json")):
                         out.append((p2, "limen"))
         return out
 
@@ -925,6 +987,7 @@ class Project:
         out: list[Json] = []
         for folder, kind in self._run_folders():
             rid = self._rel(folder)
+            record: Json = {}
             if kind == "grid":
                 record = _read_json(os.path.join(folder, RECORD)) or {}
                 states = {str(s.get("state"))
@@ -939,8 +1002,78 @@ class Project:
                         "id": self.opened.get(rid, "project:" + rid),
                         "label": "%s / %s" % (name or "experiment",
                                                os.path.basename(folder)),
-                        "state": state, "rows": None, "live": True})
+                        "state": state, "rows": None, "live": True,
+                        **self._recording_state(folder, record)})
         return out
+
+    def _recording_state(self, folder: str, record: Json) -> Json:
+        if record.get("recordingPolicy"):
+            return infer_recording({}, record=record)
+        copies = os.path.join(folder, "manifests") if record else folder
+        names = [name for name in _listdir(copies)
+                 if name.endswith((".yaml", ".yml"))]
+        text = ""
+        if names:
+            with open(os.path.join(copies, sorted(names)[0]),
+                      encoding="utf-8") as stream:
+                text = stream.read()
+        uel: Json = {"recording": {}}
+        for key in ("record_execution", "record_model_outputs",
+                    "recording.predictions", "recording.alignment",
+                    "recording.trade_ledger", "recording.fold_details"):
+            value = get_value(text, "uel." + key)
+            if value is not None:
+                if key.startswith("recording."):
+                    uel["recording"][key.removeprefix("recording.")] = \
+                        value.lower() == "true"
+                else:
+                    uel[key] = value.lower() == "true"
+        metadata = _read_json(os.path.join(folder, "metadata.json"))
+        if metadata is None and record:
+            raw_shards = cast(list[Json], record.get("shards") or [])
+            if raw_shards:
+                metadata = _read_json(os.path.join(
+                    folder, str(raw_shards[0].get("label")), "metadata.json"))
+        inline_policy = get_value(text, "uel.recording") is not None
+        if metadata is None and inline_policy:
+            uel["recording"] = dict.fromkeys(uel["recording"] or (
+                "predictions", "alignment", "trade_ledger", "fold_details"))
+        manifest = (metadata or {}).get("yaml_reference") or {"uel": uel}
+        recording = infer_recording(manifest, metadata, record,
+                                    manifest_text=text)
+        if metadata is None and inline_policy:
+            recording["recordingReason"] = "Recorded inline policy needs " \
+                "native metadata; its switches are unknown."
+        return recording
+
+    def inspect_admission(self, request_id: str, fingerprint: str
+                          ) -> Json | None:
+        """Find a durable admission before offering a replacement intent."""
+        found: Json | None = None
+        for folder, kind in self._run_folders(strict=True):
+            if kind != "grid":
+                continue
+            with self.lock:
+                with open(os.path.join(folder, RECORD),
+                          encoding="utf-8") as stream:
+                    raw: Any = json.load(stream)
+            if not isinstance(raw, dict):
+                raise ValueError("Grid run admission record must be an object")
+            record = cast(Json, raw)
+            raw_provenance: Any = record.get("provenance") or {}
+            if not isinstance(raw_provenance, dict):
+                raise ValueError("Grid run provenance must be an object")
+            provenance = cast(Json, raw_provenance)
+            if provenance.get("requestId") != request_id:
+                continue
+            if record.get("recordingMode") != "inspect" or found or \
+                    provenance.get("requestFingerprint") != fingerprint:
+                raise ValueError("Inspect admission identity is uncertain; "
+                                 "inspect project status before retrying")
+            found = {"run": self._rel(folder),
+                     "name": record.get("experiment"),
+                     "provenance": provenance}
+        return found
 
     def runs(self, light: bool = False) -> list[Json]:
         """Every run, newest first: its experiment, when it started, its
@@ -957,9 +1090,12 @@ class Project:
         for folder, kind in self._run_folders():
             rid = self._rel(folder)
             stopping = False
+            record: Json = {}
+            recording: Json
             if kind == "grid":
                 with self.lock:
                     record = _read_json(os.path.join(folder, RECORD)) or {}
+                recording = self._recording_state(folder, record)
                 shards: list[Json] = []
                 raw: Any = record.get("shards")
                 for s in cast(list[Any], raw) if isinstance(raw, list) else []:
@@ -982,6 +1118,7 @@ class Project:
                 started = record.get("started_at")
                 name = str(record.get("experiment") or "")
             else:
+                recording = self._recording_state(folder, {})
                 name_got, planned = self._meta(folder)
                 rows = count(os.path.join(folder, "results.csv"))
                 shards = [{"label": os.path.basename(folder), "seed": None,
@@ -1007,7 +1144,9 @@ class Project:
                 if all(s["rows"] is not None for s in shards) else None,
                 "planned": sum(int(s["planned"] or 0) for s in shards),
                 "open": self.opened.get(rid), "note": self.notes.get(rid),
-                "stopping": stopping})
+                "stopping": stopping, **recording,
+                "provenance": record.get("provenance")
+                if kind == "grid" else None})
         out.sort(key=lambda r: float(r["started"] or 0), reverse=True)
         return out
 
@@ -1173,8 +1312,9 @@ class Project:
             out.close()
 
     def start(self, name: str, rounds: object, shards: object,
-              execution: object, outputs: object,
-              version: object = None) -> str:
+              execution: object = None, outputs: object = None,
+              version: object = None, recording_mode: object = None,
+              provenance: object = None) -> str:
         """Run an experiment: its manifest copied once per shard with the
         shard's seed, its share of the rounds, its output path and the
         recording asked for, and ``limen run`` on each copy side by side.
@@ -1202,6 +1342,55 @@ class Project:
         if version is not None and _version_of(text) != version:
             raise ValueError("%s changed on disk since it was opened; open it "
                              "again before running it" % self._rel(path))
+        source_text = text
+        named_mode = recording_mode
+        if named_mode is None and execution is None and outputs is None:
+            named_mode = "sweep"
+        if named_mode is not None:
+            recording_policy = policy(named_mode)
+            if not self.capabilities()["recordingModes"]:
+                raise ValueError("Sweep and Inspect recording modes require "
+                                 "Limen >= 5.30.2; this runtime is "
+                                 + self.version)
+            for key, value in (("record_execution", execution),
+                               ("record_model_outputs", outputs)):
+                if value is not None and value is not recording_policy[key]:
+                    raise ValueError("recording mode %s conflicts with %s; "
+                                     "omit legacy recording flags" % (
+                                         named_mode, key))
+            text = mark_manifest(set_values(text, manifest_values(named_mode)),
+                                 named_mode)
+        else:
+            if any(value is not None and not isinstance(value, bool)
+                   for value in (execution, outputs)):
+                raise ValueError("execution and outputs must be booleans")
+            if get_value(text, "uel.recording") is not None:
+                raise ValueError("uel.recording is written inline; use a "
+                                 "block mapping so Grid can preserve its "
+                                 "policy without guessing recording switches")
+            text = unmark_manifest(set_values(text, {
+                "uel.record_execution": bool(execution),
+                "uel.record_model_outputs": bool(outputs)}))
+            text = re.sub(r"^# grid-launch-identity: .*\n?", "", text,
+                          flags=re.M)
+            recording_policy = infer_recording({}, record={
+                "record": {"execution": bool(execution),
+                           "outputs": bool(outputs)}})["recordingPolicy"]
+            recording_policy["recording"] = {
+                key: (get_value(text, "uel.recording." + key) or
+                      "true").lower() == "true"
+                for key in recording_policy["recording"]}
+        if provenance is not None and not isinstance(provenance, dict):
+            raise ValueError("provenance must be an object")
+        # A JSON copy detaches immutable provenance from caller mutation.
+        saved_provenance: Json | None = json.loads(json.dumps(
+            provenance, allow_nan=False))
+        text = re.sub(r"^# grid-inspect-provenance: .*\n?", "", text,
+                      flags=re.M)
+        if saved_provenance is not None:
+            text = "# grid-inspect-provenance: " + json.dumps(
+                saved_provenance, sort_keys=True, allow_nan=False,
+                separators=(",", ":")) + "\n" + text
         problems = self.validate(text)
         if problems:
             raise ValueError("manifest preflight: %s: %s" % (
@@ -1212,6 +1401,9 @@ class Project:
                              "CPU budget (%d); reduce shards or workers"
                              % self.cores)
         search = get_value(text, "uel.search_strategy.type")
+        if named_mode is not None and search not in ("random", "grid"):
+            raise ValueError("recording modes require an explicit native "
+                             "random or grid search strategy")
         if shards > 1 and search != "random":
             raise ValueError("shards draw apart only in a random search "
                              "(uel.search_strategy.type: random); this "
@@ -1221,8 +1413,45 @@ class Project:
             seed = int(seed_text) if seed_text is not None else None
         except ValueError:
             seed = None
-        if shards > 1 and seed is None:
+        if seed is None and (named_mode is not None or shards > 1):
             seed = random.randrange(1, 2 ** 31)
+        if named_mode is not None and seed is not None:
+            text = set_values(text, {"uel.search_strategy.seed": seed})
+        source_seeds: Any = (saved_provenance or {}).get("sourceSeeds")
+        if source_seeds is not None and (
+                not isinstance(source_seeds, list) or
+                len(cast(list[Any], source_seeds)) != shards or
+                any(not isinstance(s, int) or isinstance(s, bool)
+                    for s in cast(list[Any], source_seeds)) or
+                len(set(cast(list[Any], source_seeds))) !=
+                len(cast(list[Any], source_seeds))):
+            raise ValueError("sourceSeeds must retain one distinct integer "
+                             "seed per source shard")
+        seeds_override = cast(list[int] | None, source_seeds)
+        source_identity: Json = {
+            "manifest": self._rel(path), "sha256": hashlib.sha256(
+                source_text.encode("utf-8")).hexdigest()}
+        runtime_identity: Json = {"verified": False,
+                                  "limenVersion": self.version,
+                                  "executable": os.path.realpath(self.cli),
+                                  "python": self.python}
+        if named_mode is not None:
+            recorded_source, runtime_identity = launch_identity(
+                text, self.root, self.cli, self.python, self.version)
+            source_identity.update(recorded_source)
+            source_identity["manifestSha256"] = source_identity["sha256"]
+            data_identity = cast(Json, source_identity["data"])
+            if data_identity.get("available") is True:
+                text = set_values(text, {data_identity["manifestKey"]:
+                                         data_identity["executionPath"]})
+            # Exact native copies preserve this link through offline exports.
+            text = re.sub(r"^# grid-launch-identity: .*\n?", "", text,
+                          flags=re.M)
+            text = "# grid-launch-identity: " + json.dumps({
+                "sourceIdentity": source_identity,
+                "runtimeIdentity": runtime_identity},
+                separators=(",", ":"), sort_keys=True,
+                allow_nan=False) + "\n" + text
         mode = get_value(text, "metadata.mode")
         base = "results" if mode == "production" else "results/dev"
         stamp = time.strftime("%Y%m%d_%H%M%S")
@@ -1242,25 +1471,24 @@ class Project:
         rel_out = os.path.relpath(folder, os.path.join(self.root, base))
         os.makedirs(os.path.join(folder, "manifests"))
         os.makedirs(os.path.join(folder, "logs"))
-        _write_text(os.path.join(folder, BASE_COPY), text)
+        _write_text(os.path.join(folder, BASE_COPY), source_text)
         # Limen's native parallel workers each enforce one native thread.
         threads = 1 if workers > 1 else max(1, self.cores // shards)
         share = -(-rounds // shards)
         records: list[Json] = []
         for j in range(shards):
             label = "s%d" % (j + 1)
+            shard_seed = seeds_override[j] if seeds_override is not None else \
+                seed + j if shards > 1 and seed is not None else seed
             values: dict[str, object] = {
                 "uel.n_permutations": share,
-                "uel.output_path": "%s/%s" % (rel_out, label),
-                "uel.record_execution": bool(execution),
-                "uel.record_model_outputs": bool(outputs)}
-            if shards > 1 and seed is not None:
-                values["uel.search_strategy.seed"] = seed + j
+                "uel.output_path": "%s/%s" % (rel_out, label)}
+            if shard_seed is not None:
+                values["uel.search_strategy.seed"] = shard_seed
             _write_text(os.path.join(folder, "manifests", label + ".yaml"),
                         set_values(text, values))
             records.append({"label": label, "rounds": share,
-                            "seed": seed + j if shards > 1 and
-                            seed is not None else seed,
+                            "seed": shard_seed,
                             "pid": None, "state": "running", "exit": None,
                             "stopping": False})
         # the copies must pass too: the recording keys are Limen 5.16 and
@@ -1275,8 +1503,15 @@ class Project:
         record: Json = {"experiment": name, "started_at": _now(),
                         "rounds": share * shards, "threads": threads,
                         "workers": workers,
-                        "record": {"execution": bool(execution),
-                                   "outputs": bool(outputs)},
+                        "record": {
+                            "execution": recording_policy["record_execution"],
+                            "outputs": recording_policy[
+                                "record_model_outputs"]},
+                        "recordingMode": named_mode or "legacy",
+                        "recordingPolicy": recording_policy,
+                        "provenance": saved_provenance,
+                        "sourceIdentity": source_identity,
+                        "runtimeIdentity": runtime_identity,
                         "shards": records}
         rid = self._rel(folder)
         failed: str | None = None
@@ -1534,6 +1769,17 @@ class Project:
             record = _read_json(path)
             if record is None:
                 raise ValueError("%s is not a run Grid started" % rid)
+            if record.get("recordingMode") == "sweep":
+                raise ValueError("Sweep cannot resume: omitted recording "
+                                 "evidence cannot be recovered; start a new "
+                                 "linked Inspect run")
+            recorded_policy = self._recording_state(folder, record)[
+                "recordingPolicy"]["recording"]
+            if any(enabled is not True
+                   for enabled in recorded_policy.values()):
+                raise ValueError("Cannot resume a lighter recording policy: "
+                                 "complete recorded recovery evidence is "
+                                 "required")
             with open(os.path.join(folder, BASE_COPY),
                       encoding="utf-8") as f:
                 workers = manifest_workers(f.read())
